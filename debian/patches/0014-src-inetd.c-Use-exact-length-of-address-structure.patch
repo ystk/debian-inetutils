@@ -1,0 +1,49 @@
+From cb65a3c27f18103888712ff0a99f67e7f9ed6b9f Mon Sep 17 00:00:00 2001
+From: Mats Erik Andersson <gnu@gisladisker.se>
+Date: Sun, 31 Oct 2010 04:29:21 +0100
+Subject: [PATCH 14/16] src/inetd.c: Use exact length of address structure.
+
+Bind socket using knowledge of exact sockaddr length.
+
+* src/inetd.c: New element `se_addrlen' in `struct servtab'.
+(expand_enter): Record in SE_ADDRLEN the actual length of each
+established control address.
+(setup): Use the exact address length in call to bind(3).
+---
+ inetd/inetd.c |    5 ++++-
+ 1 files changed, 4 insertions(+), 1 deletions(-)
+
+diff --git a/inetd/inetd.c b/inetd/inetd.c
+index b9dde44..89e5399 100644
+--- a/inetd/inetd.c
++++ b/inetd/inetd.c
+@@ -275,6 +275,7 @@ struct servtab
+ #else
+   struct sockaddr_in se_ctrladdr;	/* bound address */
+ #endif
++  socklen_t se_addrlen;	/* exact address length in use */
+   unsigned se_refcnt;
+   int se_count;			/* number started since se_time */
+   struct timeval se_time;	/* start of se_count */
+@@ -607,7 +608,7 @@ setup (struct servtab *sep)
+     syslog (LOG_ERR, "setsockopt (SO_REUSEADDR): %m");
+       
+   err = bind (sep->se_fd, (struct sockaddr *) &sep->se_ctrladdr,
+-	      sizeof (sep->se_ctrladdr));
++	      sep->se_addrlen);
+   if (err < 0)
+     {
+       /* If we can't bind with AF_INET6 try again with AF_INET.  */
+@@ -873,7 +874,9 @@ expand_enter (struct servtab *sep)
+   
+   for (rp = result; rp != NULL; rp = rp->ai_next)
+     {
++      memset (&sep->se_ctrladdr, 0, sizeof (sep->se_ctrladdr));
+       memcpy (&sep->se_ctrladdr, rp->ai_addr, rp->ai_addrlen);
++      sep->se_addrlen = rp->ai_addrlen;
+       cp = enter (sep);
+       servent_setup (cp);
+     }
+-- 
+1.7.2.3
+

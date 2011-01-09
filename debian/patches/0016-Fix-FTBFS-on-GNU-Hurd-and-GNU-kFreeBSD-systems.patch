@@ -1,0 +1,42 @@
+From 389e2adc877d36c6b4b807e1b942795c9b535ba0 Mon Sep 17 00:00:00 2001
+From: Guillem Jover <guillem@hadrons.org>
+Date: Fri, 26 Nov 2010 17:46:27 +0000
+Subject: [PATCH 16/16] Fix FTBFS on GNU/Hurd and GNU/kFreeBSD systems
+
+- Do not include <stropts.h> to get ioctl declaration as we get it from
+  the wrapped <sys/ioctl.h>, otherwise we get conflicting symbols.
+- Include <sys/types.h> in ifconfig/flags.h for size_t.
+---
+ ifconfig/flags.h  |    2 ++
+ telnetd/telnetd.h |    2 +-
+ 2 files changed, 3 insertions(+), 1 deletions(-)
+
+diff --git a/ifconfig/flags.h b/ifconfig/flags.h
+index 4087dfa..6168157 100644
+--- a/ifconfig/flags.h
++++ b/ifconfig/flags.h
+@@ -23,6 +23,8 @@
+ #ifndef IFCONFIG_FLAGS_H
+ # define IFCONFIG_FLAGS_H
+ 
++# include <sys/types.h>
++
+ /* Using these avoid strings with if_flagtoname, the caller can set a
+    preference on returned flag names.  If one of the names in the list
+    is found for the flag, the search continues to attempt a better
+diff --git a/telnetd/telnetd.h b/telnetd/telnetd.h
+index cc23d45..3ec8e87 100644
+--- a/telnetd/telnetd.h
++++ b/telnetd/telnetd.h
+@@ -47,7 +47,7 @@
+ #ifdef HAVE_SYS_PTYVAR_H
+ # include <sys/ptyvar.h>
+ #endif
+-#ifdef HAVE_STROPTS_H
++#if 0
+ # include <stropts.h>
+ #endif
+ #include <sys/ioctl.h>
+-- 
+1.7.2.3
+
