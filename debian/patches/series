@@ -14,3 +14,4 @@
 0014-src-inetd.c-Use-exact-length-of-address-structure.patch
 0015-telnetd-telnetd.c-Reuse-address-length.-Needed-for-O.patch
 0016-Fix-FTBFS-on-GNU-Hurd-and-GNU-kFreeBSD-systems.patch
+99_CVE-2011-4862
