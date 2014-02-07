@@ -1,4 +1,24 @@
-/*-
+/*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1991, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -47,9 +67,7 @@
  * or implied warranty.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #ifdef	KRB4
 # include <sys/types.h>
@@ -57,22 +75,16 @@
 # include <stdio.h>
 # include <des.h>		/* BSD wont include this in krb.h, so we do it here */
 # include <krb.h>
-# ifdef HAVE_STDLIB_H
-#  include <stdlib.h>
-# endif
-# ifdef	NO_STRING_H
-#  include <strings.h>
-# else
-#  include <string.h>
-# endif
+# include <stdlib.h>
+# include <string.h>
 
 # include "encrypt.h"
 # include "auth.h"
 # include "misc.h"
 
 int kerberos4_cksum (unsigned char *, int);
-int krb_mk_req (KTEXT, char *, char *, char *, u_long);
-int krb_rd_req (KTEXT, char *, char *, u_long, AUTH_DAT *, char *);
+int krb_mk_req (KTEXT, char *, char *, char *, unsigned long);
+int krb_rd_req (KTEXT, char *, char *, unsigned long, AUTH_DAT *, char *);
 int krb_kntoln (AUTH_DAT *, char *);
 int krb_get_cred (char *, char *, char *, CREDENTIALS *);
 int krb_get_lrealm (char *, int);

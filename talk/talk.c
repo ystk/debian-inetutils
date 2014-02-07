@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,33 +47,13 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
-#include <getopt.h>
+#include <config.h>
 #include <stdlib.h>
 
 #include "talk.h"
+#include <argp.h>
+#include <unistd.h>
+#include <libinetutils.h>
 
 void usage (void);
 
@@ -71,34 +71,39 @@ void usage (void);
  *		Modified to run under 4.1c by Peter Moore 3/17/83
  */
 
-static const char *short_options = "hV";
-static struct option long_options[] = {
-  {"help", no_argument, 0, 'h'},
-  {"version", no_argument, 0, 'V'},
-  {0}
-};
+const char *program_authors[] =
+  {
+    "Kipp Hickman",
+    "Clem Cole",
+    "Peter Moore",
+    NULL
+  };
+
+const char doc[] = "talk to another user";
+const char args_doc[] = "person [ttyname]";
+static struct argp argp = { NULL, NULL, args_doc, doc };
 
 int
 main (int argc, char *argv[])
 {
-  int c;
+  int index;
 
   set_program_name (argv[0]);
+  iu_argp_init ("talk", program_authors);
+  argp_parse (&argp, argc, argv, 0, &index, NULL);
 
-  while ((c = getopt_long (argc, argv, short_options, long_options, NULL))
-	 != EOF)
+  argc -= index;
+  argv += index;
+
+  if (argc == 0)
     {
-      switch (c)
-	{
-	case 'V':
-	  printf ("talk (%s %s)\n", PACKAGE_NAME, PACKAGE_VERSION);
-	  exit (0);
-
-	case 'h':
-	default:
-	  usage ();
-	  exit (0);
-	}
+      printf ("Usage: talk user [ttyname]\n");
+      exit (-1);
+    }
+  if (!isatty (0))
+    {
+      printf ("Standard input must be a tty, not a pipe or a file\n");
+      exit (-1);
     }
 
   get_names (argc, argv);

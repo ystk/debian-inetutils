@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,33 +47,11 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 
-#if defined(unix)
+#if defined unix
 # include <signal.h>
 /* By the way, we need to include curses.h before telnet.h since,
  * among other things, telnet.h #defines 'DO', which is a variable
@@ -64,9 +62,7 @@
 #include <arpa/telnet.h>
 
 #include <ctype.h>
-#if defined(STDC_HEADERS) || defined(HAVE_STDLIB_H)
-# include <stdlib.h>
-#endif
+#include <stdlib.h>
 
 #include <libinetutils.h>
 
@@ -76,6 +72,13 @@
 #include "externs.h"
 #include "types.h"
 #include "general.h"
+
+#ifdef HAVE_TERMCAP_TGETENT
+# include <termcap.h>
+#elif defined HAVE_CURSES_TGETENT
+# include <curses.h>
+# include <term.h>
+#endif
 
 
 #define strip(x) ((my_want_state_is_wont(TELOPT_BINARY)) ? ((x)&0x7f) : (x))
@@ -101,7 +104,7 @@ int eight = 0, autologin = 0,	/* Autologin anyone? */
   ISend,			/* trying to send network data in */
   debug = 0, crmod, netdata,	/* Print out network data flow */
   crlf,				/* Should '\r' be mapped to <CR><LF> (or <CR><NUL>)? */
-#if defined(TN3270)
+#if defined TN3270
   noasynchtty = 0,		/* User specified "-noasynch" on command line */
   noasynchnet = 0,		/* User specified "-noasynch" on command line */
   askedSGA = 0,			/* We have talked about suppress go ahead */
@@ -171,7 +174,7 @@ Clocks clocks;
  */
 
 void
-init_telnet ()
+init_telnet (void)
 {
   env_init ();
 
@@ -179,7 +182,7 @@ init_telnet ()
   ClearArray (options);
 
   connected = In3270 = ISend = localflow = donebinarytoggle = 0;
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
   auth_encrypt_connect (connected);
 #endif /* defined(AUTHENTICATION) || defined(ENCRYPTION)  */
   restartany = -1;
@@ -290,7 +293,7 @@ willoption (int option)
 	{
 
 	case TELOPT_ECHO:
-#if defined(TN3270)
+#if defined TN3270
 	  /*
 	   * The following is a pain in the rear-end.
 	   * Various IBM servers (some versions of Wiscnet,
@@ -320,7 +323,7 @@ willoption (int option)
 	  settimer (modenegotiated);
 	  /* FALL THROUGH */
 	case TELOPT_STATUS:
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 	case TELOPT_AUTHENTICATION:
 #endif
 #ifdef	ENCRYPTION
@@ -447,7 +450,7 @@ dooption (int option)
 	      set_my_state_wont (TELOPT_TM);
 	      return;
 
-#if defined(TN3270)
+#if defined TN3270
 	    case TELOPT_EOR:	/* end of record */
 #endif /* defined(TN3270) */
 	    case TELOPT_BINARY:	/* binary mode */
@@ -476,7 +479,7 @@ dooption (int option)
 	      new_state_ok = 1;
 	      break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 	    case TELOPT_AUTHENTICATION:
 	      if (autologin)
 		new_state_ok = 1;
@@ -484,7 +487,7 @@ dooption (int option)
 #endif
 
 	    case TELOPT_XDISPLOC:	/* X Display location */
-	      if (env_getvalue ((unsigned char *) "DISPLAY"))
+	      if (env_getvalue ("DISPLAY"))
 		new_state_ok = 1;
 	      break;
 
@@ -728,7 +731,7 @@ int
 init_term (char *tname, int fd, int *errp)
 {
   int err = -1;
-#ifdef HAVE_LIBREADLINE
+#ifdef HAVE_TGETENT
   err = tgetent (termbuf, tname);
 #endif
   if (err == 1)
@@ -746,7 +749,7 @@ init_term (char *tname, int fd, int *errp)
 int resettermname = 1;
 
 char *
-gettermname ()
+gettermname (void)
 {
   char *tname;
   static char **tnamep = 0;
@@ -758,7 +761,7 @@ gettermname ()
       resettermname = 0;
       if (tnamep && tnamep != unknown)
 	free (tnamep);
-      if ((tname = (char *) env_getvalue ((unsigned char *) "TERM")) &&
+      if ((tname = (char *) env_getvalue ("TERM")) &&
 	  (init_term (tname, 1, &err) == 0))
 	{
 	  tnamep = mklist (termbuf, tname);
@@ -796,7 +799,7 @@ gettermname ()
  */
 
 static void
-suboption ()
+suboption (void)
 {
   unsigned char subchar;
 
@@ -816,7 +819,7 @@ suboption ()
 	  unsigned char temp[50];
 	  int len;
 
-#if defined(TN3270)
+#if defined TN3270
 	  if (tn3270_ttype ())
 	    {
 	      return;
@@ -851,7 +854,7 @@ suboption ()
 	  TerminalSpeeds (&ispeed, &ospeed);
 
 	  sprintf ((char *) temp, "%c%c%c%c%d,%d%c%c", IAC, SB, TELOPT_TSPEED,
-		   TELQUAL_IS, ospeed, ispeed, IAC, SE);
+		   TELQUAL_IS, (int) ospeed, (int) ispeed, IAC, SE);
 	  len = strlen ((char *) temp + 4) + 4;	/* temp[3] is 0 ... */
 
 	  if (len < NETROOM ())
@@ -955,7 +958,7 @@ suboption ()
 	  unsigned char temp[50], *dp;
 	  int len;
 
-	  if ((dp = env_getvalue ((unsigned char *) "DISPLAY")) == NULL)
+	  if ((dp = env_getvalue ("DISPLAY")) == NULL)
 	    {
 	      /*
 	       * Something happened, we no longer have a DISPLAY
@@ -979,7 +982,7 @@ suboption ()
 	}
       break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
     case TELOPT_AUTHENTICATION:
       {
 	if (!autologin)
@@ -1220,7 +1223,7 @@ struct spc
 static int slc_mode = SLC_EXPORT;
 
 void
-slc_init ()
+slc_init (void)
 {
   register struct spc *spcp;
 
@@ -1234,7 +1237,7 @@ slc_init ()
 
 #define initfunc(func, flags) { \
 					spcp = &spc_data[func]; \
-					if (spcp->valp = tcval(func)) { \
+					if ((spcp->valp = tcval(func))) { \
 					    spcp->val = *spcp->valp; \
 					    spcp->mylevel = SLC_VARIABLE|flags; \
 					} else { \
@@ -1283,7 +1286,7 @@ slc_init ()
 }
 
 void
-slcstate ()
+slcstate (void)
 {
   printf ("Special characters are %s values\n",
 	  slc_mode == SLC_IMPORT ? "remote default" :
@@ -1291,7 +1294,7 @@ slcstate ()
 }
 
 void
-slc_mode_export ()
+slc_mode_export (void)
 {
   slc_mode = SLC_EXPORT;
   if (my_state_is_will (TELOPT_LINEMODE))
@@ -1337,7 +1340,7 @@ slc_import (int def)
 }
 
 void
-slc_export ()
+slc_export (void)
 {
   register struct spc *spcp;
 
@@ -1439,7 +1442,7 @@ slc (register unsigned char *cp, int len)
 }
 
 void
-slc_check ()
+slc_check (void)
 {
   register struct spc *spcp;
 
@@ -1465,7 +1468,7 @@ unsigned char slc_reply[128];
 unsigned char *slc_replyp;
 
 void
-slc_start_reply ()
+slc_start_reply (void)
 {
   slc_replyp = slc_reply;
   *slc_replyp++ = IAC;
@@ -1486,7 +1489,7 @@ slc_add_reply (unsigned char func, unsigned char flags, cc_t value)
 }
 
 void
-slc_end_reply ()
+slc_end_reply (void)
 {
   register int len;
 
@@ -1506,7 +1509,7 @@ slc_end_reply ()
 }
 
 int
-slc_update ()
+slc_update (void)
 {
   register struct spc *spcp;
   int need_update = 0;
@@ -1626,7 +1629,7 @@ unsigned char *opt_replyp;
 unsigned char *opt_replyend;
 
 void
-env_opt_start ()
+env_opt_start (void)
 {
   if (opt_reply)
     opt_reply = (unsigned char *) realloc (opt_reply, OPT_REPLY_SIZE);
@@ -1647,7 +1650,7 @@ env_opt_start ()
 }
 
 void
-env_opt_start_info ()
+env_opt_start_info (void)
 {
   env_opt_start ();
   if (opt_replyp)
@@ -1665,16 +1668,16 @@ env_opt_add (register unsigned char *ep)
     {
       /* Send user defined variables first. */
       env_default (1, 0);
-      while (ep = env_default (0, 0))
+      while ((ep = env_default (0, 0)))
 	env_opt_add (ep);
 
       /* Now add the list of well know variables.  */
       env_default (1, 1);
-      while (ep = env_default (0, 1))
+      while ((ep = env_default (0, 1)))
 	env_opt_add (ep);
       return;
     }
-  vp = env_getvalue (ep);
+  vp = env_getvalue ((char *)ep);
   if (opt_replyp + (vp ? strlen ((char *) vp) : 0) +
       strlen ((char *) ep) + 6 > opt_replyend)
     {
@@ -1691,7 +1694,7 @@ env_opt_add (register unsigned char *ep)
       opt_replyp = opt_reply + len - (opt_replyend - opt_replyp);
       opt_replyend = opt_reply + len;
     }
-  if (opt_welldefined (ep))
+  if (opt_welldefined ((char *) ep))
 #ifdef	OLD_ENVIRON
     if (telopt_environ == TELOPT_OLD_ENVIRON)
       *opt_replyp++ = old_env_var;
@@ -1702,7 +1705,7 @@ env_opt_add (register unsigned char *ep)
     *opt_replyp++ = ENV_USERVAR;
   for (;;)
     {
-      while (c = *ep++)
+      while ((c = *ep++))
 	{
 	  switch (c & 0xff)
 	    {
@@ -1718,7 +1721,7 @@ env_opt_add (register unsigned char *ep)
 	    }
 	  *opt_replyp++ = c;
 	}
-      if (ep = vp)
+      if ((ep = vp))
 	{
 #ifdef	OLD_ENVIRON
 	  if (telopt_environ == TELOPT_OLD_ENVIRON)
@@ -1774,7 +1777,7 @@ env_opt_end (register int emptyok)
 
 
 int
-telrcv ()
+telrcv (void)
 {
   register int c;
   register int scc;
@@ -1833,7 +1836,7 @@ telrcv ()
 	      telrcv_state = TS_IAC;
 	      break;
 	    }
-#if defined(TN3270)
+#if defined TN3270
 	  if (In3270)
 	    {
 	      *Ifrontp++ = c;
@@ -1953,7 +1956,7 @@ telrcv ()
 	      telrcv_state = TS_SB;
 	      continue;
 
-#if defined(TN3270)
+#if defined TN3270
 	    case EOR:
 	      if (In3270)
 		{
@@ -1973,7 +1976,7 @@ telrcv ()
 #endif /* defined(TN3270) */
 
 	    case IAC:
-#if !defined(TN3270)
+#if !defined TN3270
 	      TTYADD (IAC);
 #else /* !defined(TN3270) */
 	      if (In3270)
@@ -2098,7 +2101,7 @@ telrcv ()
 static int bol = 1, local = 0;
 
 int
-rlogin_susp ()
+rlogin_susp (void)
 {
   if (local)
     {
@@ -2111,7 +2114,7 @@ rlogin_susp ()
 }
 
 static int
-telsnd ()
+telsnd (void)
 {
   int tcc;
   int count;
@@ -2321,13 +2324,13 @@ Scheduler (int block)
      ) || my_want_state_is_will (TELOPT_BINARY));
   ttyout = ring_full_count (&ttyoring);
 
-#if defined(TN3270)
+#if defined TN3270
   ttyin = ring_empty_count (&ttyiring) && (shell_active == 0);
 #else /* defined(TN3270) */
   ttyin = ring_empty_count (&ttyiring);
 #endif /* defined(TN3270) */
 
-#if defined(TN3270)
+#if defined TN3270
   netin = ring_empty_count (&netiring);
 #else /* !defined(TN3270) */
   netin = !ISend && ring_empty_count (&netiring);
@@ -2336,7 +2339,7 @@ Scheduler (int block)
   netex = !SYNCHing;
 
   /* If we have seen a signal recently, reset things */
-#if defined(TN3270) && defined(unix)
+#if defined TN3270 && defined unix
   if (HaveInput)
     {
       HaveInput = 0;
@@ -2352,7 +2355,7 @@ Scheduler (int block)
 
   if (ring_full_count (&ttyiring))
     {
-#if defined(TN3270)
+#if defined TN3270
       if (In3270)
 	{
 	  int c;
@@ -2369,14 +2372,14 @@ Scheduler (int block)
 	{
 #endif /* defined(TN3270) */
 	  returnValue |= telsnd ();
-#if defined(TN3270)
+#if defined TN3270
 	}
 #endif /* defined(TN3270) */
     }
 
   if (ring_full_count (&netiring))
     {
-#if !defined(TN3270)
+#if !defined TN3270
       returnValue |= telrcv ();
 #else /* !defined(TN3270) */
       returnValue = Push3270 ();
@@ -2393,7 +2396,7 @@ telnet (char *user)
 {
   sys_telnet_init ();
 
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
   {
     static char *local_host = 0;
 
@@ -2404,10 +2407,10 @@ telnet (char *user)
     auth_encrypt_user (user);
   }
 #endif /* defined(AUTHENTICATION) || defined(ENCRYPTION)  */
-#if !defined(TN3270)
+#if !defined TN3270
   if (telnetport)
     {
-# if defined(AUTHENTICATION)
+# if defined AUTHENTICATION
       if (autologin)
 	send_will (TELOPT_AUTHENTICATION, 1);
 # endif
@@ -2423,14 +2426,14 @@ telnet (char *user)
       send_will (TELOPT_LINEMODE, 1);
       send_will (TELOPT_NEW_ENVIRON, 1);
       send_do (TELOPT_STATUS, 1);
-      if (env_getvalue ((unsigned char *) "DISPLAY"))
+      if (env_getvalue ("DISPLAY"))
 	send_will (TELOPT_XDISPLOC, 1);
       if (eight)
 	tel_enter_binary (eight);
     }
 #endif /* !defined(TN3270) */
 
-#if !defined(TN3270)
+#if !defined TN3270
   for (;;)
     {
       int schedValue;
@@ -2570,7 +2573,7 @@ nextitem (char *current)
  */
 
 static void
-netclear ()
+netclear (void)
 {
 #if 0				/* XXX */
   register char *thisitem, *next;
@@ -2620,7 +2623,7 @@ netclear ()
  */
 
 static void
-doflush ()
+doflush (void)
 {
   NET2ADD (IAC, DO);
   NETADD (TELOPT_TM);
@@ -2632,7 +2635,7 @@ doflush ()
 }
 
 void
-xmitAO ()
+xmitAO (void)
 {
   NET2ADD (IAC, AO);
   printoption ("SENT", IAC, AO);
@@ -2644,14 +2647,14 @@ xmitAO ()
 
 
 void
-xmitEL ()
+xmitEL (void)
 {
   NET2ADD (IAC, EL);
   printoption ("SENT", IAC, EL);
 }
 
 void
-xmitEC ()
+xmitEC (void)
 {
   NET2ADD (IAC, EC);
   printoption ("SENT", IAC, EC);
@@ -2659,7 +2662,7 @@ xmitEC ()
 
 
 int
-dosynch ()
+dosynch (void)
 {
   netclear ();			/* clear the path to the network */
   NETADD (IAC);
@@ -2672,7 +2675,7 @@ dosynch ()
 int want_status_response = 0;
 
 int
-get_status ()
+get_status (void)
 {
   unsigned char tmp[16];
   register unsigned char *cp;
@@ -2700,7 +2703,7 @@ get_status ()
 }
 
 void
-intp ()
+intp (void)
 {
   NET2ADD (IAC, IP);
   printoption ("SENT", IAC, IP);
@@ -2716,7 +2719,7 @@ intp ()
 }
 
 void
-sendbrk ()
+sendbrk (void)
 {
   NET2ADD (IAC, BREAK);
   printoption ("SENT", IAC, BREAK);
@@ -2732,7 +2735,7 @@ sendbrk ()
 }
 
 void
-sendabort ()
+sendabort (void)
 {
   NET2ADD (IAC, ABORT);
   printoption ("SENT", IAC, ABORT);
@@ -2748,7 +2751,7 @@ sendabort ()
 }
 
 void
-sendsusp ()
+sendsusp (void)
 {
   NET2ADD (IAC, SUSP);
   printoption ("SENT", IAC, SUSP);
@@ -2764,14 +2767,14 @@ sendsusp ()
 }
 
 void
-sendeof ()
+sendeof (void)
 {
   NET2ADD (IAC, xEOF);
   printoption ("SENT", IAC, xEOF);
 }
 
 void
-sendayt ()
+sendayt (void)
 {
   NET2ADD (IAC, AYT);
   printoption ("SENT", IAC, AYT);
@@ -2782,7 +2785,7 @@ sendayt ()
  */
 
 void
-sendnaws ()
+sendnaws (void)
 {
   long rows, cols;
   unsigned char tmp[16];

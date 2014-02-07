@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,6 +47,8 @@
  * SUCH DAMAGE.
  */
 
+#include <config.h>
+
 #include "telnetd.h"
 
 /*
@@ -38,7 +60,7 @@ int def_row = 0, def_col = 0;
 #endif
 static int _terminit = 0;
 
-#if defined(CRAY2) && defined(UNICOS5)
+#if defined CRAY2 && defined UNICOS5
 int newmap = 1;			/* nonzero if \n maps to ^M^J */
 #endif
 
@@ -57,10 +79,10 @@ int newmap = 1;			/* nonzero if \n maps to ^M^J */
  * Linemode support uses the following state flags to keep track of
  * current and desired linemode state.
  *	alwayslinemode : true if -l was specified on the telnetd
- * 	command line.  It means to have linemode on as much as
+ *	command line.  It means to have linemode on as much as
  *	possible.
  *
- * 	lmodetype: signifies whether the client can
+ *	lmodetype: signifies whether the client can
  *	handle real linemode, or if use of kludgeomatic linemode
  *	is preferred.  It will be set to one of the following:
  *		REAL_LINEMODE : use linemode option
@@ -119,12 +141,12 @@ int newmap = 1;			/* nonzero if \n maps to ^M^J */
  *	   is on.
  */
 void
-localstat ()
+localstat (void)
 {
-  void netflush ();
+  void netflush (void);
   int need_will_echo = 0;
 
-#if defined(CRAY2) && defined(UNICOS5)
+#if defined CRAY2 && defined UNICOS5
   /*
    * Keep track of that ol' CR/NL mapping while we're in the
    * neighborhood.
@@ -349,7 +371,7 @@ done:
  * Check for changes to flow control
  */
 void
-flowstat ()
+flowstat (void)
 {
   if (his_state_is_will (TELOPT_LFLOW))
     {
@@ -382,7 +404,7 @@ flowstat ()
 void
 clientstat (register int code, register int parm1, register int parm2)
 {
-  void netflush ();
+  void netflush (void);
 
   /*
    * Get a copy of terminal characteristics.
@@ -405,7 +427,7 @@ clientstat (register int code, register int parm1, register int parm2)
 	  /*
 	   * If using kludge linemode, make sure that
 	   * we can do what the client asks.
-	   * We can not turn off linemode if alwayslinemode
+	   * We cannot turn off linemode if alwayslinemode
 	   * and the ICANON bit is set.
 	   */
 	  if (lmodetype == KLUDGE_LINEMODE)
@@ -469,7 +491,7 @@ clientstat (register int code, register int parm1, register int parm2)
 	ack = (useeditmode & MODE_ACK);
 	useeditmode &= ~MODE_ACK;
 
-	if (changed = (useeditmode ^ editmode))
+	if ((changed = (useeditmode ^ editmode)))
 	  {
 	    /*
 	     * This check is for a timing problem.  If the
@@ -564,7 +586,7 @@ clientstat (register int code, register int parm1, register int parm2)
       break;
     }				/* end of switch */
 
-#if defined(CRAY2) && defined(UNICOS5)
+#if defined CRAY2 && defined UNICOS5
   /*
    * Just in case of the likely event that we changed the pty state.
    */
@@ -575,7 +597,7 @@ clientstat (register int code, register int parm1, register int parm2)
 
 }				/* end of clientstat */
 
-#if defined(CRAY2) && defined(UNICOS5)
+#if defined CRAY2 && defined UNICOS5
 void
 termstat ()
 {
@@ -601,7 +623,7 @@ _termstat ()
  * It calls other functions that do things that were deferred in each module.
  */
 void
-defer_terminit ()
+defer_terminit (void)
 {
 
   /*
@@ -638,7 +660,7 @@ defer_terminit ()
  * Returns true if the pty state has been processed yet.
  */
 int
-terminit ()
+terminit (void)
 {
   return (_terminit);
 

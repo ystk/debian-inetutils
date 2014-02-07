@@ -1,53 +1,33 @@
-/* Copyright (C) 1998, 2001, 2002, 2004, 2006, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include "telnetd.h"
 
-#include <getopt.h>
-
-#ifdef HAVE_SYS_UTSNAME_H
-# include <sys/utsname.h>
-#endif
+#include <sys/utsname.h>
+#include <argp.h>
+#include <progname.h>
+#include <error.h>
 #include <libinetutils.h>
 
-static char short_options[] = "a:D::d:E:HhLl::nS:Uu:VX:";
-
-static struct option long_options[] = {
-  /* Help options */
-  {"version", no_argument, NULL, 'V'},
-  {"license", no_argument, NULL, 'L'},
-  {"help", no_argument, NULL, 'H'},
-  /* Common options */
-  {"authmode", required_argument, NULL, 'a'},
-  {"debug", optional_argument, NULL, 'D'},
-  {"exec-login", required_argument, NULL, 'E'},
-  {"no-hostinfo", no_argument, NULL, 'h'},
-  {"linemode", optional_argument, NULL, 'l'},
-  {"no-keepalive", no_argument, NULL, 'n'},
-  {"reverse-lookup", no_argument, NULL, 'U'},
-  {"disable-auth-type", required_argument, NULL, 'X'},
-  {NULL, 0, NULL, 0}
-};
-
-static void telnetd_version (void);
-static void telnetd_license (void);
-static void telnetd_help (void);
 static void parse_authmode (char *str);
 static void parse_linemode (char *str);
 static void parse_debug_level (char *str);
@@ -59,9 +39,9 @@ static void print_hostinfo (void);
 
 char *login_invocation =
 #ifdef SOLARIS
-  "/bin/login -h %h %?T{TERM=%T}{-} %?u{%?a{-f }-- %u}"
+  PATH_LOGIN " -h %h %?T{-t %T} %?u{-u %u}"
 #else
-  "/bin/login -p -h %h %?u{-f %u}"
+  PATH_LOGIN " -p -h %h %?u{-f %u}"
 #endif
   ;
 
@@ -97,7 +77,7 @@ int lmodetype;			/* Client support for linemode */
 int flowmode;			/* current flow control state */
 int restartany;			/* restart output on any character state */
 int diagnostic;			/* telnet diagnostic capabilities */
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 int auth_level;
 int autologin;
 #endif
@@ -108,74 +88,98 @@ char *terminaltype;
 
 int SYNCHing;			/* we are in TELNET SYNCH mode */
 struct telnetd_clocks clocks;
-char *program_name;
+
+
+static struct argp_option argp_options[] = {
+  { "authmode", 'a', "MODE", 0,
+    "specify what mode to use for authentication" },
+  { "debug", 'D', "LEVEL", OPTION_ARG_OPTIONAL,
+    "set debugging level" },
+  { "exec-login", 'E', "STRING", 0,
+    "set program to be executed instead of " PATH_LOGIN },
+  { "no-hostinfo", 'h', NULL, 0,
+    "do not print host information before login has been completed" },
+  { "linemode", 'l', "MODE", OPTION_ARG_OPTIONAL,
+    "set line mode" },
+  { "no-keepalive", 'n', NULL, 0,
+    "disable TCP keep-alives" },
+  { "reverse-lookup", 'U', NULL, 0,
+    "refuse connections from addresses that "
+    "cannot be mapped back into a symbolic name" },
+#ifdef  AUTHENTICATION
+  { "disable-auth-type", 'X', "TYPE", 0,
+    "disable the use of given authentication option" },
+#endif
+  { NULL }
+};
+
+static error_t
+parse_opt (int key, char *arg, struct argp_state *state)
+{
+  switch (key)
+    {
+    case 'a':
+      parse_authmode (arg);
+      break;
+
+    case 'D':
+      parse_debug_level (arg);
+      break;
+
+    case 'E':
+      login_invocation = arg;
+      break;
+
+    case 'h':
+      hostinfo = 0;
+      break;
+
+    case 'l':
+      parse_linemode (arg);
+      break;
+
+    case 'n':
+      keepalive = 0;
+      break;
+
+    case 'U':
+      reverse_lookup = 1;
+      break;
+
+#ifdef	AUTHENTICATION
+    case 'X':
+      auth_disable_name (arg);
+      break;
+#endif
+
+    default:
+      return ARGP_ERR_UNKNOWN;
+    }
+
+  return 0;
+}
+
+static struct argp argp =
+  {
+    argp_options,
+    parse_opt,
+    NULL,
+    "DARPA telnet protocol server"
+  };
+
+
 
 int
 main (int argc, char **argv)
 {
-  int c;
-  program_name = argv[0];
-  while ((c = getopt_long (argc, argv, short_options, long_options, NULL))
-	 != EOF)
-    {
-      switch (c)
-	{
-	case 'V':
-	  telnetd_version ();
-	  exit (0);
+  int index;
 
-	case 'L':
-	  telnetd_license ();
-	  exit (0);
+  set_program_name (argv[0]);
+  iu_argp_init ("telnetd", default_program_authors);
+  argp_parse (&argp, argc, argv, 0, &index, NULL);
 
-	case 'H':
-	  telnetd_help ();
-	  exit (0);
-
-	case 'a':
-	  parse_authmode (optarg);
-	  break;
-
-	case 'D':
-	  parse_debug_level (optarg);
-	  break;
-
-	case 'E':
-	  login_invocation = optarg;
-	  break;
-
-	case 'h':
-	  hostinfo = 0;
-	  break;
-
-	case 'l':
-	  parse_linemode (optarg);
-	  break;
-
-	case 'n':
-	  keepalive = 0;
-	  break;
-
-	case 'U':
-	  reverse_lookup = 1;
-	  break;
-
-#ifdef	AUTHENTICATION
-	case 'X':
-	  auth_disable_name (optarg);
-	  break;
-#endif
-	default:
-	  fprintf (stderr, "telnetd: unknown command line option: %c\n", c);
-	  exit (1);
-	}
-    }
-
-  if (argc != optind)
-    {
-      fprintf (stderr, "telnetd: junk arguments in the command line\n");
-      exit (1);
-    }
+  if (argc != index)
+    error (EXIT_FAILURE, 0, "junk arguments in the command line");
 
   openlog ("telnetd", LOG_PID | LOG_ODELAY, LOG_DAEMON);
   telnetd_setup (0);
@@ -216,10 +220,11 @@ static struct
   int modnum;
 } debug_mode[debug_max_mode] =
 {
-"options", debug_options,
-    "report", debug_report,
-    "netdata", debug_net_data,
-    "ptydata", debug_pty_data, "auth", debug_auth,};
+  {"options", debug_options},
+  {"report", debug_report},
+  {"netdata", debug_net_data},
+  {"ptydata", debug_pty_data},
+  {"auth", debug_auth},};
 
 void
 parse_debug_level (char *str)
@@ -291,11 +296,11 @@ telnetd_setup (int fd)
   if (getpeername (fd, (struct sockaddr *) &saddr, &len) < 0)
     {
       syslog (LOG_ERR, "getpeername: %m");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 
 #ifdef IPV6
-  err = getnameinfo ((struct sockaddr *) &saddr, sizeof (saddr), buf,
+  err = getnameinfo ((struct sockaddr *) &saddr, len, buf,
 		     sizeof (buf), NULL, 0, NI_NUMERICHOST);
   if (err)
     {
@@ -312,7 +317,7 @@ telnetd_setup (int fd)
 
   /* We use a second buffer so we don't have to call getnameinfo again
      if we need the numeric host below.  */
-  err = getnameinfo ((struct sockaddr *) &saddr, sizeof (saddr), buf2,
+  err = getnameinfo ((struct sockaddr *) &saddr, len, buf2,
 		     sizeof (buf2), NULL, 0, NI_NAMEREQD);
 
   if (reverse_lookup)
@@ -357,7 +362,7 @@ telnetd_setup (int fd)
 	{
 	  syslog (LOG_AUTH | LOG_NOTICE,
 		  "None of addresses of %s matched %s", remote_hostname, buf);
-	  exit (0);
+	  exit (EXIT_SUCCESS);
 	}
 
       freeaddrinfo (result);
@@ -404,7 +409,7 @@ telnetd_setup (int fd)
 	  syslog (LOG_AUTH | LOG_NOTICE,
 		  "None of addresses of %s matched %s",
 		  remote_hostname, inet_ntoa (saddr.sin_addr));
-	  exit (0);
+	  exit (EXIT_SUCCESS);
 	}
     }
   else
@@ -431,7 +436,7 @@ telnetd_setup (int fd)
   net = fd;
 
   local_hostname = localhost ();
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
   auth_encrypt_init (remote_hostname, local_hostname, "TELNETD", 1);
 #endif
 
@@ -452,7 +457,7 @@ telnetd_setup (int fd)
   ioctl (pty, FIONBIO, (char *) &true);
   ioctl (net, FIONBIO, (char *) &true);
 
-#if defined(SO_OOBINLINE)
+#if defined SO_OOBINLINE
   setsockopt (net, SOL_SOCKET, SO_OOBINLINE, (char *) &true, sizeof true);
 #endif
 
@@ -467,7 +472,7 @@ telnetd_setup (int fd)
 }
 
 int
-telnetd_run ()
+telnetd_run (void)
 {
   int nfd;
 
@@ -500,7 +505,7 @@ telnetd_run ()
      clients might not respond to it. To work around this, we wait
      for a response to NAWS, which should have been processed after
      DO ECHO (most dumb telnets respond with WONT for a DO that
-     they don't understand).  
+     they don't understand).
      On the other hand, the client might have sent WILL NAWS as
      part of its startup code, in this case it surely should have
      answered our DO ECHO, so the second loop is waiting for
@@ -597,7 +602,7 @@ telnetd_run ()
 	  if (pty_read () < 0)
 	    break;
 	  c = pty_get_char (1);
-#if defined(TIOCPKT_IOCTL)
+#if defined TIOCPKT_IOCTL
 	  if (c & TIOCPKT_IOCTL)
 	    {
 	      pty_get_char (0);
@@ -656,10 +661,12 @@ telnetd_run ()
 	ptyflush ();
     }
   cleanup (0);
+
+  return 0;
 }
 
 void
-print_hostinfo ()
+print_hostinfo (void)
 {
   char *im = NULL;
   char *str;
@@ -685,70 +692,4 @@ print_hostinfo ()
   DEBUG (debug_pty_data, 1, debug_output_data ("sending %s", str));
   pty_input_putback (str, strlen (str));
   free (str);
-}
-
-void
-telnetd_version ()
-{
-  printf ("telnetd - %s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
-  printf ("Copyright (C) 1998,2001,2002 Free Software Foundation, Inc.\n");
-  printf ("%s comes with ABSOLUTELY NO WARRANTY.\n", PACKAGE_NAME);
-  printf ("You may redistribute copies of %s\n", PACKAGE_NAME);
-  printf ("under the terms of the GNU General Public License.\n");
-  printf ("For more information about these matters, ");
-  printf ("see the files named COPYING.\n");
-}
-
-void
-telnetd_license ()
-{
-  static char license_text[] =
-    "   This program is free software; you can redistribute it and/or modify\n"
-    "   it under the terms of the GNU General Public License as published by\n"
-    "   the Free Software Foundation; either version 3, or (at your option)\n"
-    "   any later version.\n"
-    "\n"
-    "   This program is distributed in the hope that it will be useful,\n"
-    "   but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
-    "   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
-    "   GNU General Public License for more details.\n"
-    "\n"
-    "   You should have received a copy of the GNU General Public License\n"
-    "   along with this program; if not, write to the Free Software\n"
-    "   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.\n";
-  printf ("%s", license_text);
-}
-
-void
-telnetd_help ()
-{
-  printf ("\
-Usage: telnetd [OPTION]\n\
-\n\
-Options are:\n\
-    -a, --authmode AUTHMODE  specify what mode to use for authentication\n\
-    -D, --debug[=LEVEL]      set debugging level\n\
-    -E, --exec-login STRING  set program to be executed instead of /bin/login\n\
-    -h, --no-hostinfo        do not print host information before login has\n\
-                             been completed\n\
-    -l, --linemode[=MODE]    set line mode\n\
-    -n, --no-keepalive       disable TCP keep-alives\n\
-    -U, --reverse-lookup     refuse  connections from addresses that\n\
-                             cannot be mapped back into a symbolic name\n\
-    -X, --disable-auth-type AUTHTYPE\n\
-                             disable the use of given authentication option\n\
-Informational options:\n\
-    -V, --version         display this help and exit\n\
-    -L, --license	  display license and exit\n\
-    -H. --help		  output version information and exit\n");
-}
-
-int
-stop ()
-{
-  int volatile _s = 1;
-
-  while (_s)
-    _s = _s;
-  return 0;
 }

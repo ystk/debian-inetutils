@@ -1,5 +1,5 @@
 /* close replacement.
-   Copyright (C) 2008 Free Software Foundation, Inc.
+   Copyright (C) 2008-2011 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -19,61 +19,48 @@
 /* Specification.  */
 #include <unistd.h>
 
-#if GNULIB_SYS_SOCKET
-# define WIN32_LEAN_AND_MEAN
-# include <sys/socket.h>
-#endif
+#include <errno.h>
 
-#if HAVE__GL_CLOSE_FD_MAYBE_SOCKET
+#include "fd-hook.h"
+#include "msvc-inval.h"
 
-/* Get set_winsock_errno, FD_TO_SOCKET etc. */
-#include "w32sock.h"
+#undef close
 
+#if HAVE_MSVC_INVALID_PARAMETER_HANDLER
 static int
-_gl_close_fd_maybe_socket (int fd)
+close_nothrow (int fd)
 {
-  SOCKET sock = FD_TO_SOCKET (fd);
-  WSANETWORKEVENTS ev;
+  int result;
 
-  ev.lNetworkEvents = 0xDEADBEEF;
-  WSAEnumNetworkEvents (sock, NULL, &ev);
-  if (ev.lNetworkEvents != 0xDEADBEEF)
+  TRY_MSVC_INVAL
     {
-      /* FIXME: other applications, like squid, use an undocumented
-	 _free_osfhnd free function.  But this is not enough: The 'osfile'
-	 flags for fd also needs to be cleared, but it is hard to access it.
-	 Instead, here we just close twice the file descriptor.  */
-      if (closesocket (sock))
-	{
-	  set_winsock_errno ();
-	  return -1;
-	}
-      else
-	{
-	  /* This call frees the file descriptor and does a
-	     CloseHandle ((HANDLE) _get_osfhandle (fd)), which fails.  */
-	  _close (fd);
-	  return 0;
-	}
+      result = close (fd);
     }
-  else
-    return _close (fd);
+  CATCH_MSVC_INVAL
+    {
+      result = -1;
+      errno = EBADF;
+    }
+  DONE_MSVC_INVAL;
+
+  return result;
 }
+#else
+# define close_nothrow close
 #endif
 
 /* Override close() to call into other gnulib modules.  */
 
 int
 rpl_close (int fd)
-#undef close
 {
-#if HAVE__GL_CLOSE_FD_MAYBE_SOCKET
-  int retval = _gl_close_fd_maybe_socket (fd);
+#if WINDOWS_SOCKETS
+  int retval = execute_all_close_hooks (close_nothrow, fd);
 #else
-  int retval = close (fd);
+  int retval = close_nothrow (fd);
 #endif
 
-#ifdef FCHDIR_REPLACEMENT
+#if REPLACE_FCHDIR
   if (retval >= 0)
     _gl_unregister_fd (fd);
 #endif

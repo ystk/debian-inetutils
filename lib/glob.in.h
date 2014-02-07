@@ -1,8 +1,6 @@
-/* -*- buffer-read-only: t -*- vi: set ro: */
-/* DO NOT EDIT! GENERATED AUTOMATICALLY! */
 /* glob.h -- Find a path matching a pattern.
 
-   Copyright (C) 2005-2007 Free Software Foundation, Inc.
+   Copyright (C) 2005-2007, 2009-2011 Free Software Foundation, Inc.
 
    Written by Derek Price <derek@ximbiot.com> & Paul Eggert <eggert@CS.UCLA.EDU>
 
@@ -35,15 +33,26 @@
 #include <sys/stat.h>
 
 #ifndef __BEGIN_DECLS
-# define __BEGIN_DECLS
-# define __END_DECLS
+# ifdef __cplusplus
+#  define __BEGIN_DECLS  extern "C" {
+#  define __END_DECLS    }
+# else
+#  define __BEGIN_DECLS
+#  define __END_DECLS
+# endif
 #endif
 #ifndef __THROW
 # define __THROW
 #endif
 
+/* The definitions of _GL_FUNCDECL_RPL etc. are copied here.  */
+
+/* The definition of _GL_ARG_NONNULL is copied here.  */
+
+/* The definition of _GL_WARN_ON_USE is copied here.  */
+
 #ifndef __size_t
-# define __size_t	size_t
+# define __size_t       size_t
 #endif
 #ifndef __USE_GNU
 # define __USE_GNU    1
@@ -58,5 +67,25 @@
 
 /* Now the standard GNU C Library header should work.  */
 #include "glob-libc.h"
+
+__BEGIN_DECLS
+typedef int (*_gl_glob_errfunc_fn) (const char *, int);
+__END_DECLS
+
+#if defined __cplusplus && defined GNULIB_NAMESPACE
+# undef glob
+# undef globfree
+# undef glob_pattern_p
+_GL_CXXALIAS_RPL (glob, int, (const char *_Restrict_ __pattern, int __flags,
+                              _gl_glob_errfunc_fn __errfunc,
+                              glob_t *_Restrict_ __pglob));
+_GL_CXXALIAS_RPL (globfree, void, (glob_t *__pglob));
+_GL_CXXALIAS_RPL (glob_pattern_p, int, (const char *__pattern, int __quote));
+# if 0  /* The C function name is rpl_glob, not glob.  */
+_GL_CXXALIASWARN (glob);
+_GL_CXXALIASWARN (globfree);
+_GL_CXXALIASWARN (glob_pattern_p);
+# endif
+#endif
 
 #endif /* _GL_GLOB_H */

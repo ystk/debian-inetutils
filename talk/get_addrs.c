@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,29 +47,7 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -57,9 +55,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#ifdef HAVE_OSOCKADDR_H
-# include <osockaddr.h>
-#endif
 #include <protocols/talkd.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -81,7 +76,7 @@ get_addrs (char *my_machine_name, char *his_machine_name)
       herror ((char *) NULL);
       exit (-1);
     }
-  bcopy (hp->h_addr, (char *) &my_machine_addr, hp->h_length);
+  memmove (&my_machine_addr, hp->h_addr, hp->h_length);
   /*
    * If the callee is on-machine, just copy the
    * network address, otherwise do a lookup...
@@ -95,7 +90,7 @@ get_addrs (char *my_machine_name, char *his_machine_name)
 	  herror ((char *) NULL);
 	  exit (-1);
 	}
-      bcopy (hp->h_addr, (char *) &his_machine_addr, hp->h_length);
+      memmove (&his_machine_addr, hp->h_addr, hp->h_length);
     }
   else
     his_machine_addr = my_machine_addr;
@@ -108,4 +103,6 @@ get_addrs (char *my_machine_name, char *his_machine_name)
       exit (-1);
     }
   daemon_port = sp->s_port;
+
+  return 0;
 }

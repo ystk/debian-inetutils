@@ -1,4 +1,23 @@
-/*-
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1990, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,11 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -31,40 +46,14 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdlib.h>
-#ifdef HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 #include <unistd.h>
 
 #include "fts.h"
@@ -77,7 +66,7 @@ static size_t fts_maxarglen (char *const *);
 static void fts_padjust (FTS *, void *);
 static int fts_palloc (FTS *, size_t);
 static FTSENT *fts_sort (FTS *, FTSENT *, int);
-static u_short fts_stat (FTS *, struct dirent *, FTSENT *, int);
+static unsigned short fts_stat (FTS *, struct dirent *, FTSENT *, int);
 
 #ifndef MAX
 # define MAX(a, b)	(((a) > (b)) ? (a) : (b))
@@ -101,10 +90,7 @@ static u_short fts_stat (FTS *, struct dirent *, FTSENT *, int);
 #define BREAD		3	/* fts_read */
 
 FTS *
-fts_open (argv, options, compar)
-     char *const *argv;
-     register int options;
-     int (*compar) (const FTSENT **, const FTSENT **);
+fts_open (char *const *argv, register int options, int (*compar) (const FTSENT **, const FTSENT **))
 {
   register FTS *sp;
   register FTSENT *p, *root;
@@ -224,9 +210,7 @@ mem1:free (sp);
 }
 
 static void
-fts_load (sp, p)
-     FTS *sp;
-     register FTSENT *p;
+fts_load (FTS *sp, register FTSENT *p)
 {
   register int len;
   register char *cp;
@@ -240,7 +224,7 @@ fts_load (sp, p)
    */
   len = p->fts_pathlen = p->fts_namelen;
   memmove (sp->fts_path, p->fts_name, len + 1);
-  if ((cp = rindex (p->fts_name, '/')) && (cp != p->fts_name || cp[1]))
+  if ((cp = strrchr (p->fts_name, '/')) && (cp != p->fts_name || cp[1]))
     {
       len = strlen (++cp);
       memmove (p->fts_name, cp, len + 1);
@@ -251,8 +235,7 @@ fts_load (sp, p)
 }
 
 int
-fts_close (sp)
-     FTS *sp;
+fts_close (FTS *sp)
 {
   register FTSENT *freep, *p;
   int saved_errno = 0;
@@ -277,8 +260,7 @@ fts_close (sp)
   /* Free up child linked list, sort array, path buffer. */
   if (sp->fts_child)
     fts_lfree (sp->fts_child);
-  if (sp->fts_array)
-    free (sp->fts_array);
+  free (sp->fts_array);
   free (sp->fts_path);
 
   /* Return to original directory, save errno if necessary. */
@@ -310,8 +292,7 @@ fts_close (sp)
 	    p->fts_path[0] == '/' ? 0 : p->fts_pathlen)
 
 FTSENT *
-fts_read (sp)
-     register FTS *sp;
+fts_read (register FTS *sp)
 {
   register FTSENT *p;
   register FTSENT *tmp;
@@ -531,10 +512,7 @@ next:tmp = p;
  * reasons.
  */
 int
-fts_set (sp, p, instr)
-     FTS *sp;
-     FTSENT *p;
-     int instr;
+fts_set (FTS *sp, FTSENT *p, int instr)
 {
   if (instr && instr != FTS_AGAIN && instr != FTS_FOLLOW &&
       instr != FTS_NOINSTR && instr != FTS_SKIP)
@@ -547,9 +525,7 @@ fts_set (sp, p, instr)
 }
 
 FTSENT *
-fts_children (sp, instr)
-     register FTS *sp;
-     int instr;
+fts_children (register FTS *sp, int instr)
 {
   register FTSENT *p;
   int fd;
@@ -632,9 +608,7 @@ fts_children (sp, instr)
  * been found, cutting the stat calls by about 2/3.
  */
 static FTSENT *
-fts_build (sp, type)
-     register FTS *sp;
-     int type;
+fts_build (register FTS *sp, int type)
 {
   struct dirent *dp;
   register FTSENT *p, *head;
@@ -655,7 +629,7 @@ fts_build (sp, type)
    * Open the directory for reading.  If this fails, we're done.
    * If being called from fts_read, set the fts_info field.
    */
-#if defined(HAVE_OPENDIR2) && defined(DTF_HIDEW) 
+#if defined HAVE_OPENDIR2 && defined DTF_HIDEW
   if (ISSET (FTS_WHITEOUT))
     oflag = DTF_NODUP | DTF_REWIND;
   else
@@ -761,8 +735,7 @@ fts_build (sp, type)
 	       * structures already allocated.
 	       */
 	    mem1:saved_errno = errno;
-	      if (p)
-		free (p);
+	      free (p);
 	      fts_lfree (head);
 	      closedir (dirp);
 	      errno = saved_errno;
@@ -879,12 +852,8 @@ fts_build (sp, type)
   return (head);
 }
 
-static u_short
-fts_stat (sp, dp, p, follow)
-     FTS *sp;
-     register FTSENT *p;
-     struct dirent *dp;
-     int follow;
+static unsigned short
+fts_stat (FTS *sp, struct dirent *dp, register FTSENT *p, int follow)
 {
   register FTSENT *t;
   register dev_t dev;
@@ -895,7 +864,7 @@ fts_stat (sp, dp, p, follow)
   /* If user needs stat info, stat buffer already allocated. */
   sbp = ISSET (FTS_NOSTAT) ? &sb : p->fts_statp;
 
-#if defined(DT_WHT) && defined(S_IFWHT)
+#if defined DT_WHT && defined S_IFWHT
   /*
    * Whited-out files don't really exist.  However, there's stat(2) file
    * mask for them, so we set it so that programs (i.e., find) don't have
@@ -974,10 +943,7 @@ fts_stat (sp, dp, p, follow)
 }
 
 static FTSENT *
-fts_sort (sp, head, nitems)
-     FTS *sp;
-     FTSENT *head;
-     register int nitems;
+fts_sort (FTS *sp, FTSENT *head, register int nitems)
 {
   register FTSENT **ap, *p;
 
@@ -1009,10 +975,7 @@ fts_sort (sp, head, nitems)
 }
 
 static FTSENT *
-fts_alloc (sp, name, namelen)
-     FTS *sp;
-     const char *name;
-     register int namelen;
+fts_alloc (FTS *sp, const char *name, register int namelen)
 {
   register FTSENT *p;
   size_t len;
@@ -1047,8 +1010,7 @@ fts_alloc (sp, name, namelen)
 }
 
 static void
-fts_lfree (head)
-     register FTSENT *head;
+fts_lfree (register FTSENT *head)
 {
   register FTSENT *p;
 
@@ -1067,9 +1029,7 @@ fts_lfree (head)
  * plus 256 bytes so don't realloc the path 2 bytes at a time.
  */
 static int
-fts_palloc (sp, more)
-     FTS *sp;
-     size_t more;
+fts_palloc (FTS *sp, size_t more)
 {
   sp->fts_pathlen += more + 256;
   sp->fts_path = realloc (sp->fts_path, (size_t) sp->fts_pathlen);
@@ -1081,9 +1041,7 @@ fts_palloc (sp, more)
  * already returned.
  */
 static void
-fts_padjust (sp, addr)
-     FTS *sp;
-     void *addr;
+fts_padjust (FTS *sp, void *addr)
 {
   FTSENT *p;
 
@@ -1105,8 +1063,7 @@ fts_padjust (sp, addr)
 }
 
 static size_t
-fts_maxarglen (argv)
-     char *const *argv;
+fts_maxarglen (char *const *argv)
 {
   size_t len, max;
 

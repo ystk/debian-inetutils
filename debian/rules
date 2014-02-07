@@ -10,13 +10,12 @@ else
   conf_gnu_type += --build $(DEB_BUILD_GNU_TYPE) --host $(DEB_HOST_GNU_TYPE)
 endif
 
-CFLAGS = -Wall -g
+CPPFLAGS = $(shell dpkg-buildflags --get CPPFLAGS)
+CFLAGS = -Wall $(shell dpkg-buildflags --get CFLAGS)
+LDFLAGS = $(shell dpkg-buildflags --get LDFLAGS)
 
-ifneq (,$(filter noopt,$(DEB_BUILD_OPTIONS)))
-	CFLAGS += -O0
-else
-	CFLAGS += -O2
-endif
+# Override default upstream setuid mode, as they rejected this change.
+SUIDMODE="-o root -m 4755"
 
 # Set proper Provides
 ifeq ($(DEB_HOST_ARCH_OS),linux)
@@ -27,22 +26,22 @@ ifeq ($(DEB_HOST_ARCH_OS),hurd)
 endif
 
 D = $(CURDIR)/debian/tmp
+M = $(CURDIR)/debian/local/man
 mandir = usr/share/man
 man1dir = $(mandir)/man1
 man8dir = $(mandir)/man8
 
-include /usr/share/quilt/quilt.make
-
 configure: configure.ac
 	dh_testdir
 	
-	autoreconf -i
+	autoreconf -i -Im4 -Iam
 
 config.status: configure
 	dh_testdir
 	
 	./configure \
 	  $(conf_gnu_type) \
+	  --disable-silent-rules \
 	  --prefix=/usr \
 	  --sysconfdir=/etc \
 	  --localstatedir=/var \
@@ -53,15 +52,14 @@ config.status: configure
 	  --with-wrap \
 	  --with-pam
 
-.PHONY: setup-source
+build-indep:
 
-setup-source: patch
-	$(MAKE) -f debian/rules config.status
-
-build: debian/control setup-source
+build-arch: debian/control config.status
 	dh_testdir
 	
-	$(MAKE) CFLAGS="$(CFLAGS)"
+	$(MAKE) CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)"
+
+build: build-indep build-arch
 
 # We need it forced on all builds.
 .PHONY: debian/control
@@ -72,19 +70,17 @@ ifeq ($(DEB_HOST_ARCH_OS),linux)
 	sed \
 	  -e 's/@inetutils:Priority@/extra/g' \
 	  -e 's/@syslogd:Priority@/extra/g' \
-	  -e 's/@syslogd:Section@/net/g' \
 	< debian/control.in \
 	> debian/control
 else
 	sed \
 	  -e 's/@inetutils:Priority@/standard/g' \
 	  -e 's/@syslogd:Priority@/required/g' \
-	  -e 's/@syslogd:Section@/base/g' \
 	< debian/control.in \
 	> debian/control
 endif
 
-clean: unpatch
+clean:
 	dh_testdir
 	dh_testroot
 	
@@ -102,7 +98,11 @@ install: build
 	dh_prep
 	dh_installdirs -a
 	
-	$(MAKE) install DESTDIR=$(D)
+	$(MAKE) install DESTDIR=$(D) SUIDMODE=$(SUIDMODE)
+	
+	# Create man page directories
+	mkdir -p $(D)/$(man1dir)
+	mkdir -p $(D)/$(man8dir)
 	
 	# Move ping to /bin
 	mkdir -p $(D)/bin
@@ -110,18 +110,21 @@ install: build
 	
 	# Rename ifconfig to not break existing systems using net-tools
 	mv $(D)/usr/bin/ifconfig $(D)/usr/bin/inetutils-ifconfig
+	cp man/ifconfig.1 $(D)/usr/share/man/man1/inetutils-ifconfig.1
 	
 	# Rename inetd to be able to coexist with not purged netkit-inetd
 	mv $(D)/usr/sbin/inetd $(D)/usr/sbin/inetutils-inetd
-	mv $(D)/$(man8dir)/inetd.8 $(D)/$(man8dir)/inetutils-inetd.8
+	cp $(M)/inetd.8 $(D)/$(man8dir)/inetutils-inetd.8
 	
 	# Needed to enable alternatives
 	mv $(D)/usr/bin/telnet $(D)/usr/bin/inetutils-telnet
-	mv $(D)/$(man1dir)/telnet.1 $(D)/$(man1dir)/inetutils-telnet.1
+	cp $(M)/telnet.1 $(D)/$(man1dir)/inetutils-telnet.1
 	mv $(D)/usr/bin/ftp $(D)/usr/bin/inetutils-ftp
-	mv $(D)/$(man1dir)/ftp.1 $(D)/$(man1dir)/inetutils-ftp.1
+	cp $(M)/ftp.1 $(D)/$(man1dir)/inetutils-ftp.1
 	mv $(D)/usr/bin/talk $(D)/usr/bin/inetutils-talk
-	mv $(D)/$(man1dir)/talk.1 $(D)/$(man1dir)/inetutils-talk.1
+	cp $(M)/talk.1 $(D)/$(man1dir)/inetutils-talk.1
+	mv $(D)/usr/bin/traceroute $(D)/usr/bin/inetutils-traceroute
+	cp man/traceroute.1 $(D)/$(man1dir)/inetutils-traceroute.1
 
 binary-indep:
 # Nothing to do.
@@ -136,10 +139,6 @@ binary-arch: install
 	  cp -a $(D)/usr/bin/ping6 \
 	        $(CURDIR)/debian/inetutils-ping/bin/; \
 	fi
-	# This should use the new dh_lintian instead
-	cp $(CURDIR)/debian/inetutils-ping.overrides \
-	   $(CURDIR)/debian/inetutils-ping/usr/share/lintian/overrides/inetutils-ping
-	
 	dh_installdebconf -a
 	dh_installdocs -a -A NEWS AUTHORS THANKS
 	dh_installexamples -a
@@ -150,11 +149,12 @@ binary-arch: install
 	dh_installman -a
 	dh_installinfo -a
 	dh_installchangelogs -a ChangeLog
+	dh_lintian
 	dh_link -a
 	dh_strip -a
 	dh_compress -a
-	# pings are setuid
-	dh_fixperms -a -Xbin/ping -Xbin/ping6
+	# pings and traceroute are setuid
+	dh_fixperms -a -Xbin/ping -Xbin/ping6 -Xusr/bin/inetutils-traceroute
 	dh_installdeb -a
 	dh_shlibdeps -a
 	dh_gencontrol -a -- \
@@ -165,5 +165,6 @@ binary-arch: install
 
 binary: binary-indep binary-arch
 
-.PHONY: build build-udeb clean binary-indep binary-arch binary install
+.PHONY: build-indep build-arch build build-udeb
+.PHONY: clean install binary-indep binary-arch binary
 

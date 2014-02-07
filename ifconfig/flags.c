@@ -1,41 +1,36 @@
 /* flags.c -- network interface flag handling
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA.
- */
+/* Written by Marcus Brinkmann.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdio.h>
 
-#if HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <net/if.h>
+#include <stdlib.h>
 #include "ifconfig.h"
+#include "xalloc.h"
 
 /* Conversion table for interface flag names.
    The mask must be a power of 2.  */
@@ -43,6 +38,7 @@ struct if_flag
 {
   const char *name;
   int mask;
+  int rev;
 } if_flags[] =
   {
     /* Available on all systems which derive the network interface from
@@ -69,6 +65,7 @@ struct if_flag
 #endif
 #ifdef IFF_NOARP		/* No address resolution protocol.  */
     {"NOARP", IFF_NOARP},
+    {"ARP", IFF_NOARP, 1},
 #endif
 #ifdef IFF_PROMISC		/* Receive all packets.  */
     {"PROMISC", IFF_PROMISC},
@@ -84,6 +81,7 @@ struct if_flag
 #ifdef IFF_NOTRAILERS		/* Avoid use of trailers.  */
     /* Obsoleted on FreeBSD systems.  */
     {"NOTRAILERS", IFF_NOTRAILERS},
+    {"TRAILERS", IFF_NOTRAILERS, 1},
 #endif
     /* Available on GNU and Linux systems.  */
 #ifdef IFF_MASTER		/* Master of a load balancer.  */
@@ -116,7 +114,7 @@ struct if_flag
 #ifdef IFF_LINK1		/* Per link layer defined bit.  */
     {"LINK1", IFF_LINK1},
 #endif
-#if defined(IFF_LINK2) && defined(IFF_ALTPHYS)
+#if defined IFF_LINK2 && defined IFF_ALTPHYS
 # if IFF_LINK2 == IFF_ALTPHYS
     /* IFF_ALTPHYS == IFF_LINK2 on FreeBSD.  This entry is used as a
        fallback for if_flagtoname conversion, if no relevant EXPECT_
@@ -149,6 +147,7 @@ struct if_flag
     /* Available on HP-UX 10.20 systems.  */
 #ifdef IFF_NOTRAILERS		/* Avoid use of trailers.  */
     {"NOTRAILERS", IFF_NOTRAILERS},
+    {"TRAILERS", IFF_NOTRAILERS, 1},
 #endif
 #ifdef IFF_LOCALSUBNETS		/* Subnets of this net are local.  */
     {"LOCALSUBNETS", IFF_LOCALSUBNETS},
@@ -158,12 +157,14 @@ struct if_flag
 #endif
 #ifdef IFF_NOACC		/* No data access on outbound.  */
     {"NOACC", IFF_NOACC},
+    {"ACC", IFF_NOACC, 1},
 #endif
 #ifdef IFF_OACTIVE		/* Transmission in progress.  */
     {"OACTIVE", IFF_OACTIVE},
 #endif
 #ifdef IFF_NOSR8025		/* No source route 802.5.  */
     {"NOSR8025", IFF_NOSR8025},
+    {"SR8025", IFF_NOSR8025, 1},
 #endif
 #ifdef IFF_CKO_ETC		/* Interface supports trailer checksum.  */
     {"CKO_ETC", IFF_CKO_ETC},
@@ -192,6 +193,7 @@ struct if_flag
 #endif
 #ifdef IFF_NOCHECKSUM		/* No checksums needed (reliable media).  */
     {"NOCHECKSUM", IFF_NOCHECKSUM},
+    {"CHECKSUM", IFF_NOCHECKSUM, 1},
 #endif
 #ifdef IFF_MULTINET		/* Multiple networks on interface.  */
     {"MULTINET", IFF_MULTINET},
@@ -199,7 +201,7 @@ struct if_flag
 #ifdef IFF_VMIFNET		/* Used to identify a virtual MAC address.  */
     {"VMIFNET", IFF_VMIFNET},
 #endif
-#if defined(IFF_D1) && defined(IFF_SNAP)
+#if defined IFF_D1 && defined IFF_SNAP
 # if IFF_D1 == IFF_SNAP
     /* IFF_SNAP == IFF_D1 on OSF 4.0g systems.  This entry is used as a
        fallback for if_flagtoname conversion, if no relevant EXPECT_
@@ -216,29 +218,103 @@ struct if_flag
 #ifdef IFF_D2			/* Flag is specific to device.  */
     {"D2", IFF_D2},
 #endif
+    { NULL }
   };
+
+static int
+cmpname (const void *a, const void *b)
+{
+  return strcmp (*(const char**)a, *(const char**)b);
+}
+
+char *
+if_list_flags (const char *prefix)
+{
+  size_t len = 0;
+  struct if_flag *fp;
+  char **fnames;
+  size_t i, fcount;
+  char *str, *p;
+
+  for (fp = if_flags, len = 0, fcount = 0; fp->name; fp++)
+    if (!fp->rev)
+      {
+	fcount++;
+	len += strlen (fp->name) + 1;
+      }
+
+  fcount = sizeof (if_flags) / sizeof (if_flags[0]) - 1;
+  fnames = xmalloc (fcount * sizeof (fnames[0]) + len);
+  p = (char*)(fnames + fcount);
+
+  for (fp = if_flags, i = 0; fp->name; fp++)
+    if (!fp->rev)
+      {
+	const char *q;
+
+	fnames[i++] = p;
+	q = fp->name;
+	if (strncmp (q, "NO", 2) == 0)
+	  q += 2;
+	for (; *q; q++)
+	  *p++ = tolower (*q);
+	*p++ = 0;
+      }
+  fcount = i;
+  qsort (fnames, fcount, sizeof (fnames[0]), cmpname);
+
+  len += 2 * fcount;
+
+  if (prefix)
+    len += strlen (prefix);
+
+  str = xmalloc (len + 1);
+  p = str;
+  if (prefix)
+    {
+      strcpy (p, prefix);
+      p += strlen (prefix);
+    }
+
+  for (i = 0; i < fcount; i++)
+    {
+      if (i && strcmp (fnames[i - 1], fnames[i]) == 0)
+	continue;
+      strcpy (p, fnames[i]);
+      p += strlen (fnames[i]);
+      if (++i < fcount)
+	{
+	  *p++ = ',';
+	  *p++ = ' ';
+	}
+      else
+	break;
+    }
+  *p = 0;
+  free (fnames);
+  return str;
+}
 
 /* Return the name corresponding to the interface flag FLAG.
    If FLAG is unknown, return NULL.
-   AVOID contains a ':' surrounded and seperated list of flag names
+   AVOID contains a ':' surrounded and separated list of flag names
    that should be avoided if alternative names with the same flag value
    exists.  The first unavoided match is returned, or the first avoided
    match if no better is available.  */
 const char *
 if_flagtoname (int flag, const char *avoid)
 {
-  struct if_flag *fp = if_flags;
+  struct if_flag *fp;
   const char *first_match = NULL;
   char *start;
 
-  while (fp->name)
+  for (fp = if_flags; ; fp++)
     {
-      if (flag == fp->mask)
+      if (!fp->name)
+	return NULL;
+      if (flag == fp->mask && !fp->rev)
 	break;
-      fp++;
     }
-  if (!fp->name)
-    return NULL;
 
   first_match = fp->name;
 
@@ -260,24 +336,107 @@ if_flagtoname (int flag, const char *avoid)
     return first_match;
 }
 
-/* Return the flag mask corresponding to flag name NAME.  If no flag
-   with this name is found, return 0.  */
 int
-if_nametoflag (const char *name)
+if_nametoflag (const char *name, size_t len, int *prev)
 {
-  struct if_flag *fp = if_flags;
+  struct if_flag *fp;
+  int rev = 0;
 
-  while (fp->name && strcasecmp (name, fp->name))
-    fp++;
+  if (len > 1 && name[0] == '-')
+    {
+      name++;
+      len--;
+      rev = 1;
+    }
+  else if (len > 2 && strncasecmp (name, "NO", 2) == 0)
+    {
+      name += 2;
+      len -= 2;
+      rev = 1;
+    }
 
-  return fp->mask;
+  for (fp = if_flags; fp->name; fp++)
+    {
+      if (strncasecmp (fp->name, name, len) == 0)
+	{
+	  *prev = fp->rev ^ rev;
+	  return fp->mask;
+	}
+    }
+  return 0;
 }
 
+int
+if_nameztoflag (const char *name, int *prev)
+{
+  return if_nametoflag (name, strlen (name), prev);
+}
+
+struct if_flag_char
+{
+  int mask;
+  int ch;
+};
+
+/* Interface flag bits and the corresponding letters for short output.
+   Notice that the entries must be ordered alphabetically, by the letter name.
+   There are two lamentable exceptions:
+
+   1. The 'd' is misplaced.
+   2. The 'P' letter is ambiguous. Depending on its position in the output
+      line it may stand for IFF_PROMISC or IFF_POINTOPOINT.
+
+   That's the way netstat does it.
+*/
+static struct if_flag_char flag_char_tab[] = {
+  { IFF_ALLMULTI,    'A' },
+  { IFF_BROADCAST,   'B' },
+  { IFF_DEBUG,       'D' },
+  { IFF_LOOPBACK,    'L' },
+  { IFF_MULTICAST,   'M' },
+#ifdef HAVE_DYNAMIC
+  { IFF_DYNAMIC,     'd' },
+#endif
+  { IFF_PROMISC,     'P' },
+#ifdef IFF_NOTRAILERS
+  { IFF_NOTRAILERS,  'N' },
+#endif
+  { IFF_NOARP,       'O' },
+  { IFF_POINTOPOINT, 'P' },
+#ifdef IFF_SLAVE
+  { IFF_SLAVE,       's' },
+#endif
+#ifdef IFF_MASTER
+  { IFF_MASTER,      'm' },
+#endif
+#ifdef IFF_SIMPLEX
+  { IFF_SIMPLEX,     'S' },
+#endif
+  { IFF_RUNNING,     'R' },
+  { IFF_UP,          'U' },
+  { 0 }
+};
+
+void
+if_format_flags (int flags, char *buf, size_t size)
+{
+  struct if_flag_char *fp;
+  size--;
+  for (fp = flag_char_tab; size && fp->mask; fp++)
+    if (fp->mask & flags)
+      {
+	*buf++ = fp->ch;
+	size--;
+      }
+  *buf = 0;
+}
+
+
 /* Print the flags in FLAGS, using AVOID as in if_flagtoname, and
-   SEPERATOR between individual flags.  Returns the number of
+   SEPARATOR between individual flags.  Returns the number of
    characters printed.  */
 int
-print_if_flags (int flags, const char *avoid, char seperator)
+print_if_flags (int flags, const char *avoid, char separator)
 {
   int f = 1;
   const char *name;
@@ -293,7 +452,7 @@ print_if_flags (int flags, const char *avoid, char seperator)
 	    {
 	      if (!first)
 		{
-		  putchar (seperator);
+		  putchar (separator);
 		  length++;
 		}
 	      length += printf ("%s", name);
@@ -307,7 +466,7 @@ print_if_flags (int flags, const char *avoid, char seperator)
     {
       if (!first)
 	{
-	  putchar (seperator);
+	  putchar (separator);
 	  length++;
 	}
       length += printf ("%#x", flags);

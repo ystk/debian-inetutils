@@ -1,36 +1,29 @@
 /* changeif.c -- change the configuration of a network interface
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2002, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA.
- */
+/* Written by Marcus Brinkmann.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdio.h>
 #include <errno.h>
-#if HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -49,15 +42,13 @@
   err = inet_aton (addr, &sin->sin_addr);				\
   if (!err)								\
     {									\
-      fprintf (stderr, "%s: `%s' is not a valid address\n",		\
-	       program_name, addr);					\
+      error (0, 0, "`%s' is not a valid address", addr);		\
       return -1;							\
     }									\
   err = ioctl (sfd, SIOCSIF##type, ifr);				\
   if (err < 0)								\
     {									\
-      fprintf (stderr, "%s: %s failed: %s\n", program_name,		\
-               "SIOCSIF" #type, strerror (errno));			\
+      error (0, errno, "%s failed", "SIOCSIF" #type);			\
       return -1;							\
     }
 
@@ -70,9 +61,8 @@ int
 set_address (int sfd, struct ifreq *ifr, char *address)
 {
 #ifndef SIOCSIFADDR
-  fprintf (stderr,
-	   "%s: Don't know how to set an interface address on this system.\n",
-	   program_name);
+  error (0, 0,
+	   "don't know how to set an interface address on this system");
   return -1;
 #else
   char *addr;
@@ -80,14 +70,12 @@ set_address (int sfd, struct ifreq *ifr, char *address)
 
   if (!host)
     {
-      fprintf (stderr, "%s: can not resolve `%s': ", program_name, address);
-      herror (NULL);
+      error (0, 0, "cannot resolve `%s': %s", address, hstrerror (h_errno));
       return -1;
     }
   if (host->h_addrtype != AF_INET)
     {
-      fprintf (stderr, "%s: `%s' refers to an unknown address type",
-	       program_name, address);
+      error (0, 0, "`%s' refers to an unknown address type", address);
       return -1;
     }
 
@@ -106,8 +94,7 @@ int
 set_netmask (int sfd, struct ifreq *ifr, char *netmask)
 {
 #ifndef SIOCSIFNETMASK
-  printf ("%s: Don't know how to set an interface netmask on this system.\n",
-	  program_name);
+  error (0, 0, "don't know how to set an interface netmask on this system");
   return -1;
 #else
 
@@ -122,9 +109,8 @@ int
 set_dstaddr (int sfd, struct ifreq *ifr, char *dstaddr)
 {
 #ifndef SIOCSIFDSTADDR
-  printf
-    ("%s: Don't know how to set an interface peer address on this system.\n",
-     program_name);
+  error (0, 0,
+         "don't know how to set an interface peer address on this system");
   return -1;
 #else
   SIOCSIF (DSTADDR, dstaddr) if (verbose)
@@ -138,9 +124,8 @@ int
 set_brdaddr (int sfd, struct ifreq *ifr, char *brdaddr)
 {
 #ifndef SIOCSIFBRDADDR
-  printf
-    ("%s: Don't know how to set an interface broadcast address on this system.\n",
-     program_name);
+  error (0, 0,
+         "don't know how to set an interface broadcast address on this system");
   return -1;
 #else
   SIOCSIF (BRDADDR, brdaddr) if (verbose)
@@ -154,8 +139,8 @@ int
 set_mtu (int sfd, struct ifreq *ifr, int mtu)
 {
 #ifndef SIOCSIFMTU
-  printf ("%s: Don't know how to set the interface mtu on this system.\n",
-	  program_name);
+  error (0, 0,
+         "don't know how to set the interface mtu on this system");
   return -1;
 #else
   int err = 0;
@@ -164,8 +149,7 @@ set_mtu (int sfd, struct ifreq *ifr, int mtu)
   err = ioctl (sfd, SIOCSIFMTU, ifr);
   if (err < 0)
     {
-      fprintf (stderr, "%s: SIOCSIFMTU failed: %s\n",
-	       program_name, strerror (errno));
+      error (0, errno, "SIOCSIFMTU failed");
       return -1;
     }
   if (verbose)
@@ -178,8 +162,8 @@ int
 set_metric (int sfd, struct ifreq *ifr, int metric)
 {
 #ifndef SIOCSIFMETRIC
-  printf ("%s: Don't know how to set the interface metric on this system.\n",
-	  program_name);
+  error (0, 0,
+         "don't know how to set the interface metric on this system");
   return -1;
 #else
   int err = 0;
@@ -188,13 +172,37 @@ set_metric (int sfd, struct ifreq *ifr, int metric)
   err = ioctl (sfd, SIOCSIFMETRIC, ifr);
   if (err < 0)
     {
-      fprintf (stderr, "%s: SIOCSIFMETRIC failed: %s\n",
-	       program_name, strerror (errno));
+      error (0, errno, "SIOCSIFMETRIC failed");
       return -1;
     }
   if (verbose)
     printf ("Set metric value of `%s' to `%i'.\n",
 	    ifr->ifr_name, ifr->ifr_metric);
+  return 0;
+#endif
+}
+
+int
+set_flags (int sfd, struct ifreq *ifr, int setflags, int clrflags)
+{
+#if !defined SIOCGIFFLAGS || !defined SIOCSIFFLAGS
+  error (0, 0,
+         "don't know how to set the interface flags on this system");
+  return -1;
+#else
+  struct ifreq tifr = *ifr;
+
+  if (ioctl (sfd, SIOCGIFFLAGS, &tifr) < 0)
+    {
+      error (0, errno, "SIOCGIFFLAGS failed");
+      return -1;
+    }
+  ifr->ifr_flags = (tifr.ifr_flags | setflags) & ~clrflags;
+  if (ioctl (sfd, SIOCSIFFLAGS, ifr) < 0)
+    {
+      error (0, errno, "SIOCSIFFLAGS failed");
+      return -1;
+    }
   return 0;
 #endif
 }
@@ -223,6 +231,8 @@ configure_if (int sfd, struct ifconfig *ifp)
     err = set_metric (sfd, &ifr, ifp->metric);
   if (!err && ifp->valid & IF_VALID_SYSTEM)
     err = system_configure (sfd, &ifr, ifp->system);
+  if (!err && (ifp->setflags || ifp->clrflags))
+    err = set_flags (sfd, &ifr, ifp->setflags, ifp->clrflags);
   if (!err && ifp->valid & IF_VALID_FORMAT)
     print_interface (sfd, ifp->name, &ifr, ifp->format);
   return err;

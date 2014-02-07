@@ -1,18 +1,143 @@
-inetutils (2:1.6-3.1) testing-proposed-updates; urgency=low
+inetutils (2:1.9-2) unstable; urgency=medium
 
-  * Non-maintainer upload.
-  * Backport some of the maintainer's changes from sid, avoiding the new
-    upstream version:
-    - Remove obsolete and unused libopie-dev Build-Depends
-    - Change inetd “tcp” and “udp” service protocol to IPv4 only
-      (Closes: #404760, #519316, #594422)
-    - Fix FTBFS on GNU/Hurd and GNU/kFreeBSD systems (Closes: #596638)
-    - Fix IPv6 support in inetd and telnetd on GNU/kFreeBSD
-    - Remove inactive co-maintainers
-    - Switch Vcs fields to the new git repositories
-    - Explicitly include BSD licenses into debian/copyright
+  * Fix DoS against inetutils-ping via a crafted echo response.
+    Patch cherry-picked from upstream. CVE-2010-2529
 
- -- Simon McVittie <smcv@debian.org>  Sun, 09 Jan 2011 01:14:19 +0000
+ -- Guillem Jover <guillem@debian.org>  Thu, 07 Feb 2013 03:35:08 +0100
+
+inetutils (2:1.9-1) unstable; urgency=low
+
+  * New upstream release.
+    - Implement “syslogd -b bindaddr”. (Closes: #207054)
+    - Implement “ping -W linger”. (Closes: #566845)
+    - debian/patches/99_CVE-2011-4862.patch: Remove, merged upstream.
+    - debian/patches/02_remove_unused_opie_check.patch: Likewise.
+    - debian/patches/60_inetd_support_argless_services.patch: Likewise.
+    - debian/patches/61_inetd_listen_on_tcpmux_ports.patch: Likewise.
+    - debian/patches/63_inetd_ipv6_sockaddrlen.patch: Likewise.
+    - debian/patches/64_telnetd_ipv6_sockaddrlen.patch: Likewise.
+    - debian/patches/72_traceroute_fix_setsockopt.patch: Likewise.
+    - debian/patches/01_disable_useless_man_pages.patch: Refreshed.
+    - debian/patches/03_reduce_shared_lib_depends.patch: Likewise.
+    - debian/patches/22_syslogd_conf.patch: Likewise.
+    - debian/patches/50_split_load_conffile.patch: Likewise.
+    - debian/patches/51_add_load_confdir_support.patch: Likewise.
+    - debian/patches/62_inetd_change_ipv6_protocol_semantics.patch: Likewise.
+    - debian/patches/70_ftbfs_non-linux.patch: Likewise.
+  * Pass “-Im4 -Iam” to autoreconf call in debian/rules.
+  * Use dpkg-buildflags to set build flags (enables default hardening flags).
+    Fix code to not fail on -Wformat-security. (Closes: #653436)
+  * Improve inetutils-inetd package Description. (Closes: #348915)
+  * Improve inetutils-ping package Description. (Closes: #524026)
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 01 Jan 2012 06:35:22 +0100
+
+inetutils (2:1.8-6) unstable; urgency=high
+
+  * Fix buffer overflow in telnetd allowing remote attackers to execute
+    arbitrary code via a long encryption key. Patch taken from FreeBSD.
+    CVE-2011-4862
+  * Abort on error from ping's sendto(2) call, instead of trying to continue
+    sending echo packets in vain. (Closes: #323165)
+
+ -- Guillem Jover <guillem@debian.org>  Wed, 28 Dec 2011 02:53:53 +0100
+
+inetutils (2:1.8-5) unstable; urgency=low
+
+  * Move man pages from patches to actual files under debian/local/man/ to
+    ease their modification, given that upstream has rejected including
+    useful man pages there.
+  * Add a new inetutils-traceroute package providing a portable traceroute
+    implementation for GNU/Hurd and GNU/kFreeBSD. (Closes: #610437)
+    Thanks to Mats Erik Andersson <mats.andersson@gisladisker.se>.
+  * Do not link against unused shared libraries. This removes the following
+    dependencies from binaries:
+    - inetutils-inetd, inetutils-syslogd → libshishi0
+    - inetutils-telnet, inetutils-telnetd → libncurses5
+    - inetutils-ftp → libncurses5, libtinfo5
+  * Disable silent rules to get useful build logs.
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 05 Nov 2011 05:10:10 +0100
+
+inetutils (2:1.8-4) unstable; urgency=low
+
+  * Add new inetutils-inetd default configuration file for the init script,
+    allowing to pass INETD_OPTS to it on start. (Closes: #606954)
+  * Use dh_lintian instead of manually installing the overrides.
+  * Override upstream SUIDMODE at make time, instead of patching the source.
+  * Do not change inetutils-syslogd Section to base on non-Linux architectures
+    as that section does not exist any longer, just inherit it from the
+    source stanza.
+  * Add build-indep and build-arch targets (rename build to build-arch).
+  * Add libncurses-dev to Build-Depends, although only libtinfo-dev is
+    really needed (but that does not ship term.h). (Closes: #646143)
+  * Now using Standards-Version 3.9.2 (no changes needed).
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 30 Oct 2011 07:52:19 +0100
+
+inetutils (2:1.8-3) unstable; urgency=low
+
+  * Revert wrong hunk from the tcpmux services fix.
+    Thanks to Mats Erik Andersson.
+  * Fix IPv6 support in inetd and telnetd on GNU/kFreeBSD by passing
+    the correct struct sockaddr length to socket functions depending on
+    the address family, instead of always passing the size of struct
+    sockaddr_storage. Thanks to Mats Erik Andersson and Simon Josefsson.
+
+ -- Guillem Jover <guillem@debian.org>  Thu, 18 Nov 2010 05:54:25 +0100
+
+inetutils (2:1.8-2) experimental; urgency=low
+
+  * Fix FTBFS on GNU/Hurd and GNU/kFreeBSD systems. (Closes: #596638)
+    - Use IFF_ flags conditionally.
+    - Do not include <stropts.h> to get ioctl declaration as we get it from
+      the wrapped <sys/ioctl.h>, otherwise we get conflicting symbols.
+    - Include <sys/types.h> in ifconfig/flags.h for size_t.
+
+ -- Guillem Jover <guillem@debian.org>  Wed, 22 Sep 2010 06:43:52 +0200
+
+inetutils (2:1.8-1) experimental; urgency=low
+
+  * New upstream release.
+    - Implement “ping -w timeout”. (Closes: #565137)
+    - debian/patches/01_no_link_extralibs.patch: Remove, merged upstream.
+    - debian/patches/07_dev_test_e.patch: Likewise.
+    - debian/patches/52_sigalarm.patch: Likewise.
+    - debian/patches/99_acinclude_del_dnl.patch: Likewise.
+    - debian/patches/99_ping_default_inf_count.patch: Likewise.
+    - debian/patches/10_syslog_klog_doc.patch: Refreshed.
+    - debian/patches/22_syslogd_conf.patch: Likewise.
+    - debian/patches/30_ping_suid_perms.patch: Likewise.
+    - debian/patches/50_split_load_conffile.patch: Likewise.
+    - debian/patches/51_add_load_confdir_support.patch: Likewise.
+    - debian/patches/53_man_inetd_max_conn.patch: Likewise.
+  * Upstream switched to generate man pages from --help output, which is
+    a regression from previous man pages inherited from BSD. Revert the
+    removal and disable help2man logic.
+    - debian/patches/01_revert_manpage_removal.patch: New file.
+  * Install man pages for inetutils-ifconfig and ping6.
+  * Fix man page warnings.
+  * Switch to source format “3.0 (quilt)”:
+    - Remove quilt from Build-Depends.
+    - Remove quilt.make include from debian/rules.
+    - Remove patch and unpatch targets from debian/rules.
+    - Remove now unneeded quilt references in debian/README.source.
+  * Remove Marcus Brinkmann and Jeff Bailey from Uploaders field, thanks for
+    your previous work! (Closes: #503567)
+  * Switch Vcs fields to the new git repositories.
+  * Explicitly include BSD licenses into debian/copyright, instead of
+    referencing generic and non-matching file from common-licenses.
+  * Now using Standards-Version 3.9.1.
+  * Remove obsolete and unused libopie-dev Build-Depends.
+  * Do not segfault in inetd when a service does not have any argument.
+    (Closes: #515070, #590128)
+  * Make inetd listen on ports when enabling tcpmux services.
+  * Change inetd “tcp” and “udp” service protocol semantics to default them
+    to IPv4 only connections. Change “tcp6” and “udp6” to accept IPv4 mapped
+    addresses. And add “tcp6only” and “udp6only” for IPv6 only connections.
+    (Closes: #404760, #519316, #594422)
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 12 Sep 2010 16:00:53 +0200
 
 inetutils (2:1.6-3) unstable; urgency=low
 

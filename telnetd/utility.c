@@ -1,21 +1,24 @@
-/* Copyright (C) 1998,2001,2005,2006,2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #define TELOPTS
 #define TELCMDS
@@ -27,11 +30,23 @@
 #endif
 #include <time.h>
 
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
 # include <libtelnet/misc.h>
 # define NET_ENCRYPT net_encrypt
 #else
 # define NET_ENCRYPT()
+#endif
+
+#ifdef HAVE_TERMCAP_TGETENT
+# include <termcap.h>
+#elif defined HAVE_CURSES_TGETENT
+# include <curses.h>
+# include <term.h>
+#endif
+
+#if defined HAVE_STREAMSPTY && defined HAVE_GETMSG \
+	&& defined HAVE_STROPTS_H
+# include <stropts.h>
 #endif
 
 static char netobuf[BUFSIZ + NETSLOP], *nfrontp, *nbackp;
@@ -59,7 +74,9 @@ readstream (int p, char *ibuf, int bufsize)
   int flags = 0;
   int ret = 0;
   struct termios *tsp;
+#ifdef HAVE_TERMIO_H
   struct termio *tp;
+#endif
   struct iocblk *ip;
   char vstop, vstart;
   int ixon;
@@ -117,6 +134,7 @@ readstream (int p, char *ibuf, int bufsize)
 	  ixon = tsp->c_iflag & IXON;
 	  break;
 
+#ifdef HAVE_TERMIO_H
 	case TCSETA:
 	case TCSETAW:
 	case TCSETAF:
@@ -125,6 +143,7 @@ readstream (int p, char *ibuf, int bufsize)
 	  vstart = tp->c_cc[VSTART];
 	  ixon = tp->c_iflag & IXON;
 	  break;
+#endif /* HAVE_TERMIO_H */
 
 	default:
 	  errno = EAGAIN;
@@ -150,7 +169,7 @@ readstream (int p, char *ibuf, int bufsize)
 /* Net and PTY I/O functions */
 
 void
-io_setup ()
+io_setup (void)
 {
   pfrontp = pbackp = ptyobuf;
   nfrontp = nbackp = netobuf;
@@ -162,7 +181,7 @@ io_setup ()
 }
 
 void
-set_neturg ()
+set_neturg (void)
 {
   neturg = nfrontp - 1;
 }
@@ -214,19 +233,19 @@ net_output_datalen (const void *buf, size_t l)
 }
 
 int
-net_input_level ()
+net_input_level (void)
 {
   return ncc;
 }
 
 int
-net_output_level ()
+net_output_level (void)
 {
   return nfrontp - nbackp;
 }
 
 int
-net_buffer_is_full ()
+net_buffer_is_full (void)
 {
   return (&netobuf[BUFSIZ] - nfrontp) < 2;
 }
@@ -241,10 +260,12 @@ net_get_char (int peek)
       ncc--;
       return *netip++ & 0377;
     }
+
+  return 0;
 }
 
 int
-net_read ()
+net_read (void)
 {
   ncc = read (net, netibuf, sizeof (netibuf));
   if (ncc < 0 && errno == EWOULDBLOCK)
@@ -267,7 +288,7 @@ net_read ()
 /* PTY buffer functions */
 
 int
-pty_buffer_is_full ()
+pty_buffer_is_full (void)
 {
   return (&ptyobuf[BUFSIZ] - pfrontp) < 2;
 }
@@ -288,19 +309,19 @@ pty_output_datalen (const void *data, size_t len)
 }
 
 int
-pty_input_level ()
+pty_input_level (void)
 {
   return pcc;
 }
 
 int
-pty_output_level ()
+pty_output_level (void)
 {
   return pfrontp - pbackp;
 }
 
 void
-ptyflush ()
+ptyflush (void)
 {
   int n;
 
@@ -334,6 +355,8 @@ pty_get_char (int peek)
       pcc--;
       return *ptyip++ & 0377;
     }
+
+  return 0;
 }
 
 int
@@ -343,10 +366,12 @@ pty_input_putback (const char *str, size_t len)
     len = &ptyibuf[BUFSIZ] - ptyip;
   strncpy (ptyip, str, len);
   pcc += len;
+
+  return 0;
 }
 
 int
-pty_read ()
+pty_read (void)
 {
   pcc = readstream (pty, ptyibuf, BUFSIZ);
   if (pcc < 0 && (errno == EWOULDBLOCK
@@ -366,8 +391,8 @@ pty_read ()
 
 
 /* io_drain ()
- *   
- *  
+ *
+ *
  *	A small subroutine to flush the network output buffer, get some data
  * from the network, and pass it through the telnet state machine.  We
  * also flush the pty input buffer (by dropping its data) if it becomes
@@ -375,7 +400,7 @@ pty_read ()
  */
 
 void
-io_drain ()
+io_drain (void)
 {
   DEBUG (debug_report, 1, debug_output_data ("td: ttloop\r\n"));
   if (nfrontp - nbackp > 0)
@@ -391,12 +416,12 @@ again:
 	  goto again;
 	}
       syslog (LOG_INFO, "ttloop:  read: %m\n");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
   else if (ncc == 0)
     {
       syslog (LOG_INFO, "ttloop:  peer died: %m\n");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
   DEBUG (debug_report, 1,
 	 debug_output_data ("td: ttloop read %d chars\r\n", ncc));
@@ -436,7 +461,7 @@ stilloob (int s)
 
 /*
  * nextitem()
- *  
+ *
  *	Return the address of the next "item" in the TELNET data
  * stream.  This will be the address of the next character if
  * the current address is a user data character, or it will
@@ -475,15 +500,15 @@ nextitem (char *current)
 
 /*
  * netclear()
- *  
+ *
  *	We are about to do a TELNET SYNCH operation.  Clear
  * the path to the network.
- *  
+ *
  *	Things are a bit tricky since we may have sent the first
  * byte or so of a previous TELNET command into the network.
  * So, we have to scan the network buffer from the beginning
  * until we are up to where we want to be.
- *  
+ *
  *	A side effect of what we do, just to keep things
  * simple, is to clear the urgent data pointer.  The principal
  * caller should be setting the urgent data pointer AFTER calling
@@ -495,7 +520,7 @@ nextitem (char *current)
 
 
 void
-netclear ()
+netclear (void)
 {
   register char *thisitem, *next;
   char *good;
@@ -549,7 +574,7 @@ netclear ()
  *	handling requests for urgent data.
  */
 void
-netflush ()
+netflush (void)
 {
   int n;
 
@@ -630,7 +655,7 @@ fatal (int f, char *msg)
 #endif /* ENCRYPTION */
   write (f, buf, (int) strlen (buf));
   sleep (1);
-   /*FIXME*/ exit (1);
+   /*FIXME*/ exit (EXIT_FAILURE);
 }
 
 void
@@ -650,7 +675,7 @@ static unsigned char ttytype_sbbuf[] = {
 };
 
 static void
-_gettermname ()
+_gettermname (void)
 {
   if (his_state_is_wont (TELOPT_TTYPE))
     return;
@@ -668,7 +693,7 @@ getterminaltype (char *user_name)
   int retval = -1;
 
   settimer (baseline);
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
   /*
    * Handle the Authentication option before we do anything else.
    */
@@ -759,14 +784,12 @@ getterminaltype (char *user_name)
        */
       if (his_state_is_will (TELOPT_TTYPE) && !terminaltypeok (terminaltype))
 	{
-	  if (first)
-	    free (first);
+	  free (first);
 	  first = xstrdup (terminaltype);
 	  for (;;)
 	    {
 	      /* Save the unknown name, and request the next name. */
-	      if (last)
-		free (last);
+	      free (last);
 	      last = xstrdup (terminaltype);
 	      _gettermname ();
 	      if (terminaltypeok (terminaltype))
@@ -795,10 +818,8 @@ getterminaltype (char *user_name)
 		}
 	    }
 	}
-      if (first)
-	free (first);
-      if (last)
-	free (last);
+      free (first);
+      free (last);
     }
   return retval;
 }
@@ -811,7 +832,7 @@ terminaltypeok (char *s)
   if (terminaltype == NULL)
     return 1;
 
-#ifdef HAVE_LIBREADLINE
+#ifdef HAVE_TGETENT
   if (tgetent (buf, s) == 0)
 #endif
     return 0;
@@ -826,7 +847,7 @@ terminaltypeok (char *s)
 static FILE *debug_fp = NULL;
 
 static int
-debug_open ()
+debug_open (void)
 {
   int um = umask (077);
   if (!debug_fp)
@@ -836,11 +857,13 @@ debug_open ()
 }
 
 static int
-debug_close ()
+debug_close (void)
 {
   if (debug_fp)
     fclose (debug_fp);
   debug_fp = NULL;
+
+  return 0;
 }
 
 void
@@ -887,7 +910,7 @@ printsub (int direction, unsigned char *pointer, int length)
 {
   register int i;
 
-#if defined(AUTHENTICATION) && defined(ENCRYPTION)
+#if defined AUTHENTICATION && defined ENCRYPTION
   char buf[512];
 #endif
 
@@ -1324,12 +1347,12 @@ printsub (int direction, unsigned char *pointer, int length)
 		  default:
 		    if (isprint (pointer[i]) && pointer[i] != '"')
 		      {
-			if (noquote)
+                        if (noquote)
 			  {
 			    debug_output_data ("\"");
 			    noquote = 0;
 			  }
-			debug_output_datalen (&pointer[i], 1);
+			debug_output_datalen ((char*) &pointer[i], 1);
 		      }
 		    else
 		      {
@@ -1346,7 +1369,7 @@ printsub (int direction, unsigned char *pointer, int length)
 	}
       break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
     case TELOPT_AUTHENTICATION:
       debug_output_data ("AUTHENTICATION");
 
@@ -1535,7 +1558,7 @@ printdata (register char *tag, register char *ptr, register int cnt)
     }
 }
 
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
 
 int
 net_write (unsigned char *str, int len)

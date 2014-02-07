@@ -1,21 +1,21 @@
-/* Copyright (C) 2004, 2006, 2007, 2008 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
 #include <netinet/in_systm.h>
 #include <netinet/in.h>
@@ -50,7 +50,9 @@ struct ping_stat
 
 #define PING_CKTABSIZE 128
 
-#define DEFAULT_PING_COUNT 4
+/* The rationale for not exiting after a sending N packets is that we
+   want to follow the traditional behaviour of ping.  */
+#define DEFAULT_PING_COUNT 0
 
 #define PING_TIMING(s) (s >= PING_HEADER_LEN)
 #define PING_HEADER_LEN sizeof (struct timeval)
@@ -95,24 +97,49 @@ struct ping_data
   int ping_fd;                 /* Raw socket descriptor */
   int ping_type;               /* Type of packets to send */
   size_t ping_count;           /* Number of packets to send */
-  size_t ping_interval;                /* Number of seconds to wait between sending pkts */
-  union ping_address ping_dest;        /* whom to ping */
+  struct timeval ping_start_time; /* Start time */
+  size_t ping_interval;        /* Number of seconds to wait between sending pkts */
+  union ping_address ping_dest;/* whom to ping */
   char *ping_hostname;         /* Printable hostname */
   size_t ping_datalen;         /* Length of data */
   int ping_ident;              /* Our identifier */
   union event ping_event;      /* User-defined handler */
   void *ping_closure;          /* User-defined data */
-  
+
   /* Runtime info */
   int ping_cktab_size;
   char *ping_cktab;
-  
-  u_char *ping_buffer;         /* I/O buffer */
+
+  unsigned char *ping_buffer;         /* I/O buffer */
   union ping_address ping_from;
   long ping_num_xmit;          /* Number of packets transmitted */
   long ping_num_recv;          /* Number of packets received */
   long ping_num_rept;          /* Number of duplicates received */
 };
+
+#define _C_BIT(p,bit)   (p)->ping_cktab[(bit)>>3]	/* byte in ck array */
+#define _C_MASK(bit)    (1 << ((bit) & 0x07))
+#define _C_IND(p,bit)   ((bit) % (8 * (p)->ping_cktab_size))
+
+#define _PING_SET(p,bit)						\
+  do									\
+    {									\
+      int n = _C_IND (p,bit);						\
+      _C_BIT (p,n) |= _C_MASK (n);					\
+    }									\
+  while (0)
+
+#define _PING_CLR(p,bit)						\
+  do									\
+    {									\
+      int n = _C_IND (p,bit);						\
+      _C_BIT (p,n) &= ~_C_MASK (n);					\
+    }									\
+  while (0)
+
+#define _PING_TST(p,bit)					\
+  (_C_BIT (p, _C_IND (p,bit)) & _C_MASK  (_C_IND (p,bit)))
+
 
 void tvsub (struct timeval *out, struct timeval *in);
 double nabs (double a);
@@ -130,4 +157,4 @@ void ping_set_count (PING * ping, size_t count);
 void ping_set_sockopt (PING * ping, int opt, void *val, int valsize);
 void ping_set_interval (PING * ping, size_t interval);
 void ping_unset_data (PING * p);
-
+int ping_timeout_p (struct timeval *start_time, int timeout);

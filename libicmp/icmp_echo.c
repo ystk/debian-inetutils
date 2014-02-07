@@ -1,30 +1,27 @@
-/* Copyright (C) 1998, 2001, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/time.h>
-#include <signal.h>
 
 #include <netinet/in_systm.h>
 #include <netinet/in.h>
@@ -34,7 +31,7 @@
 #include <icmp.h>
 
 int
-icmp_generic_encode (u_char * buffer, size_t bufsize, int type, int ident,
+icmp_generic_encode (unsigned char * buffer, size_t bufsize, int type, int ident,
 		     int seqno)
 {
   icmphdr_t *icmp;
@@ -53,11 +50,11 @@ icmp_generic_encode (u_char * buffer, size_t bufsize, int type, int ident,
 }
 
 int
-icmp_generic_decode (u_char * buffer, size_t bufsize,
+icmp_generic_decode (unsigned char * buffer, size_t bufsize,
 		     struct ip **ipp, icmphdr_t ** icmpp)
 {
   size_t hlen;
-  u_short cksum;
+  unsigned short cksum;
   struct ip *ip;
   icmphdr_t *icmp;
 
@@ -77,20 +74,20 @@ icmp_generic_decode (u_char * buffer, size_t bufsize,
   /* Recompute checksum */
   cksum = icmp->icmp_cksum;
   icmp->icmp_cksum = 0;
-  icmp->icmp_cksum = icmp_cksum ((u_char *) icmp, bufsize - hlen);
+  icmp->icmp_cksum = icmp_cksum ((unsigned char *) icmp, bufsize - hlen);
   if (icmp->icmp_cksum != cksum)
     return 1;
   return 0;
 }
 
 int
-icmp_echo_encode (u_char * buffer, size_t bufsize, int ident, int seqno)
+icmp_echo_encode (unsigned char * buffer, size_t bufsize, int ident, int seqno)
 {
   return icmp_generic_encode (buffer, bufsize, ICMP_ECHO, ident, seqno);
 }
 
 int
-icmp_echo_decode (u_char * buffer, size_t bufsize,
+icmp_echo_decode (unsigned char * buffer, size_t bufsize,
 		  struct ip **ipp, icmphdr_t ** icmpp)
 {
   return icmp_generic_decode (buffer, bufsize, ipp, icmpp);

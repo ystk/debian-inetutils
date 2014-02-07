@@ -1,23 +1,23 @@
-# Paths for inetutils
+# paths - Paths for inetutils
+# Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+# 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
+# Inc.
 #
-# Copyright (C) 1996, 1997, 2000, 2007 Free Software Foundation, Inc.
+# This file is part of GNU Inetutils.
 #
-# This program is free software; you can redistribute it and/or modify
+# GNU Inetutils is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
+# the Free Software Foundation, either version 3 of the License, or (at
+# your option) any later version.
 #
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Inetutils is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-#
+# along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-#
 # This file describes how to set various paths used by programs in inetutils.
 #
 # The rules that determine what a given PATH_FOO define expands to are:
@@ -27,7 +27,7 @@
 #      lists of things to try, in order.  The various sorts of entries are:
 #
 #       "value" -- If a file VALUE exists, use VALUE; if no default yet, set
-#       	   it to VALUE.  If VALUE begins with a make-variable of the
+#		   it to VALUE.	 If VALUE begins with a make-variable of the
 #		   form `$(NAME)' and a corresponding shell-variable $NAME
 #		   exists at configure time, the value of $NAME is substituted
 #		   for the $(NAME) for testing (but not subsitution) purposes.
@@ -100,3 +100,4 @@ PATH_TMP	d /tmp/
 PATH_TTY	c /dev/tty
 PATH_UUCICO	x $(libexecdir)/uucp/uucico search:uucp/uucico:/usr/libexec:/usr/lib:/usr/etc:/etc
 PATH_HEQUIV	<netdb.h> /etc/hosts.equiv $(sysconfdir)/hosts.equiv
+PATH_PROCNET_DEV /proc/net/dev no

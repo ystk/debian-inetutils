@@ -1,42 +1,38 @@
-/* system.h
+/*
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA. */
+/* Written by Marcus Brinkmann.  */
 
 #ifndef IFCONFIG_SYSTEM_H
 # define IFCONFIG_SYSTEM_H
 
 
+# include <if_index.h>
+
 /* Option parsing.  */
+
+extern struct argp_child system_argp_child;
 
 /* Define this if ifconfig supports parsing the remaining non-option
    arguments on the command line (see system_parse_opt_rest) to a string
    usable in the help info.  Like "  <addr> [ netmask <mask> ]" */
 extern const char *system_help;
-
-extern const char *system_help_options;
-
-/* Additional short options.  */
-# undef SYSTEM_SHORT_OPTIONS
-
-/* Addition long options.  */
-# undef SYSTEM_LONG_OPTIONS
 
 /* Hooked into a struct ifconfig (setting the flag IF_VALID_SYSTEM),
    to store system specific configurations from the command line
@@ -91,13 +87,12 @@ int system_configure (int sfd, struct ifreq *ifr,
 # endif
 
 
+extern struct if_nameindex* (*system_if_nameindex) (void);
 
-# if defined(__linux__)
+# if defined __linux__
 #  include "system/linux.h"
 # elif defined(__sun__)
 #  include "system/solaris.h"
-# elif defined(__hpux__)
-#  include "system/hpux.h"
 # elif defined(__QNX__)
 #  include "system/qnx.h"
 # else

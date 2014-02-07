@@ -1,12 +1,25 @@
-/*	$OpenBSD: ls.c,v 1.13 1999/05/01 23:54:47 deraadt Exp $	*/
-/*	$NetBSD: ls.c,v 1.18 1996/07/09 09:16:29 mycroft Exp $	*/
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
 /*
  * Copyright (c) 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Michael Fischbein.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -16,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -33,35 +46,15 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
+/* This code is derived from software contributed to Berkeley by
+   Michael Fischbein.  */
 
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 
-#include <dirent.h>
 #include <errno.h>
 #include "fts.h"
 #include <stdio.h>
@@ -70,9 +63,7 @@
 #include <unistd.h>
 #include <pwd.h>
 #include <grp.h>
-#ifdef HAVE_TERMIOS_H
-# include <termios.h>
-#endif
+#include <termios.h>
 
 #include <intprops.h>
 #include <inttostr.h>
@@ -122,9 +113,7 @@ int f_whiteout;			/* show whiteout entries */
 int rval;
 
 int
-ls_main (argc, argv)
-     int argc;
-     char *argv[];
+ls_main (int argc, char **argv)
 {
   static char dot[] = ".", *dotav[] = { dot, NULL };
   struct winsize win;
@@ -359,9 +348,7 @@ static int output;		/* If anything output. */
  * a superset (may be exact set) of the files to be displayed.
  */
 static void
-traverse (argc, argv, options)
-     int argc, options;
-     char *argv[];
+traverse (int argc, char **argv, int options)
 {
   FTS *ftsp;
   FTSENT *p, *chp;
@@ -370,7 +357,7 @@ traverse (argc, argv, options)
   if ((ftsp = fts_open (argv, options, f_nosort ? NULL : mastercmp)) == NULL)
     {
       fprintf (stderr, "%s: fts_open: %s", argv[0], strerror (errno));
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 
   display (NULL, fts_children (ftsp, 0));
@@ -422,7 +409,7 @@ traverse (argc, argv, options)
   if (errno)
     {
       fprintf (stderr, "fts_read: %s", strerror (errno));
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 }
 
@@ -432,15 +419,14 @@ traverse (argc, argv, options)
  * points to the parent directory of the display list.
  */
 static void
-display (p, list)
-     FTSENT *p, *list;
+display (FTSENT *p, FTSENT *list)
 {
   struct stat *sp;
   DISPLAY d;
   FTSENT *cur;
   NAMES *np;
   unsigned long long maxsize;
-  u_long btotal, maxblock, maxinode, maxlen, maxnlink;
+  unsigned long btotal, maxblock, maxinode, maxlen, maxnlink;
   int bcfile, flen, glen, ulen, maxflags, maxgroup, maxuser;
   int entries, needstats;
   char *user = NULL, *group = NULL, buf[INT_BUFSIZE_BOUND (uintmax_t)];
@@ -546,7 +532,7 @@ display (p, list)
 				ulen + glen + flen + 3)) == NULL)
 		{
 		  fprintf (stderr, "malloc: %s", strerror (errno));
-		  exit (1);
+		  exit (EXIT_FAILURE);
 		}
 
 	      np->user = &np->data[0];
@@ -602,8 +588,7 @@ display (p, list)
  * All other levels use the sort function.  Error entries remain unsorted.
  */
 static int
-mastercmp (a, b)
-     const FTSENT **a, **b;
+mastercmp (const FTSENT **a, const FTSENT **b)
 {
   int a_info, b_info;
 
@@ -615,12 +600,14 @@ mastercmp (a, b)
     return (0);
 
   if (a_info == FTS_NS || b_info == FTS_NS)
-    if (b_info != FTS_NS)
-      return (1);
-    else if (a_info != FTS_NS)
-      return (-1);
-    else
-      return (namecmp (*a, *b));
+    {
+      if (b_info != FTS_NS)
+        return (1);
+      else if (a_info != FTS_NS)
+        return (-1);
+      else
+        return (namecmp (*a, *b));
+    }
 
   if (a_info != b_info && (*a)->fts_level == FTS_ROOTLEVEL && !f_listdir)
     {

@@ -1,26 +1,30 @@
-/* Copyright (C) 1998,2001, 2002, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
+  Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
+#include <config.h>
 #include <argp.h>
 #include <intalkd.h>
 #include <signal.h>
 #include <libinetutils.h>
+#include <progname.h>
+#include "unused-parameter.h"
 
 #ifndef LOG_FACILITY
 # define LOG_FACILITY LOG_DAEMON
@@ -38,20 +42,21 @@ time_t max_request_ttl = MAX_LIFE;
 char *acl_file;
 char *hostname;
 
-ARGP_PROGRAM_DATA ("talkd", "2007", "Sergey Poznyakoff");
-
 const char args_doc[] = "";
 const char doc[] = "Talk daemon.";
-
+const char *program_authors[] = {
+	"Sergey Poznyakoff",
+	NULL
+};
 static struct argp_option argp_options[] = {
 #define GRP 0
-  {"acl", 'a', "FILE", 0, "Read site-wide ACLs from FILE", GRP+1},
-  {"debug", 'd', NULL, 0, "Enable debugging", GRP+1},
-  {"idle-timeout", 'i', "SECONDS", 0, "Set idle timeout value to SECONDS",
+  {"acl", 'a', "FILE", 0, "read site-wide ACLs from FILE", GRP+1},
+  {"debug", 'd', NULL, 0, "enable debugging", GRP+1},
+  {"idle-timeout", 'i', "SECONDS", 0, "set idle timeout value to SECONDS",
    GRP+1},
-  {"request-ttl", 'r', "SECONDS", 0, "Set request time-to-live value to "
+  {"request-ttl", 'r', "SECONDS", 0, "set request time-to-live value to "
    "SECONDS", GRP+1},
-  {"timeout", 't', "SECONDS", 0, "Set timeout value to SECONDS", GRP+1},
+  {"timeout", 't', "SECONDS", 0, "set timeout value to SECONDS", GRP+1},
 #undef GRP
   {NULL}
 };
@@ -93,7 +98,9 @@ static struct argp argp = {argp_options, parse_opt, args_doc, doc};
 int
 main (int argc, char *argv[])
 {
+  set_program_name (argv[0]);
   /* Parse command line */
+  iu_argp_init ("talkd", program_authors);
   argp_parse (&argp, argc, argv, 0, NULL, NULL);
 
   read_acl (acl_file);
@@ -103,24 +110,24 @@ main (int argc, char *argv[])
 }
 
 void
-talkd_init ()
+talkd_init (void)
 {
   openlog ("talkd", LOG_PID, LOG_FACILITY);
   hostname = localhost ();
   if (!hostname)
     {
       syslog (LOG_ERR, "can't determine my hostname: %m");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 }
 
 time_t last_msg_time;
 
 static void
-alarm_handler (int err ARG_UNUSED)
+alarm_handler (int err _GL_UNUSED_PARAMETER)
 {
   if ((time (NULL) - last_msg_time) >= max_idle_time)
-    exit (0);
+    exit (EXIT_SUCCESS);
   alarm (timeout);
 }
 
@@ -135,7 +142,7 @@ talkd_run (int fd)
       struct sockaddr_in sa_in;
       CTL_MSG msg;
       CTL_RESPONSE resp;
-      int len;
+      socklen_t len;
 
       len = sizeof sa_in;
       rc =
@@ -157,4 +164,3 @@ talkd_run (int fd)
 	}
     }
 }
-

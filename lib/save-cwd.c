@@ -1,7 +1,7 @@
 /* save-cwd.c -- Save and restore current working directory.
 
-   Copyright (C) 1995, 1997, 1998, 2003, 2004, 2005, 2006 Free
-   Software Foundation, Inc.
+   Copyright (C) 1995, 1997-1998, 2003-2006, 2009-2011 Free Software
+   Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,31 +23,25 @@
 #include "save-cwd.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 
 #include "chdir-long.h"
-#include "fcntl--.h"
-#include "xgetcwd.h"
+#include "unistd--.h"
+#include "cloexec.h"
 
-/* On systems without the fchdir function (WOE), pretend that open
-   always returns -1 so that save_cwd resorts to using xgetcwd.
-   Since chdir_long requires fchdir, use chdir instead.  */
-#if !HAVE_FCHDIR
-# undef open
-# define open(File, Flags) (-1)
-# undef fchdir
-# define fchdir(Fd) (abort (), -1)
-# undef chdir_long
-# define chdir_long(Dir) chdir (Dir)
+#if GNULIB_FCNTL_SAFER
+# include "fcntl--.h"
+#else
+# define GNULIB_FCNTL_SAFER 0
 #endif
 
 /* Record the location of the current working directory in CWD so that
    the program may change to other directories and later use restore_cwd
    to return to the recorded location.  This function may allocate
-   space using malloc (via xgetcwd) or leave a file descriptor open;
+   space using malloc (via getcwd) or leave a file descriptor open;
    use free_cwd to perform the necessary free or close.  Upon failure,
    no memory is allocated, any locally opened file descriptors are
    closed;  return non-zero -- in that case, free_cwd need not be
@@ -56,7 +50,8 @@
    The `raison d'etre' for this interface is that the working directory
    is sometimes inaccessible, and getcwd is not robust or as efficient.
    So, we prefer to use the open/fchdir approach, but fall back on
-   getcwd if necessary.
+   getcwd if necessary.  This module works for most cases with just
+   the getcwd-lgpl module, but to be truly robust, use the getcwd module.
 
    Some systems lack fchdir altogether: e.g., OS/2, pre-2001 Cygwin,
    SCO Xenix.  Also, SunOS 4 and Irix 5.3 provide the function, yet it
@@ -69,13 +64,16 @@ save_cwd (struct saved_cwd *cwd)
 {
   cwd->name = NULL;
 
-  cwd->desc = open (".", O_RDONLY);
+  cwd->desc = open (".", O_SEARCH);
+  if (!GNULIB_FCNTL_SAFER)
+    cwd->desc = fd_safer (cwd->desc);
   if (cwd->desc < 0)
     {
-      cwd->name = xgetcwd ();
+      cwd->name = getcwd (NULL, 0);
       return cwd->name ? 0 : -1;
     }
 
+  set_cloexec_flag (cwd->desc, true);
   return 0;
 }
 

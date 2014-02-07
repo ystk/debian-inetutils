@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,29 +47,7 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdlib.h>
 
@@ -59,27 +57,13 @@
 #include <arpa/telnet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
-
+#include <sys/time.h>
+#include <time.h>
 #include <ctype.h>
 
 #include "general.h"
-
-#include "fdset.h"
-
 #include "ring.h"
-
 #include "defines.h"
-
 #include "externs.h"
 
 FILE *NetTrace = 0;		/* Not in bss, since needs to stay */
@@ -254,7 +238,7 @@ printoption (char *direction, int cmd, int option)
 }
 
 void
-optionstatus ()
+optionstatus (void)
 {
   register int i;
   extern char will_wont_resp[], do_dont_resp[];
@@ -352,7 +336,7 @@ printsub (char direction, unsigned char *pointer, int length)
   register int i;
   extern int want_status_response;
 
-#if defined(AUTHENTICATION) && defined(ENCRYPTION)
+#if defined AUTHENTICATION && defined ENCRYPTION
   char buf[512];
 #endif
 
@@ -497,7 +481,7 @@ printsub (char direction, unsigned char *pointer, int length)
 	    fprintf (NetTrace, " ?%d?", pointer[i]);
 	  break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 	case TELOPT_AUTHENTICATION:
 	  fprintf (NetTrace, "AUTHENTICATION");
 	  if (length < 2)
@@ -893,7 +877,7 @@ printsub (char direction, unsigned char *pointer, int length)
 	    env_common:
 	      {
 		register int noquote = 2;
-#if defined(ENV_HACK) && defined(OLD_ENVIRON)
+#if defined ENV_HACK && defined OLD_ENVIRON
 		extern int old_env_var, old_env_value;
 #endif
 		for (i = 2; i < length; i++)
@@ -999,9 +983,9 @@ printsub (char direction, unsigned char *pointer, int length)
  */
 
 void
-EmptyTerminal ()
+EmptyTerminal (void)
 {
-#if defined(unix)
+#if defined unix
   fd_set o;
 
   FD_ZERO (&o);
@@ -1009,7 +993,7 @@ EmptyTerminal ()
 
   if (TTYBYTES () == 0)
     {
-#if defined(unix)
+#if defined unix
       FD_SET (tout, &o);
       select (tout + 1, (fd_set *) 0, &o, (fd_set *) 0, (struct timeval *) 0);	/* wait for TTLOWAT */
 #endif /* defined(unix) */
@@ -1019,7 +1003,7 @@ EmptyTerminal ()
       while (TTYBYTES ())
 	{
 	  ttyflush (0);
-#if defined(unix)
+#if defined unix
 	  FD_SET (tout, &o);
 	  select (tout + 1, (fd_set *) 0, &o, (fd_set *) 0, (struct timeval *) 0);	/* wait for TTLOWAT */
 #endif /* defined(unix) */
@@ -1028,10 +1012,10 @@ EmptyTerminal ()
 }
 
 void
-SetForExit ()
+SetForExit (void)
 {
   setconnmode (0);
-#if defined(TN3270)
+#if defined TN3270
   if (In3270)
     {
       Finish3270 ();
@@ -1047,7 +1031,7 @@ SetForExit ()
   setcommandmode ();
   fflush (stdout);
   fflush (stderr);
-#if defined(TN3270)
+#if defined TN3270
   if (In3270)
     {
       StopScreen (1);

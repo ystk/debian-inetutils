@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,29 +47,7 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -57,9 +55,6 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/socket.h>
-#ifdef HAVE_OSOCKADDR_H
-# include <osockaddr.h>
-#endif
 #include <netinet/in.h>
 #include <protocols/talkd.h>
 #include <pwd.h>
@@ -67,8 +62,8 @@
 #include <unistd.h>
 #include "talk.h"
 
-char *getlogin ();
-char *ttyname ();
+char *getlogin (void);
+char *ttyname (int);
 extern CTL_MSG msg;
 
 /*
@@ -82,16 +77,6 @@ get_names (int argc, char *argv[])
   char *his_tty;
   register char *cp;
 
-  if (argc < 2)
-    {
-      printf ("Usage: talk user [ttyname]\n");
-      exit (-1);
-    }
-  if (!isatty (0))
-    {
-      printf ("Standard input must be a tty, not a pipe or a file\n");
-      exit (-1);
-    }
   if ((my_name = getlogin ()) == NULL)
     {
       struct passwd *pw;
@@ -112,12 +97,12 @@ get_names (int argc, char *argv[])
     }
 
   /* check for, and strip out, the machine name of the target */
-  for (cp = argv[1]; *cp && !strchr ("@:!.", *cp); cp++)
+  for (cp = argv[0]; *cp && !strchr ("@:!.", *cp); cp++)
     ;
   if (*cp == '\0')
     {
       /* this is a local to local talk */
-      his_name = argv[1];
+      his_name = argv[0];
       his_machine_name = my_machine_name;
     }
   else
@@ -125,19 +110,19 @@ get_names (int argc, char *argv[])
       if (*cp++ == '@')
 	{
 	  /* user@host */
-	  his_name = argv[1];
+	  his_name = argv[0];
 	  his_machine_name = cp;
 	}
       else
 	{
 	  /* host.user or host!user or host:user */
 	  his_name = cp;
-	  his_machine_name = argv[1];
+	  his_machine_name = argv[0];
 	}
       *--cp = '\0';
     }
-  if (argc > 2)
-    his_tty = argv[2];		/* tty name is arg 2 */
+  if (argc > 1)
+    his_tty = argv[1];		/* tty name is arg 2 */
   else
     his_tty = "";
   get_addrs (my_machine_name, his_machine_name);
@@ -156,4 +141,6 @@ get_names (int argc, char *argv[])
   msg.r_tty[TTY_SIZE - 1] = '\0';
 
   free (my_machine_name);
+
+  return 0;
 }

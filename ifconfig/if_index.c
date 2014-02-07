@@ -1,23 +1,23 @@
-/* Copyright (C) 1997, 1998, 1999, 2000, 2001, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  This file is part of GNU Inetutils.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA. */
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include <errno.h>
 #include <string.h>
@@ -29,7 +29,7 @@
 
 /* Solaris at least earlier 2.6 and before does not include
    the ioctl definitions if BSD_COMP is not set.  */
-#if defined(__svr4__)
+#if defined __svr4__
 # define BSD_COMP 1
 #endif
 
@@ -38,6 +38,7 @@
 
 #include <ifconfig.h>
 
+#ifndef HAVE_STRUCT_IF_NAMEINDEX
 unsigned int
 if_nametoindex (const char *ifname)
 {
@@ -47,12 +48,13 @@ if_nametoindex (const char *ifname)
     int fd = socket (AF_INET, SOCK_DGRAM, 0);
     if (fd >= 0)
       {
+	int rc;
 	struct ifreq ifr;
 	strncpy (ifr.ifr_name, ifname, sizeof (ifr.ifr_name));
 	ifr.ifr_name[IFNAMSIZ - 1] = '\0';
-	result = ioctl (fd, SIOCGIFINDEX, &ifr);
+	rc = ioctl (fd, SIOCGIFINDEX, &ifr);
 	close (fd);
-	if (result == 0)
+	if (rc == 0)
 	  return ifr.ifr_index;
       }
   }
@@ -85,8 +87,7 @@ if_freenameindex (struct if_nameindex *ifn)
     return;
   while (ptr->if_name || ptr->if_index)
     {
-      if (ptr->if_name)
-	free (ptr->if_name);
+      free (ptr->if_name);
       ++ptr;
     }
   free (ifn);
@@ -95,7 +96,7 @@ if_freenameindex (struct if_nameindex *ifn)
 struct if_nameindex *
 if_nameindex (void)
 {
-#if defined(SIOCGIFCONF)
+#if defined SIOCGIFCONF
   int fd = socket (AF_INET, SOCK_DGRAM, 0);
   struct ifconf ifc;
   unsigned int i = 0;
@@ -130,19 +131,9 @@ if_nameindex (void)
   end = (struct ifreq *) ((caddr_t) ifr + ifc.ifc_len);
   while (ifr < end)
     {
-      int len;
-# ifdef HAVE_SOCKADDR_SA_LEN
-#  undef MAX
-#  define MAX(a,b)  (((a) > (b)) ? (a) : (b))
-      len = MAX (sizeof (struct sockaddr), ifr->ifr_addr.sa_len);
-# else
-      len = sizeof (struct sockaddr);
-# endif
-
       cur = ifr;
 
-      /* Step along the array by the size of the current structure */
-      ifr = (struct ifreq *) ((caddr_t) ifr + len + IFNAMSIZ);
+      ++ifr;
 
       /* We ignore the other families .. OK ?  */
       if (cur->ifr_addr.sa_family != AF_INET)
@@ -173,7 +164,7 @@ if_nameindex (void)
 	  return NULL;
 	}
 
-# if defined(SIOCGIFINDEX)
+# if defined SIOCGIFINDEX
       if (ioctl (fd, SIOCGIFINDEX, cur) >= 0)
 	idx[i].if_index = cur->ifr_index;
       else
@@ -206,50 +197,4 @@ if_nameindex (void)
   return NULL;
 #endif
 }
-
-char *
-if_indextoname (unsigned int ifindex, char *ifname)
-{
-#if defined SIOCGIFNAME
-  {
-    int fd = socket (AF_INET, SOCK_DGRAM, 0);
-    if (fd >= 0)
-      {
-	struct ifreq ifr;
-
-	ifr.ifr_index = ifindex;
-	if (ioctl (fd, SIOCGIFNAME, &ifr) == 0)
-	  {
-	    close (fd);
-	    strncpy (ifname, ifr.ifr_name, IFNAMSIZ);
-	    ifname[IFNAMSIZ - 1] = '\0';
-	    return ifname;
-	  }
-	close (fd);
-      }
-  }
-#else
-  {
-    struct if_nameindex *idx;
-    char *result = NULL;
-
-    idx = if_nameindex ();
-
-    if (idx != NULL)
-      {
-	struct if_nameindex *p;
-	for (p = idx; p->if_index || p->if_name; ++p)
-	  {
-	    if (p->if_index == ifindex)
-	      {
-		result = strncpy (ifname, p->if_name, IFNAMSIZ);
-		result[IFNAMSIZ - 1] = '\0';
-		break;
-	      }
-	  }
-	if_freenameindex (idx);
-      }
-    return result;
-  }
 #endif
-}

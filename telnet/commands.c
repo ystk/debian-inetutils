@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,66 +47,28 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
+#include <config.h>
 
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
-
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
 #ifdef HAVE_SYS_PARAM_H
 # include <sys/param.h>
 #endif
-#ifdef HAVE_SYS_TYPES_H
-# include <sys/types.h>
-#endif
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/file.h>
 
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#ifdef HAVE_FCNTL_H
-# include <fcntl.h>
-#endif /* CRAY */
+#include <fcntl.h>
 
 #include <signal.h>
 #include <netdb.h>
 #include <ctype.h>
 #include <pwd.h>
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
-# include <stdarg.h>
-#else
-# include <varargs.h>
-#endif
+#include <stdarg.h>
 #include <errno.h>
 
-#if defined(STDC_HEADERS) || defined(HAVE_STDLIB_H)
-# include <stdlib.h>
-#endif
-#ifdef HAVE_MALLOC_H
-# include <malloc.h>
-#endif
+#include <stdlib.h>
 
 #include <arpa/inet.h>
 #include <arpa/telnet.h>
@@ -101,11 +83,14 @@
 #include "defines.h"
 #include "types.h"
 
-#if !defined(CRAY) && !defined(sysV88)
+#include "xalloc.h"
+#include "xvasprintf.h"
+
+#if !defined CRAY && !defined sysV88
 # ifdef HAVE_NETINET_IN_SYSTM_H
 #  include <netinet/in_systm.h>
 # endif
-# if (defined(vax) || defined(tahoe) || defined(hp300)) && !defined(ultrix)
+# if (defined vax || defined tahoe || defined hp300) && !defined ultrix
 #  include <machine/endian.h>
 # endif	/* vax */
 #endif /* !defined(CRAY) && !defined(sysV88) */
@@ -153,7 +138,7 @@ makeargv (void)
       margc++;
       cp++;
     }
-  while (c = *cp)
+  while ((c = *cp))
     {
       register int inquote = 0;
       while (isspace (c))
@@ -432,7 +417,7 @@ sendcmd (int argc, char **argv)
 }
 
 static int
-send_esc ()
+send_esc (void)
 {
   NETADD (escape);
   return 1;
@@ -442,7 +427,9 @@ int
 send_tncmd (void (*func) (), char *cmd, char *name)
 {
   char **cpp;
+#if !HAVE_DECL_TELOPTS
   extern char *telopts[];
+#endif
   register int val = 0;
 
   if (isprefix (name, "help") || isprefix (name, "?"))
@@ -477,7 +464,11 @@ send_tncmd (void (*func) (), char *cmd, char *name)
     }
   if (cpp)
     {
+#if HAVE_DECL_TELOPTS
+      val = cpp - (char **) telopts;
+#else /* !HAVE_DECL_TELOPTS */
       val = cpp - telopts;
+#endif
     }
   else
     {
@@ -536,7 +527,7 @@ send_wontcmd (char *name)
 }
 
 static int
-send_help ()
+send_help (void)
 {
   struct sendlist *s;		/* pointer to current command */
   for (s = Sendlist; s->name; s++)
@@ -553,14 +544,14 @@ send_help ()
  */
 
 static int
-lclchars ()
+lclchars (void)
 {
   donelclchars = 1;
   return 1;
 }
 
 static int
-togdebug ()
+togdebug (void)
 {
 #ifndef NOT43
   if (net > 0 && (SetSockOpt (net, SOL_SOCKET, SO_DEBUG, debug)) < 0)
@@ -581,7 +572,7 @@ togdebug ()
 
 
 static int
-togcrlf ()
+togcrlf (void)
 {
   if (crlf)
     {
@@ -721,7 +712,7 @@ togxbinary (int val)
 
 
 static int togglehelp (void);
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 extern int auth_togdebug (int);
 #endif
 #ifdef	ENCRYPTION
@@ -751,7 +742,7 @@ static struct togglelist Togglelist[] = {
    0,
    &autosynch,
    "send interrupt characters in urgent mode"},
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
   {"autologin",
    "automatic sending of login and/or authentication info",
    0,
@@ -821,7 +812,7 @@ static struct togglelist Togglelist[] = {
    &localchars,
    "recognize certain control characters"},
   {" ", "", 0},			/* empty line */
-#if defined(unix) && defined(TN3270)
+#if defined unix && defined TN3270
   {"apitrace",
    "(debugging) toggle tracing of API transactions",
    0,
@@ -868,7 +859,7 @@ static struct togglelist Togglelist[] = {
 };
 
 static int
-togglehelp ()
+togglehelp (void)
 {
   struct togglelist *c;
 
@@ -1005,7 +996,7 @@ static struct setlist Setlist[] = {
   {0}
 };
 
-#if defined(CRAY) && !defined(__STDC__)
+#if defined CRAY && !defined __STDC__
 /* Work around compiler bug in pcc 4.1.5 */
 void
 _setlist_init ()
@@ -1235,17 +1226,18 @@ unsetcmd (int argc, char *argv[])
 extern int kludgelinemode;
 
 static int
-dokludgemode ()
+dokludgemode (void)
 {
   kludgelinemode = 1;
   send_wont (TELOPT_LINEMODE, 1);
   send_dont (TELOPT_SGA, 1);
   send_dont (TELOPT_ECHO, 1);
+  return 0;
 }
 #endif
 
 static int
-dolinemode ()
+dolinemode (void)
 {
 #ifdef	KLUDGELINEMODE
   if (kludgelinemode)
@@ -1257,7 +1249,7 @@ dolinemode ()
 }
 
 static int
-docharmode ()
+docharmode (void)
 {
 #ifdef	KLUDGELINEMODE
   if (kludgelinemode)
@@ -1270,8 +1262,7 @@ docharmode ()
 }
 
 static int
-dolmmode (bit, on)
-     int bit, on;
+dolmmode (int bit, int on)
 {
   unsigned char c;
   extern int linemode;
@@ -1312,7 +1303,7 @@ struct modelist
   int arg1;
 };
 
-extern int modehelp ();
+extern int modehelp (void);
 
 static struct modelist ModeList[] = {
   {"character", "Disable LINEMODE option", docharmode, 1},
@@ -1349,7 +1340,7 @@ static struct modelist ModeList[] = {
 
 
 int
-modehelp ()
+modehelp (void)
 {
   struct modelist *mt;
 
@@ -1514,7 +1505,7 @@ setescape (int argc, char *argv[])
 }
 
 static int
-togcrmod ()
+togcrmod (void)
 {
   crmod = !crmod;
   printf ("Deprecated usage - please use 'toggle crmod' in the future.\n");
@@ -1524,7 +1515,7 @@ togcrmod ()
 }
 
 int
-suspend ()
+suspend (void)
 {
 #ifdef	SIGTSTP
   setcommandmode ();
@@ -1553,7 +1544,7 @@ suspend ()
   return 1;
 }
 
-#if !defined(TN3270)
+#if !defined TN3270
 int
 shell (int argc, char *argv[])
 {
@@ -1575,7 +1566,7 @@ shell (int argc, char *argv[])
 	 */
 	register char *shellp, *shellname;
 # ifndef strrchr
-	extern char *strrchr ();
+	extern char *strrchr (const char *, int);
 # endif
 
 	shellp = getenv ("SHELL");
@@ -1586,9 +1577,9 @@ shell (int argc, char *argv[])
 	else
 	  shellname++;
 	if (argc > 1)
-	  execl (shellp, shellname, "-c", &saveline[1], 0);
+	  execl (shellp, shellname, "-c", &saveline[1], NULL);
 	else
-	  execl (shellp, shellname, 0);
+	  execl (shellp, shellname, NULL);
 	perror ("Execl");
 	_exit (1);
       }
@@ -1623,12 +1614,12 @@ bye (int argc, char *argv[])
       NetClose (net);
       connected = 0;
       resettermname = 1;
-#if defined(AUTHENTICATION) || defined(ENCRYPTION)
+#if defined AUTHENTICATION || defined ENCRYPTION
       auth_encrypt_connect (connected);
 #endif /* defined(AUTHENTICATION) || defined(ENCRYPTION) */
       /* reset options */
       tninit ();
-#if defined(TN3270)
+#if defined TN3270
       SetIn3270 ();		/* Get out of 3270 mode */
 #endif /* defined(TN3270) */
     }
@@ -1640,14 +1631,15 @@ bye (int argc, char *argv[])
 }
 
 int
-quit ()
+quit (void)
 {
   call (bye, "bye", "fromquit", 0);
   Exit (0);
+  return 0;
 }
 
 int
-logout ()
+logout (void)
 {
   send_do (TELOPT_LOGOUT, 1);
   netflush ();
@@ -1667,7 +1659,7 @@ struct slclist
   int arg;
 };
 
-static void slc_help ();
+static void slc_help (void);
 
 struct slclist SlcList[] = {
   {"export", "Use local special character definitions",
@@ -1682,7 +1674,7 @@ struct slclist SlcList[] = {
 };
 
 static void
-slc_help ()
+slc_help (void)
 {
   struct slclist *c;
 
@@ -1699,17 +1691,14 @@ slc_help ()
 }
 
 static struct slclist *
-getslc (name)
-     char *name;
+getslc (char *name)
 {
   return (struct slclist *)
     genget (name, (char **) SlcList, sizeof (struct slclist));
 }
 
 static int
-slccmd (argc, argv)
-     int argc;
-     char *argv[];
+slccmd (int argc, char **argv)
 {
   struct slclist *c;
 
@@ -1749,13 +1738,13 @@ struct envlist
   int narg;
 };
 
-extern struct env_lst *env_define (unsigned char *, unsigned char *);
+extern struct env_lst *env_define (const char *, unsigned char *);
 extern void
-env_undefine (unsigned char *),
-env_export (unsigned char *),
-env_unexport (unsigned char *), env_send (unsigned char *),
-#if defined(OLD_ENVIRON) && defined(ENV_HACK)
-  env_varval (unsigned char *),
+env_undefine (const char *),
+env_export (const char *),
+env_unexport (const char *), env_send (const char *),
+#if defined OLD_ENVIRON && defined ENV_HACK
+  env_varval (const char *),
 #endif
   env_list (void);
 static void env_help (void);
@@ -1772,7 +1761,7 @@ struct envlist EnvList[] = {
   {"send", "Send an environment variable", env_send, 1},
   {"list", "List the current environment variables",
    env_list, 0},
-#if defined(OLD_ENVIRON) && defined(ENV_HACK)
+#if defined OLD_ENVIRON && defined ENV_HACK
   {"varval", "Reverse VAR and VALUE (auto, right, wrong, status)",
    env_varval, 1},
 #endif
@@ -1782,7 +1771,7 @@ struct envlist EnvList[] = {
 };
 
 static void
-env_help ()
+env_help (void)
 {
   struct envlist *c;
 
@@ -1854,34 +1843,35 @@ struct env_lst
 struct env_lst envlisthead;
 
 struct env_lst *
-env_find (unsigned char *var)
+env_find (const char *var)
 {
   register struct env_lst *ep;
 
   for (ep = envlisthead.next; ep; ep = ep->next)
     {
-      if (strcmp ((char *) ep->var, (char *) var) == 0)
+      if (strcmp ((char *) ep->var, var) == 0)
 	return (ep);
     }
   return (NULL);
 }
 
 void
-env_init ()
+env_init (void)
 {
   extern char **environ;
   register char **epp, *cp;
   register struct env_lst *ep;
 #ifndef strchr
-  extern char *strchr ();
+  extern char *strchr (const char *, int);
 #endif
 
   for (epp = environ; *epp; epp++)
     {
-      if (cp = strchr (*epp, '='))
+      cp = strchr (*epp, '=');
+      if (cp)
 	{
 	  *cp = '\0';
-	  ep = env_define ((unsigned char *) *epp, (unsigned char *) cp + 1);
+	  ep = env_define (*epp, (unsigned char *) cp + 1);
 	  ep->export = 0;
 	  *cp = '=';
 	}
@@ -1913,24 +1903,21 @@ env_init ()
    */
   if ((env_find ("USER") == NULL) && (ep = env_find ("LOGNAME")))
     {
-      env_define ((unsigned char *) "USER", ep->value);
-      env_unexport ((unsigned char *) "USER");
+      env_define ("USER", ep->value);
+      env_unexport ("USER");
     }
-  env_export ((unsigned char *) "DISPLAY");
-  env_export ((unsigned char *) "PRINTER");
+  env_export ("DISPLAY");
+  env_export ("PRINTER");
 }
 
 struct env_lst *
-env_define (unsigned char *var, unsigned char *value)
+env_define (const char *var, unsigned char *value)
 {
-  register struct env_lst *ep;
-
-  if (ep = env_find (var))
+  register struct env_lst *ep = env_find (var);
+  if (ep)
     {
-      if (ep->var)
-	free (ep->var);
-      if (ep->value)
-	free (ep->value);
+      free (ep->var);
+      free (ep->value);
     }
   else
     {
@@ -1941,7 +1928,7 @@ env_define (unsigned char *var, unsigned char *value)
       if (ep->next)
 	ep->next->prev = ep;
     }
-  ep->welldefined = opt_welldefined (var);
+  ep->welldefined = opt_welldefined ((char *)var);
   ep->export = 1;
   ep->var = (unsigned char *) strdup ((char *) var);
   ep->value = (unsigned char *) strdup ((char *) value);
@@ -1949,43 +1936,38 @@ env_define (unsigned char *var, unsigned char *value)
 }
 
 void
-env_undefine (unsigned char *var)
+env_undefine (const char *var)
 {
-  register struct env_lst *ep;
-
-  if (ep = env_find (var))
+  register struct env_lst *ep = env_find (var);
+  if (ep)
     {
       ep->prev->next = ep->next;
       if (ep->next)
 	ep->next->prev = ep->prev;
-      if (ep->var)
-	free (ep->var);
-      if (ep->value)
-	free (ep->value);
+      free (ep->var);
+      free (ep->value);
       free (ep);
     }
 }
 
 void
-env_export (unsigned char *var)
+env_export (const char *var)
 {
-  register struct env_lst *ep;
-
-  if (ep = env_find (var))
+  register struct env_lst *ep = env_find (var);
+  if (ep)
     ep->export = 1;
 }
 
 void
-env_unexport (unsigned char *var)
+env_unexport (const char *var)
 {
-  register struct env_lst *ep;
-
-  if (ep = env_find (var))
+  register struct env_lst *ep = env_find (var);
+  if (ep)
     ep->export = 0;
 }
 
 void
-env_send (unsigned char *var)
+env_send (const char *var)
 {
   register struct env_lst *ep;
 
@@ -2011,7 +1993,7 @@ env_send (unsigned char *var)
 }
 
 void
-env_list ()
+env_list (void)
 {
   register struct env_lst *ep;
 
@@ -2033,7 +2015,7 @@ env_default (int init, int welldefined)
     }
   if (nep)
     {
-      while (nep = nep->next)
+      while ((nep = nep->next))
 	{
 	  if (nep->export && (nep->welldefined == welldefined))
 	    return (nep->var);
@@ -2043,21 +2025,20 @@ env_default (int init, int welldefined)
 }
 
 unsigned char *
-env_getvalue (unsigned char *var)
+env_getvalue (const char *var)
 {
-  register struct env_lst *ep;
-
-  if (ep = env_find (var))
+  register struct env_lst *ep  = env_find (var);
+  if (ep)
     return (ep->value);
   return (NULL);
 }
 
-#if defined(OLD_ENVIRON) && defined(ENV_HACK)
+#if defined OLD_ENVIRON && defined ENV_HACK
 void
-env_varval (unsigned char *what)
+env_varval (const char *what)
 {
   extern int old_env_var, old_env_value, env_auto;
-  int len = strlen ((char *) what);
+  int len = strlen (what);
 
   if (len == 0)
     goto unknown;
@@ -2099,7 +2080,7 @@ env_varval (unsigned char *what)
 }
 #endif
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 /*
  * The AUTHENTICATE command.
  */
@@ -2311,7 +2292,7 @@ encrypt_cmd (int argc, char *argv[])
 }
 #endif /* ENCRYPTION */
 
-#if defined(unix) && defined(TN3270)
+#if defined unix && defined TN3270
 static void
 filestuff (int fd)
 {
@@ -2389,7 +2370,7 @@ status (int argc, char *argv[])
     {
       printf ("No connection.\n");
     }
-#if !defined(TN3270)
+#if !defined TN3270
   printf ("Escape character is '%s'.\n", control (escape));
   fflush (stdout);
 #else /* !defined(TN3270) */
@@ -2397,7 +2378,7 @@ status (int argc, char *argv[])
     {
       printf ("Escape character is '%s'.\n", control (escape));
     }
-# if defined(unix)
+# if defined unix
   if ((argc >= 2) && !strcmp (argv[1], "everything"))
     {
       printf ("SIGIO received %d time%s.\n",
@@ -2556,8 +2537,7 @@ tn (int argc, char *argv[])
 	telnetport = 0;
     }
 
-  if (hostname)
-    free (hostname);
+  free (hostname);
   hostname = malloc (strlen (hostp) + 1);
   if (hostname)
     strcpy (hostname, hostp);
@@ -2641,7 +2621,7 @@ tn (int argc, char *argv[])
 	}
 
       connected++;
-# if defined(AUTHENTICATION) || defined(ENCRYPTION)
+# if defined AUTHENTICATION || defined ENCRYPTION
       auth_encrypt_connect (connected);
 # endif	/* defined(AUTHENTICATION) || defined(ENCRYPTION) */
     }
@@ -2693,7 +2673,7 @@ tn (int argc, char *argv[])
 	  perror ("telnet: socket");
 	  return 0;
 	}
-# if defined(IPPROTO_IP) && defined(IP_TOS)
+# if defined IPPROTO_IP && defined IP_TOS
       {
 #  ifdef IPTOS_LOWDELAY
 	const int tos = IPTOS_LOWDELAY;
@@ -2732,7 +2712,7 @@ tn (int argc, char *argv[])
 	  return 0;
 	}
       connected++;
-# if defined(AUTHENTICATION) || defined(ENCRYPTION)
+# if defined AUTHENTICATION || defined ENCRYPTION
       auth_encrypt_connect (connected);
 # endif	/* defined(AUTHENTICATION) || defined(ENCRYPTION) */
     }
@@ -2744,9 +2724,9 @@ tn (int argc, char *argv[])
       struct passwd *pw;
 
       user = getenv ("USER");
-      if (user == NULL || (pw = getpwnam (user)) && pw->pw_uid != getuid ())
+      if (user == NULL || ((pw = getpwnam (user)) && pw->pw_uid != getuid ()))
 	{
-	  if (pw = getpwuid (getuid ()))
+	  if ((pw = getpwuid (getuid ())))
 	    user = pw->pw_name;
 	  else
 	    user = NULL;
@@ -2754,8 +2734,8 @@ tn (int argc, char *argv[])
     }
   if (user)
     {
-      env_define ((unsigned char *) "USER", (unsigned char *) user);
-      env_export ((unsigned char *) "USER");
+      env_define ("USER", (unsigned char *) user);
+      env_export ("USER");
     }
   call (status, "status", "notmuch", 0);
   if (setjmp (peerdied) == 0)
@@ -2781,18 +2761,18 @@ static char
   togglestring[] = "toggle operating parameters ('toggle ?' for more)",
   slchelp[] = "change state of special characters ('slc ?' for more)",
   displayhelp[] = "display operating parameters",
-#if defined(TN3270) && defined(unix)
+#if defined TN3270 && defined unix
   transcomhelp[] = "specify Unix command for transparent mode pipe",
 #endif
   /* defined(TN3270) && defined(unix) */
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
   authhelp[] = "turn on (off) authentication ('auth ?' for more)",
 #endif
 #ifdef	ENCRYPTION
   encrypthelp[] = "turn on (off) encryption ('encrypt ?' for more)",
 #endif
   /* ENCRYPTION */
-#if defined(unix)
+#if defined unix
   zhelp[] = "suspend telnet",
 #endif
   /* defined(unix) */
@@ -2800,7 +2780,7 @@ static char
   envhelp[] = "change environment variables ('environ ?' for more)",
   modestring[] = "try to enter line or character mode ('mode ?' for more)";
 
-static int help ();
+static int help (int argc, char **argv);
 
 static Command cmdtab[] = {
   {"close", closehelp, bye, 1},
@@ -2815,26 +2795,26 @@ static Command cmdtab[] = {
   {"status", statushelp, status, 0},
   {"toggle", togglestring, toggle, 0},
   {"slc", slchelp, slccmd, 0},
-#if defined(TN3270) && defined(unix)
+#if defined TN3270 && defined unix
   {"transcom", transcomhelp, settranscom, 0},
 #endif /* defined(TN3270) && defined(unix) */
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
   {"auth", authhelp, auth_cmd, 0},
 #endif
 #ifdef	ENCRYPTION
   {"encrypt", encrypthelp, encrypt_cmd, 0},
 #endif /* ENCRYPTION */
-#if defined(unix)
+#if defined unix
   {"z", zhelp, suspend, 0},
 #endif /* defined(unix) */
-#if defined(TN3270)
+#if defined TN3270
   {"!", shellhelp, shell, 1},
 #else
   {"!", shellhelp, shell, 0},
 #endif
   {"environ", envhelp, env_cmd, 0},
   {"?", helphelp, help, 0},
-  0
+  {0}
 };
 
 static char crmodhelp[] = "deprecated command -- use 'toggle crmod' instead";
@@ -2844,7 +2824,7 @@ static Command cmdtab2[] = {
   {"help", 0, help, 0},
   {"escape", escapehelp, setescape, 0},
   {"crmod", crmodhelp, togcrmod, 0},
-  0
+  {0}
 };
 
 
@@ -2853,26 +2833,13 @@ static Command cmdtab2[] = {
  */
 
 static int
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
 call (intrtn_t routine, ...)
-#else
-call (va_alist)
-     va_dcl
-#endif
 {
   va_list ap;
-#if !(defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__)
-  intrtn_t routine;
-#endif
   char *args[100];
   int argno = 0;
 
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
   va_start (ap, routine);
-#else
-  va_start (ap);
-  routine = (va_arg (ap, intrtn_t));
-#endif
   while ((args[argno++] = va_arg (ap, char *)) != 0)
     {
       ;
@@ -2887,7 +2854,7 @@ getcmd (char *name)
 {
   Command *cm;
 
-  if (cm = (Command *) genget (name, (char **) cmdtab, sizeof (Command)))
+  if ((cm = (Command *) genget (name, (char **) cmdtab, sizeof (Command))))
     return cm;
   return (Command *) genget (name, (char **) cmdtab2, sizeof (Command));
 }
@@ -2901,7 +2868,7 @@ command (int top, char *tbuf, int cnt)
   if (!top)
     {
       putchar ('\n');
-#if defined(unix)
+#if defined unix
     }
   else
     {
@@ -2974,7 +2941,7 @@ command (int top, char *tbuf, int cnt)
 	{
 	  longjmp (toplevel, 1);
 	}
-#if defined(TN3270)
+#if defined TN3270
       if (shell_active == 0)
 	{
 	  setconnmode (0);
@@ -3019,7 +2986,6 @@ help (int argc, char *argv[])
 }
 
 static char *rcname = 0;
-static char rcbuf[128];
 
 static void
 cmdrc (char *m1, char *m2)
@@ -3029,23 +2995,17 @@ cmdrc (char *m1, char *m2)
   int gotmachine = 0;
   int l1 = strlen (m1);
   int l2 = strlen (m2);
-  char m1save[64];
 
   if (skiprc)
     return;
 
-  strcpy (m1save, m1);
-  m1 = m1save;
-
   if (rcname == 0)
     {
-      rcname = getenv ("HOME");
-      if (rcname)
-	strcpy (rcbuf, rcname);
+      const char *home = getenv ("HOME");
+      if (home)
+        rcname = xasprintf ("%s/.telnetrc", home);
       else
-	rcbuf[0] = '\0';
-      strcat (rcbuf, "/.telnetrc");
-      rcname = rcbuf;
+        rcname = xstrdup ("/.telnetrc");
     }
 
   if ((rcfile = fopen (rcname, "r")) == 0)

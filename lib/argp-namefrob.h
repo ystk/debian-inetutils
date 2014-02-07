@@ -1,5 +1,5 @@
 /* Name frobnication for compiling argp outside of glibc
-   Copyright (C) 1997, 2003, 2007 Free Software Foundation, Inc.
+   Copyright (C) 1997, 2003, 2007, 2009-2011 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
    Written by Miles Bader <miles@gnu.ai.mit.edu>.
 
@@ -100,58 +100,58 @@
 #endif
 #if defined(HAVE_DECL_FEOF_UNLOCKED) && !HAVE_DECL_FEOF_UNLOCKED
 # define feof_unlocked(x) feof (x)
-# endif
+#endif
 #if defined(HAVE_DECL_FERROR_UNLOCKED) && !HAVE_DECL_FERROR_UNLOCKED
 # define ferror_unlocked(x) ferror (x)
-# endif
+#endif
 #if defined(HAVE_DECL_FFLUSH_UNLOCKED) && !HAVE_DECL_FFLUSH_UNLOCKED
 # define fflush_unlocked(x) fflush (x)
-# endif
+#endif
 #if defined(HAVE_DECL_FGETS_UNLOCKED) && !HAVE_DECL_FGETS_UNLOCKED
 # define fgets_unlocked(x,y,z) fgets (x,y,z)
-# endif
+#endif
 #if defined(HAVE_DECL_FPUTC_UNLOCKED) && !HAVE_DECL_FPUTC_UNLOCKED
 # define fputc_unlocked(x,y) fputc (x,y)
-# endif
+#endif
 #if defined(HAVE_DECL_FPUTS_UNLOCKED) && !HAVE_DECL_FPUTS_UNLOCKED
 # define fputs_unlocked(x,y) fputs (x,y)
-# endif
+#endif
 #if defined(HAVE_DECL_FREAD_UNLOCKED) && !HAVE_DECL_FREAD_UNLOCKED
 # define fread_unlocked(w,x,y,z) fread (w,x,y,z)
-# endif
+#endif
 #if defined(HAVE_DECL_FWRITE_UNLOCKED) && !HAVE_DECL_FWRITE_UNLOCKED
 # define fwrite_unlocked(w,x,y,z) fwrite (w,x,y,z)
-# endif
+#endif
 #if defined(HAVE_DECL_GETC_UNLOCKED) && !HAVE_DECL_GETC_UNLOCKED
 # define getc_unlocked(x) getc (x)
-# endif
+#endif
 #if defined(HAVE_DECL_GETCHAR_UNLOCKED) && !HAVE_DECL_GETCHAR_UNLOCKED
 #  define getchar_unlocked() getchar ()
-# endif
+#endif
 #if defined(HAVE_DECL_PUTC_UNLOCKED) && !HAVE_DECL_PUTC_UNLOCKED
 # define putc_unlocked(x,y) putc (x,y)
-# endif
+#endif
 #if defined(HAVE_DECL_PUTCHAR_UNLOCKED) && !HAVE_DECL_PUTCHAR_UNLOCKED
 # define putchar_unlocked(x) putchar (x)
-# endif
+#endif
 
 #endif /* !_LIBC */
 
 #ifndef __set_errno
-#define __set_errno(e) (errno = (e))
+# define __set_errno(e) (errno = (e))
 #endif
 
 #if defined GNULIB_ARGP_DISABLE_DIRNAME
 # define __argp_base_name(arg) arg
 #elif defined GNULIB_ARGP_EXTERN_BASENAME
-extern char *__argp_base_name(const char *arg);
+extern char *__argp_base_name (const char *arg);
 #else
 # include "dirname.h"
-# define __argp_base_name base_name
+# define __argp_base_name last_component
 #endif
 
 #if defined _LIBC || HAVE_DECL_PROGRAM_INVOCATION_SHORT_NAME
-# define __argp_short_program_name()	(program_invocation_short_name)
+# define __argp_short_program_name()    (program_invocation_short_name)
 #else
 extern char *__argp_short_program_name (void);
 #endif

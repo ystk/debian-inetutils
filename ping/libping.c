@@ -1,32 +1,29 @@
-/* Copyright (C) 1998, 2001, 2005, 2007, 2008 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/file.h>
 #include <sys/time.h>
-#include <signal.h>
 
+#include <netinet/in.h>
 /*#include <netinet/ip_icmp.h> -- deliberately not including this */
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -66,7 +63,7 @@ ping_init (int type, int ident)
   fd = socket (AF_INET, SOCK_RAW, proto->p_proto);
   if (fd < 0)
     {
-      if (errno == EPERM)
+      if (errno == EPERM || errno == EACCES)
 	fprintf (stderr, "ping: ping must run as root\n");
       return NULL;
     }
@@ -86,9 +83,10 @@ ping_init (int type, int ident)
   p->ping_count = 0;
   p->ping_interval = PING_DEFAULT_INTERVAL;
   p->ping_datalen = sizeof (icmphdr_t);
-  /* Make sure we use only 16 bits in this field, id for icmp is a u_short.  */
+  /* Make sure we use only 16 bits in this field, id for icmp is a unsigned short.  */
   p->ping_ident = ident & 0xFFFF;
   p->ping_cktab_size = PING_CKTABSIZE;
+  gettimeofday (&p->ping_start_time, NULL);
   return p;
 }
 
@@ -117,7 +115,7 @@ ping_xmit (PING * p)
   buflen = _ping_packetsize (p);
 
   /* Mark sequence number as sent */
-  _PING_CLR (p, p->ping_num_xmit % p->ping_cktab_size);
+  _PING_CLR (p, p->ping_num_xmit);
 
   /* Encode ICMP header */
   switch (p->ping_type)
@@ -172,7 +170,7 @@ my_echo_reply (PING * p, icmphdr_t * icmp)
 int
 ping_recv (PING * p)
 {
-  int fromlen = sizeof (p->ping_from.ping_sockaddr);
+  socklen_t fromlen = sizeof (p->ping_from.ping_sockaddr);
   int n, rc;
   icmphdr_t *icmp;
   struct ip *ip;
@@ -208,7 +206,7 @@ ping_recv (PING * p)
 		 inet_ntoa (p->ping_from.ping_sockaddr.sin_addr));
 
       p->ping_num_recv++;
-      if (_PING_TST (p, icmp->icmp_seq % p->ping_cktab_size))
+      if (_PING_TST (p, icmp->icmp_seq))
 	{
 	  p->ping_num_rept++;
 	  p->ping_num_recv--;
@@ -216,7 +214,7 @@ ping_recv (PING * p)
 	}
       else
 	{
-	  _PING_SET (p, icmp->icmp_seq % p->ping_cktab_size);
+	  _PING_SET (p, icmp->icmp_seq);
 	  dupflag = 0;
 	}
 

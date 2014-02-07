@@ -1,25 +1,24 @@
-/* Copyright (C) 2002, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #ifdef KRB5
 # include <stdlib.h>
@@ -32,11 +31,7 @@
 # include <netdb.h>
 # include <ctype.h>
 # include <syslog.h>
-# ifdef  HAVE_STRING_H
-#  include <string.h>
-# else
-#  include <strings.h>
-# endif
+# include <string.h>
 
 # include "auth.h"
 # include "misc.h"
@@ -587,8 +582,7 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
 	  name ? name : ""));
   auth_finished (ap, AUTH_USER);
 
-  if (name)
-    free (name);
+  free (name);
   krb5_auth_con_getremotesubkey (telnet_context, auth_context, &newkey);
 
   if (session_key)
@@ -835,8 +829,7 @@ kerberos5_forward (TN_Authenticator * ap)
     krb5_free_principal (telnet_context, client);
   if (server)
     krb5_free_principal (telnet_context, server);
-  if (forw_creds.data)
-    free (forw_creds.data);
+  free (forw_creds.data);
   krb5_cc_close (telnet_context, ccache);
 }
 # endif

@@ -1,42 +1,33 @@
 /* solaris.c -- Solaris specific code for ifconfig
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2002, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA.
- */
+/* Written by Marcus Brinkmann.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/stat.h>
 #include <stdio.h>
 #include <errno.h>
 
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
+#include <unistd.h>
 
-#if HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #if STDC_HEADERS
 # include <stdlib.h>
@@ -65,10 +56,9 @@ const char *system_default_format = "unix";
 /* Argument parsing stuff.  */
 
 const char *system_help = "\
-  NAME [ADDR [DSTADDR]] [broadcast BRDADDR]\n\
-  [netmask MASK] [metric N] [mtu N]";
+NAME [ADDR [DSTADDR]] [broadcast BRDADDR] [netmask MASK] [metric N] [mtu N]";
 
-const char *system_help_options;
+struct argp_child system_argp_child;
 
 int
 system_parse_opt (struct ifconfig **ifp, char option, char *optarg)
@@ -141,32 +131,25 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
   switch (expect)
     {
     case EXPECT_BROADCAST:
-      fprintf (stderr, "%s: option `broadcast' requires an argument\n",
-	       program_name);
+      error (0, 0, "option `broadcast' requires an argument");
       break;
 
     case EXPECT_NETMASK:
-      fprintf (stderr, "%s: option `netmask' requires an argument\n",
-	       program_name);
+      error (0, 0, "option `netmask' requires an argument");
       break;
 
     case EXPECT_METRIC:
-      fprintf (stderr, "%s: option `metric' requires an argument\n",
-	       program_name);
+      error (0, 0, "option `metric' requires an argument");
       break;
 
     case EXPECT_MTU:
-      fprintf (stderr, "%s: option `mtu' requires an argument\n",
-	       program_name);
+      error (0, 0, "option `mtu' requires an argument");
       break;
 
     case EXPECT_NOTHING:
       break;
     }
-  if (expect != EXPECT_NOTHING)
-    usage (EXIT_FAILURE);
-
-  return 1;
+  return expect == EXPECT_NOTHING;
 }
 
 int
@@ -176,8 +159,7 @@ system_configure (int sfd, struct ifreq *ifr, struct system_ifconfig *ifs)
   if (ifs->valid & IF_VALID_TXQLEN)
     {
 # ifndef SIOCSIFTXQLEN
-      printf ("%s: Don't know how to set the txqlen on this system.\n",
-	      program_name);
+      error (0, 0, "don't know how to set the txqlen on this system");
       return -1;
 # else
       int err = 0;
@@ -185,11 +167,7 @@ system_configure (int sfd, struct ifreq *ifr, struct system_ifconfig *ifs)
       ifr->ifr_qlen = ifs->txqlen;
       err = ioctl (sfd, SIOCSIFTXQLEN, ifr);
       if (err < 0)
-	{
-	  fprintf (stderr, "%s: SIOCSIFTXQLEN failed: %s\n",
-		   program_name, strerror (errno));
-	  return -1;
-	}
+	error (0, errno, "SIOCSIFTXQLEN failed");
       if (verbose)
 	printf ("Set txqlen value of `%s' to `%i'.\n",
 		ifr->ifr_name, ifr->ifr_qlen);
@@ -198,3 +176,9 @@ system_configure (int sfd, struct ifreq *ifr, struct system_ifconfig *ifs)
   return 0;
 #endif
 }
+
+
+
+/* System hooks. */
+
+struct if_nameindex* (*system_if_nameindex) (void) = if_nameindex;

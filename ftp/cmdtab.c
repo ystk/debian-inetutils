@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1985, 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,9 +47,7 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -56,11 +74,15 @@ char debughelp[] = "toggle/set debugging mode";
 char dirhelp[] = "list contents of remote directory";
 char disconhelp[] = "terminate ftp session";
 char domachelp[] = "execute macro";
+char epsv4help[] ="toggle the use of EPRT/EPSV for IPv4";
 char formhelp[] = "set file transfer format";
 char globhelp[] = "toggle metacharacter expansion of local file names";
 char hashhelp[] = "toggle printing `#' for each buffer transferred";
 char helphelp[] = "print local help information";
 char idlehelp[] = "get (set) idle timer on remote side";
+char ipanyhelp[] = "allow all address families";
+char ipv4help[] = "select only IPv4 addresses";
+char ipv6help[] = "select only IPv6 addresses";
 char lcdhelp[] = "change local working directory";
 char lshelp[] = "list contents of remote directory";
 char macdefhelp[] = "define a macro";
@@ -127,6 +149,7 @@ static struct cmd cmdtab[] = {
   {"debug", debughelp, 0, 0, 0, setdebug},
   {"dir", dirhelp, 1, 1, 1, ls},
   {"disconnect", disconhelp, 0, 1, 1, disconnect},
+  {"epsv4", epsv4help, 0, 0, 0, setepsv4},
   {"form", formhelp, 0, 1, 1, setform},
   {"get", receivehelp, 1, 1, 1, get},
   {"glob", globhelp, 0, 0, 0, setglob},
@@ -134,6 +157,9 @@ static struct cmd cmdtab[] = {
   {"help", helphelp, 0, 0, 1, help},
   {"idle", idlehelp, 0, 1, 1, site_idle},
   {"image", binaryhelp, 0, 1, 1, setbinary},
+  {"ipany", ipanyhelp, 0, 0, 0, setipany},
+  {"ipv4", ipv4help, 0, 0, 0, setipv4},
+  {"ipv6", ipv6help, 0, 0, 0, setipv6},
   {"lcd", lcdhelp, 0, 0, 0, lcd},
   {"ls", lshelp, 1, 1, 1, ls},
   {"macdef", macdefhelp, 0, 0, 0, macdef},

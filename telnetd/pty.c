@@ -1,24 +1,27 @@
-/* Copyright (C) 1998,2001,2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+  2011 Free Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include "telnetd.h"
 #include <sys/wait.h>
+#include <pty.h>
 
 #ifdef AUTHENTICATION
 # include <libtelnet/auth.h>
@@ -46,7 +49,7 @@ startslave (char *host, int autologin, char *autoname)
   if (autologin < auth_level)
     {
       fatal (net, "Authorization failed");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 #endif
   pid = forkpty (&master, line, NULL, NULL);
@@ -83,14 +86,14 @@ startslave (char *host, int autologin, char *autoname)
 extern char **environ;
 /*
  * scrub_env()
- *  
+ *
  * Remove a few things from the environment that
  * don't need to be there.
- *  
+ *
  * Security fix included in telnet-95.10.23.NE of David Borman <deb@cray.com>.
  */
 static void
-scrub_env ()
+scrub_env (void)
 {
   register char **cpp, **cpp2;
 
@@ -146,5 +149,5 @@ cleanup (int sig)
   chmod (line, 0644);
   chown (line, 0, 0);
   shutdown (net, 2);
-  exit (1);
+  exit (EXIT_FAILURE);
 }

@@ -1,23 +1,27 @@
-/* Copyright (C) 1998,2001,2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
+  Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include <intalkd.h>
+#include "unused-parameter.h"
 
 typedef struct request_table table_t;
 
@@ -88,7 +92,8 @@ lookup_request (CTL_MSG * request,
 }
 
 static int
-fuzzy_comp (table_t * ptr, CTL_MSG * request, time_t * unused ARG_UNUSED)
+fuzzy_comp (table_t * ptr, CTL_MSG * request,
+	    time_t * unused _GL_UNUSED_PARAMETER)
 {
   if (ptr->request.type == LEAVE_INVITE
       && strcmp (request->l_name, ptr->request.r_name) == 0
@@ -132,7 +137,7 @@ find_request (CTL_MSG * request)
 
 /* Generate a unique non-zero sequence number */
 int
-new_id ()
+new_id (void)
 {
   static int current_id = 0;
 
@@ -152,7 +157,7 @@ insert_table (CTL_MSG * request, CTL_RESPONSE * response)
   if (!ptr)
     {
       syslog (LOG_CRIT, "out of memory");
-      exit (1);
+      exit (EXIT_FAILURE);
     }
 
   request->id_num = new_id ();

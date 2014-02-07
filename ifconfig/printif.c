@@ -1,40 +1,32 @@
 /* printif.c -- print an interface configuration
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2002, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA. */
+/* Written by Marcus Brinkmann.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <errno.h>
 
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
+#include <unistd.h>
 
-#if HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #if STDC_HEADERS
 # include <stdlib.h>
@@ -45,6 +37,7 @@
 # endif
 #endif
 
+#include <alloca.h>
 #include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -65,10 +58,17 @@ struct format_handle format_handles[] = {
   SYSTEM_FORMAT_HANDLER
 #endif
   {"", fh_nothing},
+  {"format?", fh_format_query},
+  {"docstr", fh_docstr},
+  {"defn", fh_defn},
+  {"foreachformat", fh_foreachformat},
+  {"verbose?", fh_verbose_query},
   {"newline", fh_newline},
   {"\\n", fh_newline},
   {"\\t", fh_tabulator},
+  {"rep", fh_rep},
   {"first?", fh_first},
+  {"ifdisplay?", fh_ifdisplay_query},
   {"tab", fh_tab},
   {"join", fh_join},
   {"exists?", fh_exists_query},
@@ -94,6 +94,19 @@ struct format_handle format_handles[] = {
   {"mtu", fh_mtu},
   {"metric?", fh_metric_query},
   {"metric", fh_metric},
+#ifdef HAVE_STRUCT_IFREQ_IFR_MAP
+  {"map?", fh_map_query},
+  {"irq?", fh_irq_query},
+  {"irq", fh_irq},
+  {"baseaddr?", fh_baseaddr_query},
+  {"baseaddr", fh_baseaddr},
+  {"memstart?", fh_memstart_query},
+  {"memstart", fh_memstart},
+  {"memend?", fh_memend_query},
+  {"memend", fh_memend},
+  {"dma?", fh_dma_query},
+  {"dma", fh_dma},
+#endif
   {NULL, NULL}
 };
 
@@ -141,11 +154,14 @@ put_int (format_data_t form, int argc, char *argv[], int nr)
 	{
 	  p++;
 
+	  if (*p == '#')
+	    p++;
+
 	  while (isdigit (*p))
 	    p++;
 
-	  if (*p == '#')
-	    p++;
+	  if ((*p == 'h' || *p == 'H') && p[1])
+	    ++p; /* Half length modifier, go to type specifier.  */
 
 	  switch (*p)
 	    {
@@ -177,6 +193,62 @@ put_int (format_data_t form, int argc, char *argv[], int nr)
     fmt = "%i";
 
   *column += printf (fmt, nr);
+  had_output = 1;
+}
+
+void
+put_ulong (format_data_t form, int argc, char *argv[], unsigned long value)
+{
+  char *fmt;
+  if (argc > 0)
+    {
+      char *p = argv[0];
+
+      if (*p != '%')
+	fmt = "%lu";
+      else
+	{
+	  p++;
+
+	  while (isdigit (*p))
+	    p++;
+
+	  if (*p == '#')
+	    p++;
+
+	  if (*p == 'l')
+	    p++;
+
+	  switch (*p)
+	    {
+	    default:
+	    case 'i':
+	    case 'd':
+	    case 'D':
+	      *p = 'i';
+	      break;
+	    case 'x':
+	    case 'h':
+	      *p = 'x';
+	      break;
+	    case 'X':
+	    case 'H':
+	      *p = 'X';
+	      break;
+	    case 'o':
+	    case 'O':
+	      *p = 'o';
+	      break;
+	    }
+	  p++;
+	  *p = '\0';
+	  fmt = argv[0];
+	}
+    }
+  else
+    fmt = "%lu";
+
+  *column += printf (fmt, value);
   had_output = 1;
 }
 
@@ -225,8 +297,7 @@ put_addr (format_data_t form, int argc, char *argv[], struct sockaddr *sa)
 void
 put_flags (format_data_t form, int argc, char *argv[], short flags)
 {
-  /* XXX */
-  short int f = 1;
+  unsigned short int f = 1;
   const char *name;
   int first = 1;
 
@@ -234,7 +305,7 @@ put_flags (format_data_t form, int argc, char *argv[], short flags)
     {
       if (f & flags)
 	{
-	  name = if_flagtoname (f, "" /* XXX: avoid */ );
+	  name = if_flagtoname (f, NULL);
 	  if (name)
 	    {
 	      if (!first)
@@ -264,35 +335,94 @@ put_flags (format_data_t form, int argc, char *argv[], short flags)
     }
 }
 
+void
+put_flags_short (format_data_t form, int argc, char *argv[], short flags)
+{
+  char buf[IF_FORMAT_FLAGS_BUFSIZE];
+  if_format_flags (flags, buf, sizeof buf);
+  put_string (form, buf);
+}
+
 /* Format handler can mangle form->format, so update it after calling
    here.  */
 void
 format_handler (const char *name, format_data_t form, int argc, char *argv[])
 {
   struct format_handle *fh;
-  fh = format_handles;
 
-  while (fh->name != NULL)
+  for (fh = format_handles; fh->name; fh++)
     {
       if (!strcmp (fh->name, name))
-	break;
-      fh++;
+	{
+	  if (fh->handler)
+	    (fh->handler) (form, argc, argv);
+	  return;
+	}
     }
 
-  if (fh->handler)
-    (fh->handler) (form, argc, argv);
-  else
-    {
-      *column += printf ("(");
-      put_string (form, name);
-      *column += printf (" unknown)");
-      had_output = 1;
-    }
+  *column += printf ("(");
+  put_string (form, name);
+  *column += printf (" unknown)");
+  had_output = 1;
 }
 
 void
 fh_nothing (format_data_t form, int argc, char *argv[])
 {
+}
+
+void
+fh_format_query (format_data_t form, int argc, char *argv[])
+{
+  if (argc < 1)
+    return;
+  select_arg (form, argc, argv, format_find (argv[0]) ? 1 : 2);
+}
+
+void
+fh_docstr (format_data_t form, int argc, char *argv[])
+{
+  const char *name;
+  struct format *frm;
+
+  name = (argc == 0) ? form->name : argv[0];
+  frm = format_find (name);
+  if (!frm)
+    error (EXIT_FAILURE, errno, "unknown format: `%s'", name);
+  put_string (form, frm->docstr);
+}
+
+void
+fh_defn (format_data_t form, int argc, char *argv[])
+{
+  const char *name;
+  struct format *frm;
+
+  name = (argc == 0) ? form->name : argv[0];
+
+  frm = format_find (name);
+  if (!frm)
+    error (EXIT_FAILURE, errno, "unknown format: `%s'", name);
+  put_string (form, frm->templ);
+}
+
+void
+fh_foreachformat (format_data_t form, int argc, char *argv[])
+{
+  struct format *frm;
+  const char *save_name;
+
+  if (argc == 0)
+    return;
+
+  save_name = form->name;
+  for (frm = formats; frm->name; frm++)
+    {
+      form->name = frm->name;
+      form->format = argv[0];
+      print_interfaceX (form, 0);
+    }
+  form->name = save_name;
 }
 
 void
@@ -308,9 +438,52 @@ fh_tabulator (format_data_t form, int argc, char *argv[])
 }
 
 void
+fh_rep (format_data_t form, int argc, char *argv[])
+{
+  unsigned int count;
+  char *p;
+
+  if (argc < 2)
+    return;
+  count = strtoul (argv[0], &p, 10);
+  if (*p)
+    error (EXIT_FAILURE, 0, "invalid repeat count");
+  while (count--)
+    {
+      form->format = argv[1];
+      print_interfaceX (form, 0);
+    }
+}
+
+void
 fh_first (format_data_t form, int argc, char *argv[])
 {
   select_arg (form, argc, argv, form->first ? 0 : 1);
+}
+
+void
+fh_ifdisplay_query (format_data_t form, int argc, char *argv[])
+{
+  int n;
+
+#ifdef SIOCGIFFLAGS
+  int f;
+  int rev;
+
+  n = !(all_option || ifs_cmdline
+	|| ((f = if_nameztoflag ("UP", &rev))
+	    && ioctl (form->sfd, SIOCGIFFLAGS, form->ifr) == 0
+	    && (f & form->ifr->ifr_flags)));
+#else
+  n = 0;
+#endif
+  select_arg (form, argc, argv, n);
+}
+
+void
+fh_verbose_query (format_data_t form, int argc, char *argv[])
+{
+  select_arg (form, argc, argv, verbose ? 0 : 1);
 }
 
 /* A tab implementation, which fills with spaces up to requested column or next
@@ -359,34 +532,33 @@ fh_join (format_data_t form, int argc, char *argv[])
 void
 fh_exists_query (format_data_t form, int argc, char *argv[])
 {
-  struct format_handle *fh;
-  fh = format_handles;
-
   if (argc > 0)
     {
-      while (fh->name != NULL)
+      struct format_handle *fh;
+      int sel = 2; /* assume 2nd arg by default */
+
+      for (fh = format_handles; fh->name; fh++)
 	{
 	  if (!strcmp (fh->name, argv[0]))
-	    break;
-	  fh++;
+	    {
+	      sel = 1; /* select 1st argument */
+	      break;
+	    }
 	}
-      select_arg (form, argc, argv, (fh->name != NULL) ? 1 : 2);
+      select_arg (form, argc, argv, sel);
     }
 }
 
 void
 fh_format (format_data_t form, int argc, char *argv[])
 {
-  int i = 0;
+  int i;
 
-  while (i < argc)
+  for (i = 0; i < argc; i++)
     {
-      struct format *frm = formats;
+      struct format *frm = format_find (argv[i]);
 
-      while (frm->name && strcmp (argv[i], frm->name))
-	frm++;
-
-      if (frm->name)
+      if (frm)
 	{
 	  /* XXX: Avoid infinite recursion by appending name to a list
 	     during the next call (but removing it afterwards, and
@@ -394,22 +566,22 @@ fh_format (format_data_t form, int argc, char *argv[])
 	     already.  */
 	  form->format = frm->templ;
 	  print_interfaceX (form, 0);
+	  break;
 	}
-      i++;
     }
 }
 
 void
 fh_error (format_data_t form, int argc, char *argv[])
 {
-  int i = 0;
+  int i;
   FILE *s = ostream;
   int *c = column;
 
   ostream = stderr;
   column = &column_stderr;
-  while (i < argc)
-    select_arg (form, argc, argv, i++);
+  for (i = 0; i < argc; i++)
+    select_arg (form, argc, argv, i);
   ostream = s;
   column = c;
 }
@@ -449,11 +621,9 @@ fh_index (format_data_t form, int argc, char *argv[])
   int indx = if_nametoindex (form->name);
 
   if (indx == 0)
-    {
-      fprintf (stderr, "%s: No index number found for interface `%s': %s\n",
-	       program_name, form->name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "No index number found for interface `%s'",
+	   form->name);
   *column += printf ("%i", indx);
   had_output = 1;
 }
@@ -474,11 +644,9 @@ fh_addr (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFADDR
   if (ioctl (form->sfd, SIOCGIFADDR, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFADDR failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFADDR failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     put_addr (form, argc, argv, &form->ifr->ifr_addr);
 #else
@@ -503,11 +671,9 @@ fh_netmask (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFNETMASK
   if (ioctl (form->sfd, SIOCGIFNETMASK, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFNETMASK failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFNETMASK failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     put_addr (form, argc, argv, &form->ifr->ifr_netmask);
 #else
@@ -522,8 +688,9 @@ fh_brdaddr_query (format_data_t form, int argc, char *argv[])
 #ifdef SIOCGIFBRDADDR
 # ifdef SIOCGIFFLAGS
   int f;
+  int rev;
 
-  if (0 == (f = if_nametoflag ("BROADCAST"))
+  if (0 == (f = if_nameztoflag ("BROADCAST", &rev))
       || (ioctl (form->sfd, SIOCGIFFLAGS, form->ifr) < 0)
       || ((f & form->ifr->ifr_flags) == 0))
     {
@@ -543,11 +710,9 @@ fh_brdaddr (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFBRDADDR
   if (ioctl (form->sfd, SIOCGIFBRDADDR, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFBRDADDR failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFBRDADDR failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     put_addr (form, argc, argv, &form->ifr->ifr_broadaddr);
 #else
@@ -562,8 +727,9 @@ fh_dstaddr_query (format_data_t form, int argc, char *argv[])
 #ifdef SIOCGIFDSTADDR
 # ifdef SIOCGIFFLAGS
   int f;
+  int rev;
 
-  if (0 == (f = if_nametoflag ("POINTOPOINT"))
+  if (0 == (f = if_nameztoflag ("POINTOPOINT", &rev))
       || (ioctl (form->sfd, SIOCGIFFLAGS, form->ifr) < 0)
       || ((f & form->ifr->ifr_flags) == 0))
     {
@@ -583,11 +749,9 @@ fh_dstaddr (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFDSTADDR
   if (ioctl (form->sfd, SIOCGIFDSTADDR, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFDSTADDR failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFDSTADDR failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     put_addr (form, argc, argv, &form->ifr->ifr_dstaddr);
 #else
@@ -612,11 +776,9 @@ fh_mtu (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFMTU
   if (ioctl (form->sfd, SIOCGIFMTU, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFMTU failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFMTU failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     put_int (form, argc, argv, form->ifr->ifr_mtu);
 #else
@@ -630,7 +792,7 @@ fh_metric_query (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFMETRIC
   if (ioctl (form->sfd, SIOCGIFMETRIC, form->ifr) >= 0)
-    select_arg (form, argc, argv, (form->ifr->ifr_metric > 0) ? 0 : 1);
+    select_arg (form, argc, argv, 0);
   else
 #endif
     select_arg (form, argc, argv, 1);
@@ -641,13 +803,12 @@ fh_metric (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFMETRIC
   if (ioctl (form->sfd, SIOCGIFMETRIC, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFMETRIC failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFMETRIC failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
-    put_int (form, argc, argv, form->ifr->ifr_metric);
+    put_int (form, argc, argv,
+	     form->ifr->ifr_metric ? form->ifr->ifr_metric : 1);
 #else
   *column += printf ("(not available)");
   had_output = 1;
@@ -670,17 +831,17 @@ fh_flags (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFFLAGS
   if (ioctl (form->sfd, SIOCGIFFLAGS, form->ifr) < 0)
-    {
-      fprintf (stderr, "%s: SIOCGIFFLAGS failed for interface `%s': %s\n",
-	       program_name, form->ifr->ifr_name, strerror (errno));
-      exit (EXIT_FAILURE);
-    }
+    error (EXIT_FAILURE, errno,
+	   "SIOCGIFFLAGS failed for interface `%s'",
+	   form->ifr->ifr_name);
   else
     {
       if (argc >= 1)
 	{
 	  if (!strcmp (argv[0], "number"))
 	    put_int (form, argc - 1, &argv[1], form->ifr->ifr_flags);
+	  else if (!strcmp (argv[0], "short"))
+	    put_flags_short (form, argc - 1, &argv[1], form->ifr->ifr_flags);
 	  else if (!strcmp (argv[0], "string"))
 	    put_flags (form, argc - 1, &argv[1], form->ifr->ifr_flags);
 	}
@@ -692,6 +853,107 @@ fh_flags (format_data_t form, int argc, char *argv[])
   had_output = 1;
 #endif
 }
+
+#ifdef HAVE_STRUCT_IFREQ_IFR_MAP
+
+void
+fh_map_query (format_data_t form, int argc, char *argv[])
+{
+# ifdef SIOCGIFMAP
+  if (ioctl (form->sfd, SIOCGIFMAP, form->ifr) >= 0)
+    select_arg (form, argc, argv, 0);
+  else
+# endif
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_irq_query (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.irq)
+    select_arg (form, argc, argv, 0);
+  else
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_irq (format_data_t form, int argc, char *argv[])
+{
+  put_int (form, argc, argv, form->ifr->ifr_map.irq);
+}
+
+void
+fh_baseaddr_query (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.base_addr >= 0x100)
+    select_arg (form, argc, argv, 0);
+  else
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_baseaddr (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.base_addr >= 0x100)
+    put_int (form, argc, argv, form->ifr->ifr_map.base_addr);
+  else
+    put_string (form, "(not available)");
+}
+
+void
+fh_memstart_query (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.mem_start)
+    select_arg (form, argc, argv, 0);
+  else
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_memstart (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.mem_start)
+    put_ulong (form, argc, argv, form->ifr->ifr_map.mem_start);
+  else
+    put_string (form, "(not available)");
+}
+
+void
+fh_memend_query (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.mem_end)
+    select_arg (form, argc, argv, 0);
+  else
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_memend (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.mem_end)
+    put_ulong (form, argc, argv, form->ifr->ifr_map.mem_end);
+  else
+    put_string (form, "(not available)");
+}
+
+void
+fh_dma_query (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.dma)
+    select_arg (form, argc, argv, 0);
+  else
+    select_arg (form, argc, argv, 1);
+}
+
+void
+fh_dma (format_data_t form, int argc, char *argv[])
+{
+  if (form->ifr->ifr_map.dma)
+    put_int (form, argc, argv, form->ifr->ifr_map.dma);
+  else
+    put_string (form, "(not available)");
+}
+#endif
 
 void
 print_interfaceX (format_data_t form, int quiet)
@@ -714,8 +976,8 @@ print_interfaceX (format_data_t form, int quiet)
 	break;
 
       /* Look at next character.  If it is a '$' or '}', print that
-         and skip the '$'.  If it is something else than '{', print
-         both.  Otherwise enter substitution mode.  */
+	 and skip the '$'.  If it is something else than '{', print
+	 both.  Otherwise enter substitution mode.  */
       switch (*(++p))
 	{
 	default:
