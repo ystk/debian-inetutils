@@ -1,4 +1,23 @@
-/*-
+/*
+  Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,9 +46,7 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #ifdef ENCRYPTION
 # ifdef KERBEROS
@@ -45,21 +62,21 @@
 
 static unsigned char des_inbuf[10240], storage[10240], *store_ptr;
 static bit_64 *key;
-static u_char *key_schedule;
+static unsigned char *key_schedule;
 
 /* XXX these should be in a kerberos include file */
 int krb_net_read (int, char *, int);
 
 /*
  * NB: These routines will not function properly if NBIO
- * 	is set
+ *	is set
  */
 
 void
 des_clear_key ()
 {
-  bzero ((char *) key, sizeof (C_Block));
-  bzero ((char *) key_schedule, sizeof (Key_schedule));
+  memset (key, 0, sizeof (C_Block));
+  memset (key_schedule, 0, sizeof (Key_schedule));
 }
 
 
@@ -75,14 +92,14 @@ des_read (fd, buf, len)
 
   if (nstored >= len)
     {
-      bcopy (store_ptr, buf, len);
+      memcpy (buf, store_ptr, len);
       store_ptr += len;
       nstored -= len;
       return (len);
     }
   else if (nstored)
     {
-      bcopy (store_ptr, buf, nstored);
+      memcpy (buf, store_ptr, nstored);
       nreturned += nstored;
       buf += nstored;
       len -= nstored;
@@ -126,14 +143,14 @@ des_read (fd, buf, len)
   nstored = net_len;
   if (nstored > len)
     {
-      bcopy (store_ptr, buf, len);
+      memcpy (buf, store_ptr, len);
       nreturned += len;
       store_ptr += len;
       nstored -= len;
     }
   else
     {
-      bcopy (store_ptr, buf, nstored);
+      memcpy (buf, store_ptr, nstored);
       nreturned += nstored;
       nstored = 0;
     }
@@ -162,9 +179,9 @@ des_write (fd, buf, len)
 	}
       garbage = random ();
       /* insert random garbage */
-      bcopy (&garbage, garbage_buf, MIN (sizeof (long), 8));
+      memcpy (garbage_buf, &garbage, MIN (sizeof (long), 8));
       /* this "right-justifies" the data in the buffer */
-      bcopy (buf, garbage_buf + 8 - len, len);
+      memcpy (garbage_buf + 8 - len, buf, len);
     }
   /* pcbc_encrypt outputs in 8-byte (64 bit) increments */
 

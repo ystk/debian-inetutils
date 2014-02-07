@@ -1,27 +1,28 @@
-/* flags.h
+/*
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA.
- */
+/* Written by Marcus Brinkmann.  */
 
 #ifndef IFCONFIG_FLAGS_H
 # define IFCONFIG_FLAGS_H
+
+#include <sys/types.h>
 
 /* Using these avoid strings with if_flagtoname, the caller can set a
    preference on returned flag names.  If one of the names in the list
@@ -45,11 +46,18 @@ const char *if_flagtoname (int flag, const char *avoid);
 
 /* Return the flag mask corresponding to flag name NAME.  If no flag
    with this name is found, return 0.  */
-int if_nametoflag (const char *name);
+int if_nametoflag (const char *name, size_t len, int *prev);
+int if_nameztoflag (const char *name, int *prev);
 
 /* Print the flags in FLAGS, using AVOID as in if_flagtoname, and
    SEPERATOR between individual flags.  Returns the number of
    characters printed.  */
 int print_if_flags (int flags, const char *avoid, char seperator);
+
+char *if_list_flags (const char *prefix);
+
+/* Size of the buffer for the if_format_flags call */
+# define IF_FORMAT_FLAGS_BUFSIZE 15
+void if_format_flags (int flags, char *buf, size_t size);
 
 #endif

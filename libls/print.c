@@ -1,12 +1,25 @@
-/*	$OpenBSD: print.c,v 1.15 2000/01/06 21:32:40 espie Exp $	*/
-/*	$NetBSD: print.c,v 1.15 1996/12/11 03:25:39 thorpej Exp $	*/
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
 /*
  * Copyright (c) 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Michael Fischbein.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -16,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -33,29 +46,10 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
+/* This code is derived from software contributed to Berkeley by
+   Michael Fischbein.  */
 
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -94,7 +88,7 @@
 # define minor(x)        ((int)((x)&0377))
 #endif
 
-static int printaname (FTSENT *, u_long, u_long);
+static int printaname (FTSENT *, unsigned long, unsigned long);
 static void printlink (FTSENT *);
 static void printtime (time_t);
 static int printtype (u_int);
@@ -103,8 +97,7 @@ static int compute_columns (DISPLAY *, int *);
 #define IS_NOPRINT(p)	((p)->fts_number == NO_PRINT)
 
 void
-printscol (dp)
-     DISPLAY *dp;
+printscol (DISPLAY *dp)
 {
   FTSENT *p;
 
@@ -118,8 +111,7 @@ printscol (dp)
 }
 
 void
-printlong (dp)
-     DISPLAY *dp;
+printlong (DISPLAY *dp)
 {
   struct stat *sp;
   FTSENT *p;
@@ -168,9 +160,7 @@ printlong (dp)
 }
 
 static int
-compute_columns (dp, pnum)
-     DISPLAY *dp;
-     int *pnum;
+compute_columns (DISPLAY *dp, int *pnum)
 {
   int colwidth;
   extern int termwidth;
@@ -198,8 +188,7 @@ compute_columns (dp, pnum)
 }
 
 void
-printcol (dp)
-     DISPLAY *dp;
+printcol (DISPLAY *dp)
 {
   static FTSENT **array;
   static int lastentries = -1;
@@ -257,9 +246,7 @@ printcol (dp)
  * return # of characters printed, no trailing characters.
  */
 static int
-printaname (p, inodefield, sizefield)
-     FTSENT *p;
-     u_long sizefield, inodefield;
+printaname (FTSENT *p, unsigned long inodefield, unsigned long sizefield)
 {
   struct stat *sp;
   int chcnt;
@@ -279,8 +266,7 @@ printaname (p, inodefield, sizefield)
 }
 
 static void
-printtime (ftime)
-     time_t ftime;
+printtime (time_t ftime)
 {
   int i;
   char *longstring;
@@ -306,8 +292,7 @@ printtime (ftime)
 }
 
 void
-printacol (dp)
-     DISPLAY *dp;
+printacol (DISPLAY *dp)
 {
   FTSENT *p;
   int chcnt, col, colwidth;
@@ -338,8 +323,7 @@ printacol (dp)
 }
 
 void
-printstream (dp)
-     DISPLAY *dp;
+printstream (DISPLAY *dp)
 {
   extern int termwidth;
   FTSENT *p;
@@ -372,8 +356,7 @@ printstream (dp)
 }
 
 static int
-printtype (mode)
-     u_int mode;
+printtype (u_int mode)
 {
   switch (mode & S_IFMT)
     {
@@ -399,8 +382,7 @@ printtype (mode)
 }
 
 static void
-printlink (p)
-     FTSENT *p;
+printlink (FTSENT *p)
 {
   int lnklen;
 #ifndef MAXPATHLEN

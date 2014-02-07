@@ -1,4 +1,23 @@
 /*
+  Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
+  2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -38,9 +57,7 @@
 			Jim Guyton 10/85
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -56,7 +73,10 @@
 
 #include "tftpsubs.h"
 
+/* Some systems define PKTSIZE in <arpa/tftp.h>.  */
+#ifndef PKTSIZE
 #define PKTSIZE SEGSIZE+4	/* should be moved to tftp.h */
+#endif
 
 struct bf
 {
@@ -79,12 +99,12 @@ int prevchar = -1;		/* putbuf: previous char (cr check) */
 static struct tftphdr *rw_init (int);
 
 struct tftphdr *
-w_init ()
+w_init (void)
 {
   return rw_init (0);
 }				/* write-behind */
 struct tftphdr *
-r_init ()
+r_init (void)
 {
   return rw_init (1);
 }				/* read-ahead */
@@ -238,7 +258,7 @@ write_behind (FILE * file, int convert)
       if (prevchar == '\r')
 	{			/* if prev char was cr */
 	  if (c == '\n')	/* if have cr,lf then just */
-	    fseek (file, -1, 1);	/* smash lf on top of the cr */
+	    fseeko (file, -1, 1);	/* smash lf on top of the cr */
 	  else if (c == '\0')	/* if have cr,nul then */
 	    goto skipit;	/* just skip over the putc */
 	  /* else just fall through and allow it */
@@ -268,8 +288,8 @@ synchnet (int f)
 {
   int i, j = 0;
   char rbuf[PKTSIZE];
-  struct sockaddr_in from;
-  int fromlen;
+  struct sockaddr_storage from;
+  socklen_t fromlen;
 
   while (1)
     {

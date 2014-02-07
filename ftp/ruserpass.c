@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1985, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,30 +47,7 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -61,11 +58,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
-# include <stdarg.h>
-#else
-# include <varargs.h>
-#endif
+#include <stdarg.h>
 #include <error.h>
 
 #include "ftp_var.h"
@@ -118,7 +111,7 @@ static struct toktab
 };
 
 int
-ruserpass (char *host, char **aname, char **apass, char **aacct)
+remote_userpass (char *host, char **aname, char **apass, char **aacct)
 {
   char *hdir, buf[BUFSIZ], *tmp;
   char *myname = 0, *mydomain;
@@ -144,7 +137,7 @@ ruserpass (char *host, char **aname, char **apass, char **aacct)
   mydomain = strchr (myname, '.');
   if (mydomain == NULL)
     mydomain = xstrdup ("");
-next:
+ next:
   while ((t = token ()))
     switch (t)
       {
@@ -183,16 +176,18 @@ next:
 	    {
 	    case LOGIN:
 	      if (token ())
-		if (*aname == 0)
-		  {
-		    *aname = xmalloc ((unsigned) strlen (tokval) + 1);
-		    strcpy (*aname, tokval);
-		  }
-		else
-		  {
-		    if (strcmp (*aname, tokval))
-		      goto next;
-		  }
+                {
+                  if (*aname == 0)
+                    {
+                      *aname = xmalloc ((unsigned) strlen (tokval) + 1);
+                      strcpy (*aname, tokval);
+                    }
+                  else
+                    {
+                      if (strcmp (*aname, tokval))
+                        goto next;
+                    }
+                }
 	      break;
 	    case PASSWD:
 	      if ((*aname == NULL || strcmp (*aname, "anonymous"))
@@ -229,7 +224,7 @@ next:
 	      if (proxy)
 		goto done;
 
-	      while ((c = getc (cfile)) != EOF && c == ' ' || c == '\t')
+	      while (((c = getc (cfile)) != EOF && c == ' ') || c == '\t')
 		;
 	      if (c == EOF || c == '\n')
 		{
@@ -306,13 +301,11 @@ next:
       }
 done:
   fclose (cfile);
-  if (myname)
-    free (myname);
+  free (myname);
   return (0);
 bad:
   fclose (cfile);
-  if (myname)
-    free (myname);
+  free (myname);
   return (-1);
 }
 

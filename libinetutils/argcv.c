@@ -1,22 +1,27 @@
 /* argcv.c - simple functions for parsing input based on whitespace
-   Copyright (C) 1999, 2000, 2001, 2007, 2008 Free Software Foundation, Inc.
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   This program is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  This file is part of GNU Inetutils.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include "argcv.h"
 #include <ctype.h>
+#include <progname.h>
 
 /*
  * takes a string and splits it into several strings, breaking at ' '
@@ -123,8 +128,7 @@ int
 argcv_free (int argc, char **argv)
 {
   while (--argc >= 0)
-    if (argv[argc])
-      free (argv[argc]);
+    free (argv[argc]);
   free (argv);
   return 1;
 }
@@ -174,11 +178,12 @@ argcv_string (int argc, char **argv, char **pstring)
 #if 0
 char *command = "set prompt=\"& \"";
 
-main ()
+int
+main (int argc, char **argv)
 {
   int i, argc;
   char **argv;
-
+  set_program_name (argv[0]);
   argcv_get (command, "=", &argc, &argv);
   printf ("%d args:\n", argc);
   for (i = 0; i < argc; i++)

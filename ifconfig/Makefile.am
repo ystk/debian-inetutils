@@ -1,22 +1,23 @@
-# Copyright (C) 2005, 2007 Free Software Foundation, Inc.
+#
+# Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+# 2010, 2011 Free Software Foundation, Inc.
+#
 # This file is part of GNU Inetutils.
 #
-# GNU Inetutils is free software; you can redistribute it and/or modify
+# GNU Inetutils is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
-# the Free Software Foundation; either version 3, or (at your option)
-# any later version.
+# the Free Software Foundation, either version 3 of the License, or (at
+# your option) any later version.
 #
-# GNU Inetutils is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
+# GNU Inetutils is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with GNU Inetutils; see the file COPYING.  If not, write
-# to the Free Software Foundation, Inc., 51 Franklin Street,
-# Fifth Floor, Boston, MA 02110-1301 USA.
+# along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-SUBDIRS=system
+SUBDIRS = system
 
 bin_PROGRAMS = @ifconfig_BUILD@
 
@@ -27,6 +28,6 @@ ifconfig_SOURCES = ifconfig.c flags.c changeif.c options.c printif.c system.c if
 noinst_HEADERS = ifconfig.h if_index.h flags.h options.h printif.h system.h
 
 @PATHDEFS_MAKE@
-
-INCLUDES = -I$(top_srcdir)/lib -I../lib 
-LDADD = -L../libinetutils -linetutils ../lib/libgnu.a
+AM_CPPFLAGS = $(PATHDEF_PROCNET_DEV)
+INCLUDES = $(iu_INCLUDES)
+LDADD = $(iu_LIBRARIES)

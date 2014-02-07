@@ -1,5 +1,5 @@
 /* Open a descriptor to a file.
-   Copyright (C) 2007-2008 Free Software Foundation, Inc.
+   Copyright (C) 2007-2011 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,13 +16,16 @@
 
 /* Written by Bruno Haible <bruno@clisp.org>, 2007.  */
 
+/* If the user's config.h happens to include <fcntl.h>, let it include only
+   the system's <fcntl.h> here, so that orig_open doesn't recurse to
+   rpl_open.  */
+#define __need_system_fcntl_h
 #include <config.h>
 
 /* Get the original definition of open.  It might be defined as a macro.  */
-#define __need_system_fcntl_h
 #include <fcntl.h>
-#undef __need_system_fcntl_h
 #include <sys/types.h>
+#undef __need_system_fcntl_h
 
 static inline int
 orig_open (const char *filename, int flags, mode_t mode)
@@ -31,13 +34,20 @@ orig_open (const char *filename, int flags, mode_t mode)
 }
 
 /* Specification.  */
-#include <fcntl.h>
+/* Write "fcntl.h" here, not <fcntl.h>, otherwise OSF/1 5.1 DTK cc eliminates
+   this include because of the preliminary #include <fcntl.h> above.  */
+#include "fcntl.h"
 
 #include <errno.h>
 #include <stdarg.h>
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
+
+#ifndef REPLACE_OPEN_DIRECTORY
+# define REPLACE_OPEN_DIRECTORY 0
+#endif
 
 int
 open (const char *filename, int flags, ...)
@@ -51,15 +61,21 @@ open (const char *filename, int flags, ...)
       va_list arg;
       va_start (arg, flags);
 
-      /* If mode_t is narrower than int, use the promoted type (int),
-	 not mode_t.  Use sizeof to guess whether mode_t is narrower;
-	 we don't know of any practical counterexamples.  */
-      mode = (sizeof (mode_t) < sizeof (int)
-	      ? va_arg (arg, int)
-	      : va_arg (arg, mode_t));
+      /* We have to use PROMOTED_MODE_T instead of mode_t, otherwise GCC 4
+         creates crashing code when 'mode_t' is smaller than 'int'.  */
+      mode = va_arg (arg, PROMOTED_MODE_T);
 
       va_end (arg);
     }
+
+#if GNULIB_defined_O_NONBLOCK
+  /* The only known platform that lacks O_NONBLOCK is mingw, but it
+     also lacks named pipes and Unix sockets, which are the only two
+     file types that require non-blocking handling in open().
+     Therefore, it is safe to ignore O_NONBLOCK here.  It is handy
+     that mingw also lacks openat(), so that is also covered here.  */
+  flags &= ~O_NONBLOCK;
+#endif
 
 #if (defined _WIN32 || defined __WIN32__) && ! defined __CYGWIN__
   if (strcmp (filename, "/dev/null") == 0)
@@ -92,14 +108,38 @@ open (const char *filename, int flags, ...)
     {
       size_t len = strlen (filename);
       if (len > 0 && filename[len - 1] == '/')
-	{
-	  errno = EISDIR;
-	  return -1;
-	}
+        {
+          errno = EISDIR;
+          return -1;
+        }
     }
 #endif
 
   fd = orig_open (filename, flags, mode);
+
+#if REPLACE_FCHDIR
+  /* Implementing fchdir and fdopendir requires the ability to open a
+     directory file descriptor.  If open doesn't support that (as on
+     mingw), we use a dummy file that behaves the same as directories
+     on Linux (ie. always reports EOF on attempts to read()), and
+     override fstat() in fchdir.c to hide the fact that we have a
+     dummy.  */
+  if (REPLACE_OPEN_DIRECTORY && fd < 0 && errno == EACCES
+      && ((flags & O_ACCMODE) == O_RDONLY
+          || (O_SEARCH != O_RDONLY && (flags & O_ACCMODE) == O_SEARCH)))
+    {
+      struct stat statbuf;
+      if (stat (filename, &statbuf) == 0 && S_ISDIR (statbuf.st_mode))
+        {
+          /* Maximum recursion depth of 1.  */
+          fd = open ("/dev/null", flags, mode);
+          if (0 <= fd)
+            fd = _gl_register_fd (fd, filename);
+        }
+      else
+        errno = EACCES;
+    }
+#endif
 
 #if OPEN_TRAILING_SLASH_BUG
   /* If the filename ends in a slash and fd does not refer to a directory,
@@ -116,24 +156,25 @@ open (const char *filename, int flags, ...)
      with ENOTDIR.  */
   if (fd >= 0)
     {
+      /* We know len is positive, since open did not fail with ENOENT.  */
       size_t len = strlen (filename);
-      if (len > 0 && filename[len - 1] == '/')
-	{
-	  struct stat statbuf;
+      if (filename[len - 1] == '/')
+        {
+          struct stat statbuf;
 
-	  if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
-	    {
-	      close (fd);
-	      errno = ENOTDIR;
-	      return -1;
-	    }
-	}
+          if (fstat (fd, &statbuf) >= 0 && !S_ISDIR (statbuf.st_mode))
+            {
+              close (fd);
+              errno = ENOTDIR;
+              return -1;
+            }
+        }
     }
 #endif
 
-#ifdef FCHDIR_REPLACEMENT
-  if (fd >= 0)
-    _gl_register_fd (fd, filename);
+#if REPLACE_FCHDIR
+  if (!REPLACE_OPEN_DIRECTORY && 0 <= fd)
+    fd = _gl_register_fd (fd, filename);
 #endif
 
   return fd;

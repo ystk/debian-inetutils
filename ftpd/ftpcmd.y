@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1985, 1988, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -25,8 +45,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ftpcmd.y	8.3 (Berkeley) 4/6/94
  */
 
 /*
@@ -36,9 +54,7 @@
 
 %{
 
-#ifdef HAVE_CONFIG_H
 #include <config.h>
-#endif
 
 #include <sys/types.h>
 #include <sys/param.h>
@@ -57,28 +73,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #include <limits.h>
-#ifdef HAVE_SYS_UTSNAME_H
 #include <sys/utsname.h>
-#endif
 /* Include glob.h last, because it may define "const" which breaks
    system headers on some platforms. */
 #include <glob.h>
 
 #include "extern.h"
 
-#if ! defined (NBBY) && defined (CHAR_BIT)
+#if !defined NBBY && defined CHAR_BIT
 #define NBBY CHAR_BIT
 #endif
 
@@ -148,8 +154,7 @@ cmd_list
 	: /* empty */
 	| cmd_list cmd
 		{
-			if (fromname != NULL)
-				free (fromname);
+			free (fromname);
 			fromname = (char *) 0;
 			restart_point = (off_t) 0;
 		}
@@ -181,7 +186,7 @@ cmd
 					sizeof (data_dest.sin_addr)) == 0 &&
 					ntohs (data_dest.sin_port) >
 					IPPORT_RESERVED) {
-					reply (200, "PORT command sucessful.");
+					reply (200, "PORT command successful.");
 				}
 				else {
 					memset (&data_dest, 0,
@@ -218,7 +223,7 @@ cmd
 				break;
 
 			case TYPE_L:
-#if defined (NBBY) && NBBY == 8
+#if defined NBBY && NBBY == 8
 				if (cmd_bytesz == 8) {
 					reply(200,
 					    "Type set to L (byte size 8).");
@@ -266,22 +271,19 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				retrieve((char *) 0, $4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| STOR check_login SP pathname CRLF
 		{
 			if ($2 && $4 != NULL)
 				store($4, "w", 0);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| APPE check_login SP pathname CRLF
 		{
 			if ($2 && $4 != NULL)
 				store($4, "a", 0);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| NLST check_login CRLF
 		{
@@ -292,8 +294,7 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				send_file_list($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| LIST check_login CRLF
 		{
@@ -304,15 +305,13 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				retrieve("/bin/ls -lgA %s", $4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| STAT check_login SP pathname CRLF
 		{
 			if ($2 && $4 != NULL)
 				statfilecmd($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| STAT CRLF
 		{
@@ -322,8 +321,7 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				delete($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| RNTO check_login SP pathname CRLF
 		{
@@ -351,8 +349,7 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				cwd($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| HELP CRLF
 		{
@@ -372,8 +369,7 @@ cmd
 					help(sitetab, (char *) 0);
 			} else
 				help(cmdtab, $3);
-			if ($3 != NULL)
-			    free ($3);
+		    free ($3);
 		}
 	| NOOP CRLF
 		{
@@ -383,15 +379,13 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				makedir($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| RMD check_login SP pathname CRLF
 		{
 			if ($2 && $4 != NULL)
 				removedir($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| PWD check_login CRLF
 		{
@@ -410,8 +404,7 @@ cmd
 	| SITE SP HELP SP STRING CRLF
 		{
 			help(sitetab, $5);
-			if ($5 != NULL)
-			    free ($5);
+			free ($5);
 		}
 	| SITE SP UMASK check_login CRLF
 		{
@@ -449,8 +442,7 @@ cmd
 				else
 					reply(200, "CHMOD command successful.");
 			}
-			if ($8 != NULL)
-				free($8);
+			free($8);
 		}
 	| SITE SP IDLE CRLF
 		{
@@ -460,7 +452,7 @@ cmd
 		}
 	| SITE SP check_login IDLE SP NUMBER CRLF
 		{
-		    	if ($3) {
+			if ($3) {
 			    if ($6 < 30 || $6 > maxtimeout) {
 				reply (501,
 			"Maximum IDLE time must be between 30 and %d seconds",
@@ -478,8 +470,7 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				store($4, "w", 1);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| SYST CRLF
 		{
@@ -515,8 +506,7 @@ cmd
 				reply(215, "%s Type: L%d", sys_type, NBBY);
 
 #ifdef HAVE_UNAME
-			if (version)
-				free (version);
+			free (version);
 #endif
 		}
 
@@ -531,8 +521,7 @@ cmd
 		{
 			if ($2 && $4 != NULL)
 				sizecmd($4);
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 
 		/*
@@ -563,8 +552,7 @@ cmd
 					    t->tm_sec);
 				}
 			}
-			if ($4 != NULL)
-				free($4);
+			free($4);
 		}
 	| QUIT CRLF
 		{
@@ -581,8 +569,7 @@ rcmd
 		{
 			restart_point = (off_t) 0;
 			if ($2 && $4) {
-			    if (fromname != NULL)
-				free (fromname);
+			    free (fromname);
 			    fromname = renamefrom($4);
 			}
 			if (fromname == (char *) 0 && $4)
@@ -590,13 +577,12 @@ rcmd
 		}
 	| REST SP byte_size CRLF
 		{
-		    	if (fromname != NULL)
-				free (fromname);
+		        free (fromname);
 			fromname = (char *) 0;
 			restart_point = $3;	/* XXX $3 is only "int" */
 			reply(350,
 			      (sizeof(restart_point) > sizeof(long)
-			       ? "Restarting at %qd. %s"
+			       ? "Restarting at %lld. %s"
 			       : "Restarting at %ld. %s"), restart_point,
 			    "Send STORE or RETRIEVE to initiate transfer.");
 		}
@@ -629,6 +615,9 @@ host_port
 			p = (char *)&data_dest.sin_port;
 			p[0] = $9; p[1] = $11;
 			data_dest.sin_family = AF_INET;
+#if HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+			data_dest.sin_len = sizeof (struct sockaddr_in);
+#endif
 		}
 	;
 
@@ -872,9 +861,7 @@ struct tab sitetab[] = {
 };
 
 static struct tab *
-lookup(p, cmd)
-	struct tab *p;
-	char *cmd;
+lookup(struct tab *p, char *cmd)
 {
 
 	for (; p->name != NULL; p++)
@@ -974,7 +961,7 @@ toolong(int signo)
 }
 
 static int
-yylex()
+yylex(void)
 {
 	static int cpos, state;
 	char *cp, *cp2;
@@ -1017,7 +1004,7 @@ yylex()
 					/* NOTREACHED */
 				}
 				state = p->state;
-				yylval.s = p->name;
+				yylval.s = (char*) p->name;
 				return (p->token);
 			}
 			break;
@@ -1043,7 +1030,7 @@ yylex()
 					/* NOTREACHED */
 				}
 				state = p->state;
-				yylval.s = p->name;
+				yylval.s = (char*)p->name;
 				return (p->token);
 			}
 			state = CMD;
@@ -1060,7 +1047,10 @@ yylex()
 		dostr1:
 			if (cbuf[cpos] == ' ') {
 				cpos++;
-				state = state == OSTR ? STR2 : ++state;
+                                if (state == OSTR)
+                                  state = STR2;
+                                else
+                                  ++state;
 				return (SP);
 			}
 			break;
@@ -1286,7 +1276,7 @@ sizecmd(char *filename)
 		else
 			reply(213,
 			      (sizeof (stbuf.st_size) > sizeof(long)
-			       ? "%qu" : "%lu"), stbuf.st_size);
+			       ? "%llu" : "%lu"), stbuf.st_size);
 		break; }
 	case TYPE_A: {
 		FILE *fin;
@@ -1312,7 +1302,7 @@ sizecmd(char *filename)
 		}
 		 fclose(fin);
 
-		reply(213, sizeof(count) > sizeof(long) ? "%qd" : "%ld",
+		reply(213, sizeof(count) > sizeof(long) ? "%lld" : "%ld",
 		      count);
 		break; }
 	default:

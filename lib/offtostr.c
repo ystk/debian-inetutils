@@ -1,3 +1,3 @@
-#define inttostr offtostr
+#define anytostr offtostr
 #define inttype off_t
-#include "inttostr.c"
+#include "anytostr.c"

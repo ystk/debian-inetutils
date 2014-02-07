@@ -1,3 +1,23 @@
+/*
+  Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
 /* - Ftp Server
  * Copyright (c) 1985, 1988, 1990, 1992, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,58 +47,18 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
 /*
  * FTP server.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
-#if !defined (__GNUC__) && defined (_AIX)
-# pragma alloca
-#endif
-#ifndef alloca			/* Make alloca work the best possible way.  */
-# ifdef __GNUC__
-#  define alloca __builtin_alloca
-# else /* not __GNUC__ */
-#  if HAVE_ALLOCA_H
-#   include <alloca.h>
-#  else	/* not __GNUC__ or HAVE_ALLOCA_H */
-#   ifndef _AIX			/* Already did AIX, up at the top.  */
-char *alloca ();
-#   endif /* not _AIX */
-#  endif /* not HAVE_ALLOCA_H */
-# endif	/* not __GNUC__ */
-#endif /* not alloca */
-
+#include <alloca.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#ifdef HAVE_SYS_WAIT_H
-# include <sys/wait.h>
-#endif
+#include <sys/wait.h>
 
 #include <netinet/in.h>
 #ifdef HAVE_NETINET_IN_SYSTM_H
@@ -97,31 +77,18 @@ char *alloca ();
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
 #include <limits.h>
 #include <netdb.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <grp.h>
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
-# include <stdarg.h>
-#else
-# include <varargs.h>
-#endif
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 #ifdef HAVE_MMAP
 # include <sys/mman.h>
@@ -129,10 +96,13 @@ char *alloca ();
 /* Include glob.h last, because it may define "const" which breaks
    system headers on some platforms. */
 #include <glob.h>
+#include <argp.h>
+#include <error.h>
 
 #include <progname.h>
 #include <libinetutils.h>
 #include "extern.h"
+#include "unused-parameter.h"
 
 #ifndef LINE_MAX
 # define LINE_MAX 2048
@@ -184,7 +154,7 @@ static off_t file_size;
 static off_t byte_count;
 static sig_atomic_t transflag;	/* Flag where in a middle of transfer.  */
 static const char *pid_file = PATH_FTPDPID;
-#if !defined(CMASK) || CMASK == 0
+#if !defined CMASK || CMASK == 0
 # undef CMASK
 # define CMASK 027
 #endif
@@ -212,11 +182,11 @@ off_to_str (off_t off)
     next_buf = bufs;
 
   if (sizeof (off) > sizeof (long))
-    sprintf (*next_buf, "%qd", off);
+    sprintf (*next_buf, "%lld", (long long int) off);
   else if (sizeof (off) == sizeof (long))
     sprintf (*next_buf, "%ld", off);
   else
-    sprintf (*next_buf, "%d", off);
+    sprintf (*next_buf, "%d", (int) off);
 
   return *next_buf++;
 }
@@ -256,8 +226,9 @@ char proctitle[LINE_MAX];	/* initial part of title */
 			   off_to_str (cnt)); \
 	}
 
+extern int yyparse (void);
+
 static void ack (const char *);
-static void authentication_setup (const char *);
 #ifdef HAVE_LIBWRAP
 static int check_host (struct sockaddr *sa);
 #endif
@@ -273,77 +244,170 @@ static void myoob (int);
 static int receive_data (FILE *, FILE *);
 static void send_data (FILE *, FILE *, off_t);
 static void sigquit (int);
-static void usage (int);
 
-static const char *short_options = "Aa:Ddlp:qt:T:u:";
-static struct option long_options[] = {
-  {"anonymous-only", no_argument, 0, 'A'},
-  {"auth", required_argument, 0, 'a'},
-  {"daemon", no_argument, 0, 'D'},
-  {"debug", no_argument, 0, 'd'},
-  {"help", no_argument, 0, '&'},
-  {"logging", no_argument, 0, 'l'},
-  {"pidfile", required_argument, 0, 'p'},
-  {"no-version", no_argument, 0, 'q'},
-  {"timeout", required_argument, 0, 't'},
-  {"max-timeout", required_argument, 0, 'T'},
-  {"umask", required_argument, 0, 'u'},
-  {"version", no_argument, 0, 'V'},
-  {0, 0, 0, 0}
-};
+const char doc[] = "File Transfer Protocol Daemon";
 
-static void
-usage (int err)
-{
-  if (err != 0)
-    {
-      fprintf (stderr, "Usage: %s [OPTION] ...\n", program_name);
-      fprintf (stderr, "Try `%s --help' for more information.\n",
-	       program_name);
-    }
-  else
-    {
-      fprintf (stdout, "Usage: %s [OPTION] ...\n", program_name);
-      puts ("Internet File Transfer Protocol server.\n\n\
-  -A, --anonymous-only      Server configure for anonymous service only\n\
-  -D, --daemon              Start the ftpd standalone\n\
-  -d, --debug               Debug mode\n\
-  -l, --logging             Increase verbosity of syslog messages\n\
-  -p, --pidfile=[PIDFILE]   Change default location of pidfile\n\
-  -q, --no-version          Do not display version in banner\n\
-  -t, --timeout=[TIMEOUT]   Set default idle timeout\n\
-  -T, --max-timeout         Reset maximum value of timeout allowed\n\
-  -u, --umask               Set default umask(base 8)\n\
-      --help                Print this message\n\
-  -V, --version             Print version\n\
-  -a, --auth=[AUTH]         Use AUTH for authentication, it can be:\n\
-                               default     passwd authentication.");
+static struct argp_option options[] = {
+#define GRID 0
+  { "anonymous-only", 'A', NULL, 0,
+    "server configured for anonymous service only",
+    GRID+1 },
+  { "daemon", 'D', NULL, 0,
+    "start the ftpd standalone",
+    GRID+1 },
+  { "debug", 'd', NULL, 0,
+    "debug mode",
+    GRID+1 },
+  { "logging", 'l', NULL, 0,
+    "increase verbosity of syslog messages",
+    GRID+1 },
+  { "pidfile", 'p', "PIDFILE", OPTION_ARG_OPTIONAL,
+    "change default location of pidfile",
+    GRID+1 },
+  { "no-version", 'q', NULL, 0,
+    "do not display version in banner",
+    GRID+1 },
+  { "timeout", 't', "TIMEOUT", 0,
+    "set default idle timeout",
+    GRID+1 },
+  { "max-timeout", 'T', NULL, 0,
+    "reset maximum value of timeout allowed",
+    GRID+1 },
+  { "umask", 'u', "VAL", 0,
+    "set default umask",
+    GRID+1 },
+  { "auth", 'a', "AUTH", OPTION_ARG_OPTIONAL,
+    "use AUTH for authentication",
+    GRID+1 },
+  { NULL, 0, NULL, 0, "AUTH can be one of the following:", GRID+2 },
+  { "  default", 0, NULL, OPTION_DOC|OPTION_NO_TRANS,
+    "passwd authentication",
+    GRID+3 },
 #ifdef WITH_PAM
-      puts ("\
-                               pam         using pam 'ftp' module.");
+  { "  pam", 0, NULL, OPTION_DOC|OPTION_NO_TRANS,
+    "using pam 'ftp' module",
+    GRID+3 },
 #endif
 #ifdef WITH_KERBEROS
-      puts ("\
-                               kerberos");
+  { "  kerberos", 0, NULL, OPTION_DOC|OPTION_NO_TRANS,
+    "",
+    GRID+3 },
 #endif
 #ifdef WITH_KERBEROS5
-      puts ("\
-                               kderberos5");
+  { "  kderberos5", 0, NULL, OPTION_DOC|OPTION_NO_TRANS,
+    "",
+    GRID+3 },
 #endif
 #ifdef WITH_OPIE
-      puts ("\
-                               opie");
+  { "  opie", 0, NULL, OPTION_DOC|OPTION_NO_TRANS,
+    "",
+    GRID+3 },
 #endif
+  { NULL }
+};
 
-      fprintf (stdout, "\nSubmit bug reports to %s.\n", PACKAGE_BUGREPORT);
+static error_t
+parse_opt (int key, char *arg, struct argp_state *state)
+{
+  switch (key)
+    {
+    case 'A':
+      /* Anonymous ftp only.  */
+      anon_only = 1;
+      break;
+
+    case 'a':
+      if (strcasecmp (arg, "default") == 0)
+	cred.auth_type = AUTH_TYPE_PASSWD;
+#ifdef WITH_PAM
+      else if (strcasecmp (arg, "pam") == 0)
+	cred.auth_type = AUTH_TYPE_PAM;
+#endif
+#ifdef WITH_KERBEROS
+      else if (strcasecmp (arg, "kerberos") == 0)
+	cred.auth_type = AUTH_TYPE_KERBEROS;
+#endif
+#ifdef WITH_KERBEROS5
+      else if (strcasecmp (arg, "kerberos5") == 0)
+	cred.auth_type = AUTH_TYPE_KERBEROS5;
+#endif
+#ifdef WITH_OPIE
+      else if (strcasecmp (arg, "opie") == 0)
+	cred.auth_type = AUTH_TYPE_OPIE;
+#endif
+      break;
+
+    case 'D':
+      /* Run ftpd as daemon.  */
+      daemon_mode = 1;
+      break;
+
+    case 'd':
+      /* Enable debug mode.  */
+      debug = 1;
+      break;
+
+    case 'l':
+      /* Increase logging level.  */
+      logging++;		/* > 1 == Extra logging.  */
+      break;
+
+    case 'p':
+      /* Override pid file */
+      pid_file = arg;
+      break;
+
+    case 'q':
+      /* Don't include version number in banner.  */
+      no_version = 1;
+      break;
+
+    case 't':
+      /* Set default timeout value.  */
+      timeout = atoi (arg);
+      if (maxtimeout < timeout)
+	maxtimeout = timeout;
+      break;
+
+    case 'T':		/* Maximum timeout allowed.  */
+      maxtimeout = atoi (arg);
+      if (timeout > maxtimeout)
+	timeout = maxtimeout;
+      break;
+
+    case 'u':		/* Set umask.  */
+      {
+	long val = 0;
+
+	val = strtol (arg, &arg, 8);
+	if (*arg != '\0' || val < 0)
+	  argp_error (state, "bad value for -u");
+	else
+	  defumask = val;
+	break;
+      }
+
+    default:
+      return ARGP_ERR_UNKNOWN;
     }
-  exit (err);
+
+  return 0;
 }
+
+static struct argp argp = {
+  options,
+  parse_opt,
+  NULL,
+  doc,
+  NULL,
+  NULL,
+  NULL
+};
 
 int
 main (int argc, char *argv[], char **envp)
 {
-  int option;
+  int index;
 
   set_program_name (argv[0]);
 
@@ -356,99 +420,14 @@ main (int argc, char *argv[], char **envp)
   initsetproctitle (argc, argv, envp);
 #endif /* HAVE_INITSETPROCTITLE */
 
-  while ((option = getopt_long (argc, argv, short_options,
-				long_options, NULL)) != EOF)
-    {
-      switch (option)
-	{
-	case 'A':		/* Anonymous ftp only.  */
-	  anon_only = 1;
-	  break;
-
-	case 'a':		/* Authentification method.  */
-	  if (strcasecmp (optarg, "default") == 0)
-	    cred.auth_type = AUTH_TYPE_PASSWD;
-#ifdef WITH_PAM
-	  else if (strcasecmp (optarg, "pam") == 0)
-	    cred.auth_type = AUTH_TYPE_PAM;
-#endif
-#ifdef WITH_KERBEROS
-	  else if (stracasecmp (optarg, "kerberos") == 0)
-	    cred.auth_type = AUTH_TYPE_KERBEROS;
-#endif
-#ifdef WITH_KERBEROS5
-	  else if (stracasecmp (optarg, "kerberos5") == 0)
-	    cred.auth_type = AUTH_TYPE_KERBEROS5;
-#endif
-#ifdef WITH_OPIE
-	  else if (stracasecmp (optarg, "opie") == 0)
-	    cred.auth_type = AUTH_TYPE_OPIE;
-#endif
-	  break;
-
-	case 'D':		/* Run ftpd as daemon.  */
-	  daemon_mode = 1;
-	  break;
-
-	case 'd':		/* Enable debug mode.  */
-	  debug = 1;
-	  break;
-
-	case 'l':		/* Increase logging level.  */
-	  logging++;		/* > 1 == Extra logging.  */
-	  break;
-
-	case 'p':		/* Override pid file */
-	  pid_file = optarg;
-	  break;
-
-	case 'q':		/* Don't include version number in banner.  */
-	  no_version = 1;
-	  break;
-
-	case 't':		/* Set default timeout value.  */
-	  timeout = atoi (optarg);
-	  if (maxtimeout < timeout)
-	    maxtimeout = timeout;
-	  break;
-
-	case 'T':		/* Maximum timeout allowed.  */
-	  maxtimeout = atoi (optarg);
-	  if (timeout > maxtimeout)
-	    timeout = maxtimeout;
-	  break;
-
-	case 'u':		/* Set umask.  */
-	  {
-	    long val = 0;
-
-	    val = strtol (optarg, &optarg, 8);
-	    if (*optarg != '\0' || val < 0)
-	      fprintf (stderr, "%s: bad value for -u", argv[0]);
-	    else
-	      defumask = val;
-	    break;
-	  }
-
-	case '&':		/* Usage.  */
-	  usage (0);
-	  /* Not reached.  */
-
-	case 'V':		/* Version.  */
-	  printf ("ftpd (%s) %s\n", PACKAGE_NAME, PACKAGE_VERSION);
-	  exit (0);
-
-	case '?':
-	default:
-	  usage (1);
-	  /* Not reached.  */
-	}
-    }
+  /* Parse the command line */
+  iu_argp_init ("ftpd", default_program_authors);
+  argp_parse (&argp, argc, argv, 0, &index, NULL);
 
   /* Bail out, wrong usage */
-  argc -= optind;
-  if (argc != 0)
-    usage (1);
+  if (argc - index != 0)
+    error (EXIT_FAILURE, 0, "surplus arguments; try `%s --help' for more info",
+	   program_name);
 
   /* LOG_NDELAY sets up the logging connection immediately,
      necessary for anonymous ftp's that chroot and can't do it later.  */
@@ -459,8 +438,20 @@ main (int argc, char *argv[], char **envp)
      fd = accept(). tcpd is check if compile with the support  */
   if (daemon_mode)
     {
-      if (server_mode (pid_file, &his_addr) < 0)
-	exit (1);
+#ifndef HAVE_FORK
+      /* Shift out the daemon option in subforks  */
+      int i;
+      for (i = 0; i < argc; ++i)
+	if (strcmp (argv[i], "-D") == 0)
+	  {
+	    int j;
+	    for (j = i; j < argc; ++j)
+	      argv[j] = argv[j + 1];
+	    argv[--argc] = NULL;
+	  }
+#endif
+      if (server_mode (pid_file, &his_addr, argv) < 0)
+	exit (EXIT_FAILURE);
     }
   else
     {
@@ -469,7 +460,7 @@ main (int argc, char *argv[], char **envp)
 		       &addrlen) < 0)
 	{
 	  syslog (LOG_ERR, "getpeername (%s): %m", program_name);
-	  exit (1);
+	  exit (EXIT_FAILURE);
 	}
     }
 
@@ -489,11 +480,11 @@ main (int argc, char *argv[], char **envp)
 		     &addrlen) < 0)
       {
 	syslog (LOG_ERR, "getsockname (%s): %m", program_name);
-	exit (1);
+	exit (EXIT_FAILURE);
       }
   }
 
-#if defined (IP_TOS) && defined (IPTOS_LOWDELAY) && defined (IPPROTO_IP)
+#if defined IP_TOS && defined IPTOS_LOWDELAY && defined IPPROTO_IP
   /* To  minimize delays for interactive traffic.  */
   {
     int tos = IPTOS_LOWDELAY;
@@ -534,7 +525,7 @@ main (int argc, char *argv[], char **envp)
   if (display_file (PATH_NOLOGIN, 530) == 0)
     {
       reply (530, "System not available.");
-      exit (0);
+      exit (EXIT_SUCCESS);
     }
 
   /* Display a Welcome message if exists,
@@ -566,8 +557,7 @@ curdir (void)
 {
   static char *path = 0;
   extern char *xgetcwd (void);
-  if (path)
-    free (path);
+  free (path);
   path = xgetcwd ();
   if (!path)
     return (char *) "";
@@ -586,7 +576,7 @@ curdir (void)
   return (cred.guest ? path + 1 : path);
 }
 
-static RETSIGTYPE
+static void
 sigquit (int signo)
 {
   syslog (LOG_ERR, "got signal %s", strsignal (signo));
@@ -594,8 +584,8 @@ sigquit (int signo)
 }
 
 
-static RETSIGTYPE
-lostconn (int signo ARG_UNUSED)
+static void
+lostconn (int signo _GL_UNUSED_PARAMETER)
 {
   if (debug)
     syslog (LOG_DEBUG, "lost connection");
@@ -790,26 +780,21 @@ end_login (struct credentials *pcred)
   if (pcred->logged_in)
     logwtmp_keep_open (ttyline, "", "");
 
-  if (pcred->name)
-    free (pcred->name);
+  free (pcred->name);
   if (pcred->passwd)
     {
       memset (pcred->passwd, 0, strlen (pcred->passwd));
       free (pcred->passwd);
     }
-  if (pcred->homedir)
-    free (pcred->homedir);
-  if (pcred->rootdir)
-    free (pcred->rootdir);
-  if (pcred->shell)
-    free (pcred->shell);
+  free (pcred->homedir);
+  free (pcred->rootdir);
+  free (pcred->shell);
   if (pcred->pass)		/* ??? */
     {
       memset (pcred->pass, 0, strlen (pcred->pass));
       free (pcred->pass);
     }
-  if (pcred->message)
-    free (pcred->message);
+  free (pcred->message);
   memset (pcred, 0, sizeof (*pcred));
   pcred->remotehost = remotehost;
   pcred->auth_type = atype;
@@ -846,7 +831,7 @@ pass (const char *passwd)
 	    {
 	      syslog (LOG_NOTICE, "repeated login failures from %s",
 		      cred.remotehost);
-	      exit (0);
+	      exit (EXIT_SUCCESS);
 	    }
 	  return;
 	}
@@ -948,7 +933,7 @@ store (const char *name, const char *mode, int unique)
   if (unique && stat (name, &st) == 0)
     {
       const char *name_unique = gunique (name);
-      
+
       if (name_unique)
         name = name_unique;
       else
@@ -992,7 +977,7 @@ store (const char *name, const char *mode, int unique)
 	  /* We must do this seek to "current" position
 	     because we are changing from reading to
 	     writing.  */
-	  if (fseek (fout, 0L, SEEK_CUR) < 0)
+	  if (fseeko (fout, 0L, SEEK_CUR) < 0)
 	    {
 	      perror_reply (550, name);
 	      goto done;
@@ -1045,6 +1030,9 @@ getdatasock (const char *mode)
   /* anchor socket to avoid multi-homing problems */
   data_source.sin_family = AF_INET;
   data_source.sin_addr = ctrl_addr.sin_addr;
+#if HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+  data_source.sin_len = sizeof (struct sockaddr_in);
+#endif
   for (tries = 1;; tries++)
     {
       if (bind (s, (struct sockaddr *) &data_source,
@@ -1056,7 +1044,7 @@ getdatasock (const char *mode)
     }
   seteuid ((uid_t) cred.uid);
 
-#if defined (IP_TOS) && defined (IPTOS_THROUGHPUT) && defined (IPPROTO_IP)
+#if defined IP_TOS && defined IPTOS_THROUGHPUT && defined IPPROTO_IP
   {
     int on = IPTOS_THROUGHPUT;
     if (setsockopt (s, IPPROTO_IP, IP_TOS, (char *) &on, sizeof (int)) < 0)
@@ -1090,7 +1078,7 @@ dataconn (const char *name, off_t size, const char *mode)
   if (pdata >= 0)
     {
       struct sockaddr_in from;
-      socklen_t s; 
+      socklen_t s;
       socklen_t fromlen = sizeof (from);
 
       signal (SIGALRM, toolong);
@@ -1106,7 +1094,7 @@ dataconn (const char *name, off_t size, const char *mode)
 	}
       close (pdata);
       pdata = s;
-#if defined (IP_TOS) && defined (IPTOS_THROUGHPUT) && defined (IPPROTO_IP)
+#if defined IP_TOS && defined IPTOS_THROUGHPUT && defined IPPROTO_IP
       /* Optimize throughput.  */
       {
 	int tos = IPTOS_THROUGHPUT;
@@ -1431,7 +1419,7 @@ void
 statcmd (void)
 {
   struct sockaddr_in *sin;
-  u_char *a, *p;
+  unsigned char *a, *p;
 
   lreply (211, "%s FTP server status:", hostname);
   if (!no_version)
@@ -1479,8 +1467,8 @@ statcmd (void)
       printf ("     PORT");
       sin = &data_dest;
     printaddr:
-      a = (u_char *) & sin->sin_addr;
-      p = (u_char *) & sin->sin_port;
+      a = (unsigned char *) & sin->sin_addr;
+      p = (unsigned char *) & sin->sin_port;
 #define UC(b) (((int) b) & 0xff)
       printf (" (%d,%d,%d,%d,%d,%d)\r\n", UC (a[0]),
 	      UC (a[1]), UC (a[2]), UC (a[3]), UC (p[0]), UC (p[1]));
@@ -1503,11 +1491,7 @@ void
 reply (int n, const char *fmt, ...)
 {
   va_list ap;
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
   va_start (ap, fmt);
-#else
-  va_start (ap);
-#endif
   printf ("%d ", n);
   vprintf (fmt, ap);
   printf ("\r\n");
@@ -1523,11 +1507,7 @@ void
 lreply (int n, const char *fmt, ...)
 {
   va_list ap;
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
   va_start (ap, fmt);
-#else
-  va_start (ap);
-#endif
   printf ("%d- ", n);
   vprintf (fmt, ap);
   printf ("\r\n");
@@ -1676,8 +1656,7 @@ dolog (struct sockaddr_in *sin, struct credentials *pcred)
   else
     name = inet_ntoa (sin->sin_addr);
 
-  if (pcred->remotehost)
-    free (pcred->remotehost);
+  free (pcred->remotehost);
   pcred->remotehost = sgetsave (name);
 
 #ifdef HAVE_SETPROCTITLE
@@ -1709,8 +1688,8 @@ dologout (int status)
   _exit (status);
 }
 
-static RETSIGTYPE
-myoob (int signo ARG_UNUSED)
+static void
+myoob (int signo _GL_UNUSED_PARAMETER)
 {
   char *cp;
 
@@ -1809,9 +1788,7 @@ gunique (const char *local)
   if (cp)
     *cp = '/';
 
-  if (string)
-    free (string);
-
+  free (string);
   string = malloc (strlen (local) + 5);	/* '.' + DIG + DIG + '\0' */
   if (string)
     {
@@ -1951,8 +1928,7 @@ send_file_list (const char *whichf)
 	      dir->d_name[2] == '\0')
 	    continue;
 
-	  nbuf = (char *) alloca (strlen (dirname) + 1 +
-				  strlen (dir->d_name) + 1);
+	  nbuf = alloca (strlen (dirname) + 1 + strlen (dir->d_name) + 1);
 	  sprintf (nbuf, "%s/%s", dirname, dir->d_name);
 
 	  /* We have to do a stat to insure it's
@@ -1990,8 +1966,7 @@ send_file_list (const char *whichf)
   data = -1;
   pdata = -1;
 out:
-  if (p)
-    free (p);
+  free (p);
   if (freeglob)
     {
       freeglob = 0;

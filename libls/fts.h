@@ -1,4 +1,23 @@
 /*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,11 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 3. All advertising materials mentioning features or use of this software
- *    must display the following acknowledgement:
- *	This product includes software developed by the University of
- *	California, Berkeley and its contributors.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -29,8 +44,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)fts.h	8.3 (Berkeley) 8/14/94
  */
 
 #ifndef _FTS_H
@@ -79,8 +92,8 @@ typedef struct _ftsent
   char *fts_path;		/* root path */
   int fts_errno;		/* errno for this node */
   int fts_symfd;		/* fd for symlink */
-  u_short fts_pathlen;		/* strlen(fts_path) */
-  u_short fts_namelen;		/* strlen(fts_name) */
+  unsigned short fts_pathlen;		/* strlen(fts_path) */
+  unsigned short fts_namelen;		/* strlen(fts_name) */
 
   ino_t fts_ino;		/* inode */
   dev_t fts_dev;		/* device */
@@ -104,17 +117,17 @@ typedef struct _ftsent
 # define FTS_SL		12	/* symbolic link */
 # define FTS_SLNONE	13	/* symbolic link without target */
 # define FTS_W		14	/* whiteout object */
-  u_short fts_info;		/* user flags for FTSENT structure */
+  unsigned short fts_info;		/* user flags for FTSENT structure */
 
 # define FTS_DONTCHDIR	 0x01	/* don't chdir .. to the parent */
 # define FTS_SYMFOLLOW	 0x02	/* followed a symlink to get here */
-  u_short fts_flags;		/* private flags for FTSENT structure */
+  unsigned short fts_flags;		/* private flags for FTSENT structure */
 
 # define FTS_AGAIN	 1	/* read node again */
 # define FTS_FOLLOW	 2	/* follow symbolic link */
 # define FTS_NOINSTR	 3	/* no instructions */
 # define FTS_SKIP	 4	/* discard node */
-  u_short fts_instr;		/* fts_set() instructions */
+  unsigned short fts_instr;		/* fts_set() instructions */
 
   struct stat *fts_statp;	/* stat(2) information */
   char fts_name[1];		/* file name */

@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,18 +47,20 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/types.h>
 
-#include <getopt.h>
 #include <stdlib.h>
 
 #include "ring.h"
-#include "externs.h"
 #include "defines.h"
+#include "externs.h"
+
+#include <progname.h>
+#include <error.h>
+#include <argp.h>
+#include <libinetutils.h>
 
 /* These values need to be the same as defined in libtelnet/kerberos5.c */
 /* Either define them in both places, or put in some common header file. */
@@ -53,7 +75,7 @@
  * Initialize variables.
  */
 void
-tninit ()
+tninit (void)
 {
   init_terminal ();
 
@@ -63,111 +85,229 @@ tninit ()
 
   init_sys ();
 
-#if defined(TN3270)
+#if defined TN3270
   init_3270 ();
 #endif
 }
 
-#define USAGE "Usage: %s [OPTION...] [HOST [PORT]]\n"
+int family = 0;
+char *user;
+#ifdef	FORWARD
+extern int forward_flags;
+#endif /* FORWARD */
 
-/* Print a help message describing all options to STDOUT and exit with a
-   status of 0.  */
-static void
-help ()
-{
-  fprintf (stdout, USAGE, prompt);
+enum {
+  OPTION_NOASYNCH = 256,
+  OPTION_NOASYNCTTY,
+  OPTION_NOASYNCNET
+};
 
-  puts ("Login to remote system HOST (optionally, on service port PORT)\n\n\
-  -4, --ipv4                 Use only IPv4\n\
-  -6, --ipv6                 Use only IPv6\n\
-  -8, --binary               Use an 8-bit data path\n\
-  -a, --login                Attempt automatic login\n\
-  -c, --no-rc                Don't read the user's .telnetrc file\n\
-  -d, --debug                Turn on debugging\n\
-  -e CHAR, --escape=CHAR     Use CHAR as an escape character\n\
-  -E, --no-escape            Use no escape character\n\
-  -K, --no-login             Don't automatically login to the remote system\n\
-  -l USER, --user=USER       Attempt automatic login as USER\n\
-  -L, --binary-output        Use an 8-bit data path for output only\n\
-  -n FILE, --trace=FILE      Record trace information into FILE\n\
-  -r, --rlogin               Use a user-interface similar to rlogin\n\
-  -X ATYPE, --disable-auth=ATYPE   Disable type ATYPE authentication");
+static struct argp_option argp_options[] = {
+#define GRID 10
+  { NULL, 0, NULL, 0,
+    "General options:", GRID },
+
+  { "ipv4", '4', NULL, 0,
+    "use only IPv4", GRID+1 },
+  { "ipv6", '6', NULL, 0,
+    "use only IPv6", GRID+1 },
+  /* FIXME: Called "8bit" in r* utils */
+  { "binary", '8', NULL, 0,
+    "use an 8-bit data transmission", GRID+1 },
+  { "login", 'a', NULL, 0,
+    "attempt automatic login", GRID+1 },
+  { "no-rc", 'c', NULL, 0,
+    "do not read the user's .telnetrc file", GRID+1 },
+  { "debug", 'd', NULL, 0,
+    "turn on debugging", GRID+1 },
+  { "escape", 'e', "CHAR", 0,
+    "use CHAR as an escape character", GRID+1 },
+  { "no-escape", 'E', NULL, 0,
+    "use no escape character", GRID+1 },
+  { "no-login", 'K', NULL, 0,
+    "do not automatically login to the remote system", GRID+1 },
+  { "user", 'l', "USER", 0,
+    "attempt automatic login as USER", GRID+1 },
+  { "binary-output", 'L', NULL, 0, /* FIXME: Why L?? */
+    "use an 8-bit data transmission for output only", GRID+1 },
+  { "trace", 'n', "FILE", 0,
+    "record trace information into FILE", GRID+1 },
+  { "rlogin", 'r', NULL, 0,
+    "use a user-interface similar to rlogin", GRID+1 },
+#undef GRID
 
 #ifdef ENCRYPTION
-  puts ("\
-  -x, --encrypt              Encrypt the data stream, if possible");
+# define GRID 20
+  { NULL, 0, NULL, 0,
+    "Encryption control:", GRID },
+  { "encrypt", 'x', NULL, 0,
+    "encrypt the data stream, if possible", GRID+1 },
+# undef GRID
 #endif
 
 #ifdef AUTHENTICATION
-  puts ("\n\
- When using Kerberos authentication:\n\
-  -f, --fwd-credentials      Allow the the local credentials to be forwarded\n\
-  -k REALM, --realm=REALM    Obtain tickets for the remote host in REALM\n\
-                             instead of the remote host's realm");
+# define GRID 30
+  { NULL, 0, NULL, 0,
+    "Authentication and Kerberos options:", GRID },
+  { "disable-auth", 'X', "ATYPE", 0,
+    "disable type ATYPE authentication", GRID+1 },
+# if defined KRB4
+  { "realm", 'k', "REALM", 0,
+    "obtain tickets for the remote host in REALM "
+    "instead of the remote host's realm", GRID+1 },
+# endif
+# if defined KRB5 && defined FORWARD
+  { "fwd-credentials", 'f', NULL, 0,
+    "allow the local credentials to be forwarded", GRID+1 },
+  { NULL, 'F', NULL, 0,
+    "forward a forwardable copy of the local credentials "
+    "to the remote system", GRID+1 },
+# endif
+# undef GRID
 #endif
 
-#if defined(TN3270) && defined(unix)
-  puts ("\n\
- TN3270 options (note non-standard option syntax):\n\
-      -noasynch\n\
-      -noasynctty\n\
-      -noasyncnet\n\
-  -t LINE, --transcom=LINE");
+#if defined TN3270 && defined unix
+# define GRID 40
+  { NULL, 0, NULL, 0,
+    "TN3270 support:", GRID },
+  /* FIXME: Do we need it? */
+  { "transcom", 't', "ARG", 0, "", GRID+1 },
+  { "noasynch", OPTION_NOASYNCH, NULL, 0, "", GRID+1 },
+  { "noasynctty", OPTION_NOASYNCTTY, NULL, 0, "", GRID+1 },
+  { "noasyncnet", OPTION_NOASYNCNET, NULL, 0, "", GRID+1 },
+# undef GRID
 #endif
-
-#if defined (ENCRYPTION) || defined (AUTHENTICATION) || defined (TN3270)
-  putc ('\n', stdout);
-#endif
-
-  puts ("\
-      --help                 Give this help list\n\
-  -V, --version              Print program version");
-
-  fprintf (stdout, "\nSubmit bug reports to %s.\n", PACKAGE_BUGREPORT);
-
-  exit (0);
-}
-
-/* Print a message saying to use --help to STDERR, and exit with a status of
-   1.  */
-static void
-try_help ()
-{
-  fprintf (stderr, "Try `%s --help' for more information.\n", prompt);
-  exit (1);
-}
-
-/* Print a usage message to STDERR and exit with a status of 1.  */
-static void
-usage ()
-{
-  fprintf (stderr, USAGE, prompt);
-  try_help ();
-}
-
-static struct option long_options[] = {
-  {"ipv4", no_argument, 0, '4'},
-  {"ipv6", no_argument, 0, '6'},
-  {"binary", no_argument, 0, '8'},
-  {"login", no_argument, 0, 'a'},
-  {"no-rc", no_argument, 0, 'c'},
-  {"debug", no_argument, 0, 'd'},
-  {"escape", required_argument, 0, 'e'},
-  {"no-escape", no_argument, 0, 'E'},
-  {"no-login", no_argument, 0, 'K'},
-  {"user", required_argument, 0, 'l'},
-  {"binary-output", no_argument, 0, 'L'},
-  {"trace", required_argument, 0, 'n'},
-  {"rlogin", no_argument, 0, 'r'},
-  {"disable-auth", required_argument, 0, 'X'},
-  {"encrypt", no_argument, 0, 'x'},
-  {"fwd-credentials", no_argument, 0, 'f'},
-  {"realm", required_argument, 0, 'k'},
-  {"transcom", required_argument, 0, 't'},
-  {"help", no_argument, 0, '&'},
-  {"version", no_argument, 0, 'V'},
-  {0}
+  { NULL }
 };
+
+static error_t
+parse_opt (int key, char *arg, struct argp_state *state)
+{
+  switch (key)
+    {
+    case '4':
+      family = 4;
+      break;
+
+    case '6':
+      family = 6;
+      break;
+
+    case '8':
+      eight = 3;		/* binary output and input */
+      break;
+
+    case 'E':
+      rlogin = escape = _POSIX_VDISABLE;
+      break;
+
+    case 'K':
+#ifdef	AUTHENTICATION
+      autologin = 0;
+#endif
+      break;
+
+    case 'L':
+      eight |= 2;		/* binary output only */
+      break;
+
+#ifdef	AUTHENTICATION
+    case 'X':
+      auth_disable_name (arg);
+      break;
+#endif
+
+    case 'a':
+      autologin = 1;
+      break;
+
+    case 'c':
+      skiprc = 1;
+      break;
+
+    case 'd':
+      debug = 1;
+      break;
+
+    case 'e':
+      set_escape_char (arg);
+      break;
+
+#if defined AUTHENTICATION && defined KRB5 && defined FORWARD
+    case 'f':
+      if (forward_flags & OPTS_FORWARD_CREDS)
+	argp_error (state, "Only one of -f and -F allowed.", prompt);
+      forward_flags |= OPTS_FORWARD_CREDS;
+      break;
+
+    case 'F':
+      if (forward_flags & OPTS_FORWARD_CREDS)
+	argp_error (state, "Only one of -f and -F allowed");
+      forward_flags |= OPTS_FORWARD_CREDS;
+      forward_flags |= OPTS_FORWARDABLE_CREDS;
+      break;
+#endif
+
+#if defined AUTHENTICATION && defined KRB4
+    case 'k':
+      dest_realm = arg;
+      break;
+#endif
+
+    case 'l':
+      autologin = 1;
+      user = arg;
+      break;
+
+    case 'n':
+      SetNetTrace (arg);
+      break;
+
+    case 'r':
+      rlogin = '~';
+      break;
+
+#if defined TN3270 && defined unix
+    case 't':
+      /* FIXME: Buffer!!! */
+      transcom = tline;
+      strcpy (transcom, arg);
+      break;
+
+    case OPTION_NOASYNCH:
+      noasynchtty = noasynchtty = 1;
+      break;
+
+    case OPTION_NOASYNCTTY:
+      noasynchtty = 1;
+      break;
+
+    case OPTION_NOASYNCNET:
+      noasynchnet = 1;
+      break;
+#endif
+
+#ifdef	ENCRYPTION
+    case 'x':
+      encrypt_auto (1);
+      decrypt_auto (1);
+      break;
+#endif
+
+    default:
+      return ARGP_ERR_UNKNOWN;
+    }
+
+  return 0;
+}
+
+
+const char args_doc[] = "[HOST [PORT]]";
+const char doc[] = "Login to remote system HOST "
+                   "(optionally, on service port PORT)";
+static struct argp argp = { argp_options, parse_opt, args_doc, doc};
+
+
 
 /*
  * main.  Parse arguments, invoke the protocol or command parser.
@@ -175,26 +315,18 @@ static struct option long_options[] = {
 int
 main (int argc, char *argv[])
 {
-  extern char *optarg;
-  extern int optind;
-  int ch;
-  int family = 0;
-  char *user;
-#ifndef strrchr
-  char *strrchr ();
-#endif
-#ifdef	FORWARD
-  extern int forward_flags;
-#endif /* FORWARD */
+  int index;
+
+  set_program_name (argv[0]);
 
   tninit ();			/* Clear out things */
-#if defined(CRAY) && !defined(__STDC__)
+#if defined CRAY && !defined __STDC__
   _setlist_init ();		/* Work around compiler bug */
 #endif
 
   TerminalSaveState ();
 
-  if (prompt = strrchr (argv[0], '/'))
+  if ((prompt = strrchr (argv[0], '/')))
     ++prompt;
   else
     prompt = argv[0];
@@ -204,165 +336,22 @@ main (int argc, char *argv[])
   rlogin = (strncmp (prompt, "rlog", 4) == 0) ? '~' : _POSIX_VDISABLE;
   autologin = -1;
 
-  while ((ch = getopt_long (argc, argv, "468EKLS:X:acde:fFk:l:n:rt:x",
-			    long_options, 0)) != EOF)
-    {
-      switch (ch)
-	{
-	case '4':
-	  family = 4;
-	  break;
+  /* Parse command line */
+  iu_argp_init ("telnet", default_program_authors);
+  argp_parse (&argp, argc, argv, 0, &index, NULL);
 
-	case '6':
-	  family = 6;
-	  break;
-
-	case '8':
-	  eight = 3;		/* binary output and input */
-	  break;
-	case 'E':
-	  rlogin = escape = _POSIX_VDISABLE;
-	  break;
-	case 'K':
-#ifdef	AUTHENTICATION
-	  autologin = 0;
-#endif
-	  break;
-	case 'L':
-	  eight |= 2;		/* binary output only */
-	  break;
-	case 'X':
-#ifdef	AUTHENTICATION
-	  auth_disable_name (optarg);
-#endif
-	  break;
-	case 'a':
-	  autologin = 1;
-	  break;
-	case 'c':
-	  skiprc = 1;
-	  break;
-	case 'd':
-	  debug = 1;
-	  break;
-	case 'e':
-	  set_escape_char (optarg);
-	  break;
-	case 'f':
-#if defined(AUTHENTICATION) && defined(KRB5) && defined(FORWARD)
-	  if (forward_flags & OPTS_FORWARD_CREDS)
-	    {
-	      fprintf (stderr,
-		       "%s: Only one of -f and -F allowed.\n", prompt);
-	      help (0);
-	    }
-	  forward_flags |= OPTS_FORWARD_CREDS;
-#else
-	  fprintf (stderr,
-		   "%s: Warning: -f ignored, no Kerberos V5 support.\n",
-		   prompt);
-#endif
-	  break;
-	case 'F':
-#if defined(AUTHENTICATION) && defined(KRB5) && defined(FORWARD)
-	  if (forward_flags & OPTS_FORWARD_CREDS)
-	    {
-	      fprintf (stderr,
-		       "%s: Only one of -f and -F allowed.\n", prompt);
-	      help (0);
-	    }
-	  forward_flags |= OPTS_FORWARD_CREDS;
-	  forward_flags |= OPTS_FORWARDABLE_CREDS;
-#else
-	  fprintf (stderr,
-		   "%s: Warning: -F ignored, no Kerberos V5 support.\n",
-		   prompt);
-#endif
-	  break;
-	case 'k':
-#if defined(AUTHENTICATION) && defined(KRB4)
-	  {
-	    extern char *dest_realm, dst_realm_buf[], dst_realm_sz;
-	    dest_realm = dst_realm_buf;
-	    strncpy (dest_realm, optarg, dst_realm_sz);
-	  }
-#else
-	  fprintf (stderr,
-		   "%s: Warning: -k ignored, no Kerberos V4 support.\n",
-		   prompt);
-#endif
-	  break;
-	case 'l':
-	  autologin = 1;
-	  user = optarg;
-	  break;
-	case 'n':
-#if defined(TN3270) && defined(unix)
-	  /* distinguish between "-n oasynch" and "-noasynch" */
-	  if (argv[optind - 1][0] == '-' && argv[optind - 1][1]
-	      == 'n' && argv[optind - 1][2] == 'o')
-	    {
-	      if (!strcmp (optarg, "oasynch"))
-		{
-		  noasynchtty = 1;
-		  noasynchnet = 1;
-		}
-	      else if (!strcmp (optarg, "oasynchtty"))
-		noasynchtty = 1;
-	      else if (!strcmp (optarg, "oasynchnet"))
-		noasynchnet = 1;
-	    }
-	  else
-#endif /* defined(TN3270) && defined(unix) */
-	    SetNetTrace (optarg);
-	  break;
-	case 'r':
-	  rlogin = '~';
-	  break;
-	case 't':
-#if defined(TN3270) && defined(unix)
-	  transcom = tline;
-	  strcpy (transcom, optarg);
-#else
-	  fprintf (stderr,
-		   "%s: Warning: -t ignored, no TN3270 support.\n", prompt);
-#endif
-	  break;
-	case 'x':
-#ifdef	ENCRYPTION
-	  encrypt_auto (1);
-	  decrypt_auto (1);
-#else /* ENCRYPTION */
-	  fprintf (stderr,
-		   "%s: Warning: -x ignored, no ENCRYPT support.\n", prompt);
-#endif /* ENCRYPTION */
-	  break;
-
-	case '&':
-	  help ();
-	case 'V':
-	  printf ("telnet (%s) %s\n", PACKAGE_NAME, PACKAGE_VERSION);
-	  exit (0);
-
-	case '?':
-	  try_help ();
-
-	default:
-	  usage ();
-	}
-    }
   if (autologin == -1)
     autologin = (rlogin == _POSIX_VDISABLE) ? 0 : 1;
 
-  argc -= optind;
-  argv += optind;
+  argc -= index;
+  argv += index;
 
   if (argc)
     {
       char *args[8], **argp = args;
 
       if (argc > 2)
-	usage ();
+	error (EXIT_FAILURE, 0, "too many arguments");
       *argp++ = prompt;
       if (user)
 	{

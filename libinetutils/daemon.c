@@ -1,4 +1,24 @@
-/*-
+/*
+  Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
+  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
+  Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -32,9 +52,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <error.h>
-#ifdef HAVE_SYS_TYPES_H
-# include <sys/types.h>
-#endif
+#include <stdlib.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 
 /*
@@ -56,7 +75,7 @@
 
   4.chdir("/") to ensure that our process doesn't keep any directory in use.
   Failure to do this could make it so that an administrator couldn't unmount
-  a filesystem, because it was our current directory.
+  a file system, because it was our current directory.
   [Equivalently, we could change to any directory containing files important
   to the daemon's operation.]
 
@@ -83,7 +102,7 @@
 
 #define MAXFD 64
 
-RETSIGTYPE
+void
 waitdaemon_timeout (int signo)
 {
   int left;
@@ -91,7 +110,7 @@ waitdaemon_timeout (int signo)
   left = alarm (0);
   signal (SIGALRM, SIG_DFL);
   if (left == 0)
-    error (1, 0, "timed out waiting for child");
+    error (EXIT_FAILURE, 0, "timed out waiting for child");
 }
 
 /* waitdaemon is like daemon, but optionally the parent pause up
@@ -152,7 +171,7 @@ waitdaemon (int nochdir, int noclose, int maxwait)
       int i;
       long fdlimit = -1;
 
-#if defined (HAVE_SYSCONF) && defined (_SC_OPEN_MAX)
+#if defined HAVE_SYSCONF && defined _SC_OPEN_MAX
       fdlimit = sysconf (_SC_OPEN_MAX);
 #elif defined (HAVE_GETDTABLESIZE)
       fdlimit = getdtablesize ();

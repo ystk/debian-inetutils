@@ -1,12 +1,25 @@
-/*	$OpenBSD: cmp.c,v 1.3 1997/01/03 22:36:07 millert Exp $	*/
-/*	$NetBSD: cmp.c,v 1.10 1996/07/08 10:32:01 mycroft Exp $	*/
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
 /*
  * Copyright (c) 1989, 1993
  *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Michael Fischbein.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -16,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -33,9 +46,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+/* This code is derived from software contributed to Berkeley by
+   Michael Fischbein. */
+
+#include <config.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -46,22 +60,19 @@
 #include "extern.h"
 
 int
-namecmp (a, b)
-     const FTSENT *a, *b;
+namecmp (const FTSENT *a, const FTSENT *b)
 {
   return (strcmp (a->fts_name, b->fts_name));
 }
 
 int
-revnamecmp (a, b)
-     const FTSENT *a, *b;
+revnamecmp (const FTSENT *a, const FTSENT *b)
 {
   return (strcmp (b->fts_name, a->fts_name));
 }
 
 int
-modcmp (a, b)
-     const FTSENT *a, *b;
+modcmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_mtime > a->fts_statp->st_mtime)
     return (1);
@@ -72,8 +83,7 @@ modcmp (a, b)
 }
 
 int
-revmodcmp (a, b)
-     const FTSENT *a, *b;
+revmodcmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_mtime > a->fts_statp->st_mtime)
     return (-1);
@@ -84,8 +94,7 @@ revmodcmp (a, b)
 }
 
 int
-acccmp (a, b)
-     const FTSENT *a, *b;
+acccmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_atime > a->fts_statp->st_atime)
     return (1);
@@ -96,8 +105,7 @@ acccmp (a, b)
 }
 
 int
-revacccmp (a, b)
-     const FTSENT *a, *b;
+revacccmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_atime > a->fts_statp->st_atime)
     return (-1);
@@ -108,8 +116,7 @@ revacccmp (a, b)
 }
 
 int
-statcmp (a, b)
-     const FTSENT *a, *b;
+statcmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_ctime > a->fts_statp->st_ctime)
     return (1);
@@ -120,8 +127,7 @@ statcmp (a, b)
 }
 
 int
-revstatcmp (a, b)
-     const FTSENT *a, *b;
+revstatcmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_ctime > a->fts_statp->st_ctime)
     return (-1);
@@ -132,8 +138,7 @@ revstatcmp (a, b)
 }
 
 int
-sizecmp (a, b)
-     const FTSENT *a, *b;
+sizecmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_size > a->fts_statp->st_size)
     return (1);
@@ -144,8 +149,7 @@ sizecmp (a, b)
 }
 
 int
-revsizecmp (a, b)
-     const FTSENT *a, *b;
+revsizecmp (const FTSENT *a, const FTSENT *b)
 {
   if (b->fts_statp->st_size > a->fts_statp->st_size)
     return (-1);

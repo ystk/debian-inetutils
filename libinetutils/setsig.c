@@ -1,54 +1,55 @@
-/* Set a signal handler, trying to turning on the SA_RESTART bit
+/* setsig.c - Set a signal handler, trying to turning on the SA_RESTART bit
+  Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 1997, 2000, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Miles Bader <miles@gnu.ai.mit.edu>
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License as
-   published by the Free Software Foundation; either version 3, or (at
-   your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful, but
-   WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.  */
+/* Written by Miles Bader.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
-#ifdef HAVE_STDLIB_H
-# include <stdlib.h>
-#endif
+#include <stdlib.h>
 
 #include <signal.h>
 
 /* This is exactly like the traditional signal function, but turns on the
    SA_RESTART bit where possible.  */
-sig_t
-setsig (int sig, sig_t handler)
+sighandler_t
+setsig (int sig, sighandler_t handler)
 {
 #ifdef HAVE_SIGACTION
-  struct sigaction sa;
+  struct sigaction sa, osa;
   sigemptyset (&sa.sa_mask);
+  sigemptyset (&osa.sa_mask);
 # ifdef SA_RESTART
-  sa.sa_flags = SA_RESTART;
+  sa.sa_flags |= SA_RESTART;
 # endif
   sa.sa_handler = handler;
-  sigaction (sig, &sa, &sa);
-  return sa.sa_handler;
+  if (sigaction (sig, &sa, &osa) < 0)
+    return SIG_ERR;
+  return osa.sa_handler;
 #else /* !HAVE_SIGACTION */
 # ifdef HAVE_SIGVEC
-  struct sigvec sv;
+  struct sigvec sv, osv;
   sigemptyset (&sv.sv_mask);
+  sigemptyset (&osv.sv_mask);
   sv.sv_handler = handler;
-  sigvec (sig, &sv, &sv);
-  return sv.sv_handler;
+  if (sigvec (sig, &sv, &osv) < 0)
+    return SIG_ERR;
+  return osv.sv_handler;
 # else /* !HAVE_SIGVEC */
   return signal (sig, handler);
 # endif	/* HAVE_SIGVEC */

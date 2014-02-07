@@ -1,6 +1,26 @@
 /*
+  Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
+  Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1989, 1993
- *      The Regents of the University of California.  All rights reserved.
+ *	The Regents of the University of California.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,8 +47,19 @@
  * SUCH DAMAGE.
  */
 
+#include <config.h>
+
 #include "telnetd.h"
 #include <stdarg.h>
+
+#if defined HAVE_STREAMSPTY && defined TIOCSIGNAL \
+	&& defined HAVE_STROPTS_H
+# include <stropts.h>	/* I_FLUSH, FLUSHR */
+#endif
+
+#ifndef NTELOPTS	/* OpenSolaris */
+# define NTELOPTS	(1+TELOPT_NEW_ENVIRON)
+#endif
 
 /* Format lines for corresponing commands */
 char doopt[] = { IAC, DO, '%', 'c', 0 };
@@ -73,7 +104,7 @@ unsigned char *subsave;
 #define TS_DONT		8	/* dont " */
 
 static void
-send_eof ()
+send_eof (void)
 {
   init_termbuf ();
   term_send_eof ();
@@ -86,9 +117,9 @@ send_eof ()
  * just send back "[Yes]".
  */
 static void
-recv_ayt ()
+recv_ayt (void)
 {
-#if defined(SIGINFO) && defined(TCSIG)
+#if defined SIGINFO && defined TCSIG
   if (slctab[SLC_AYT].sptr && *slctab[SLC_AYT].sptr != _POSIX_VDISABLE)
     {
       ioctl (pty, TCSIG, (char *) SIGINFO);
@@ -99,7 +130,7 @@ recv_ayt ()
 }
 
 static void
-send_susp ()
+send_susp (void)
 {
 #ifdef	SIGTSTP
   ptyflush ();			/* half-hearted */
@@ -118,7 +149,7 @@ send_susp ()
  * otherwise, write quit char.
  */
 static void
-send_brk ()
+send_brk (void)
 {
   ptyflush ();			/* half-hearted */
 #ifdef	TCSIG
@@ -136,11 +167,11 @@ send_brk ()
  * otherwise, write intr char.
  */
 static void
-send_intr ()
+send_intr (void)
 {
   ptyflush ();			/* half-hearted */
 
-#if defined(HAVE_STREAMSPTY) && defined(TIOCSIGNAL)
+#if defined HAVE_STREAMSPTY && defined TIOCSIGNAL
   /* Streams PTY style ioctl to post a signal */
   {
     int sig = SIGINT;
@@ -159,12 +190,12 @@ send_intr ()
 }
 
 void
-telrcv ()
+telrcv (void)
 {
   register int c;
   static int state = TS_DATA;
 
-  while (net_input_level () > 0 & !pty_buffer_is_full ())
+  while ((net_input_level () > 0) & !pty_buffer_is_full ())
     {
       c = net_get_char (0);
 #ifdef	ENCRYPTION
@@ -427,7 +458,7 @@ telrcv ()
 	default:
 	  syslog (LOG_ERR, "telnetd: panic state=%d\n", state);
 	  printf ("telnetd: panic state=%d\n", state);
-	  exit (1);
+	  exit (EXIT_FAILURE);
 	}
     }
 }				/* end of telrcv */
@@ -515,7 +546,7 @@ send_do (int option, int init)
 #ifdef	AUTHENTICATION
 extern void auth_request ();
 #endif
-extern void doclientstat ();
+extern void doclientstat (void);
 #ifdef	ENCRYPTION
 extern void encrypt_send_support ();
 #endif /* ENCRYPTION */
@@ -794,7 +825,7 @@ wontoption (int option)
 	      slctab[SLC_XOFF].defset.flag |= SLC_CANTCHANGE;
 	      break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 	    case TELOPT_AUTHENTICATION:
 	      auth_finished (0, AUTH_REJECT);
 	      break;
@@ -849,7 +880,7 @@ wontoption (int option)
 		}
 	      break;
 
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
 	    case TELOPT_AUTHENTICATION:
 	      auth_finished (0, AUTH_REJECT);
 	      break;
@@ -1113,7 +1144,7 @@ int env_ovalue = -1;
  *      Terminal speed
  */
 void
-suboption ()
+suboption (void)
 {
   register int subchar;
 
@@ -1160,8 +1191,7 @@ suboption ()
 	if (SB_EOF () || SB_GET () != TELQUAL_IS)
 	  return;		/* ??? XXX but, this is the most robust */
 
-	if (terminaltype)
-	  free (terminaltype);
+	free (terminaltype);
 
 	obstack_init (&stk);
 	while (!SB_EOF ())
@@ -1490,7 +1520,7 @@ suboption ()
 	  unsetenv (varp);
 	break;
       }				/* end of case TELOPT_NEW_ENVIRON */
-#if defined(AUTHENTICATION)
+#if defined AUTHENTICATION
     case TELOPT_AUTHENTICATION:
       if (SB_EOF ())
 	break;
@@ -1564,13 +1594,13 @@ suboption ()
 }				/* end of suboption */
 
 void
-doclientstat ()
+doclientstat (void)
 {
   clientstat (TELOPT_LINEMODE, WILL, 0);
 }
 
 void
-send_status ()
+send_status (void)
 {
 #define ADD(c) \
         do { \

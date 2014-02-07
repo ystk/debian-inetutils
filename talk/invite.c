@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,49 +47,16 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <string.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
+#include <sys/time.h>
+#include <time.h>
 #include <signal.h>
 #include <netinet/in.h>
-#ifdef HAVE_OSOCKADDR_H
-# include <osockaddr.h>
-#endif
 #include <protocols/talkd.h>
 #include <errno.h>
 #include <unistd.h>
@@ -83,7 +70,7 @@ static char *answers[] = {
   "Target machine is too confused to talk to us",	/* FAILED */
   "Target machine does not recognize us",	/* MACHINE_UNKNOWN */
   "Your party is refusing messages",	/* PERMISSION_REFUSED */
-  "Target machine can not handle remote talk",	/* UNKNOWN_REQUEST */
+  "Target machine cannot handle remote talk",	/* UNKNOWN_REQUEST */
   "Target machine indicates protocol mismatch",	/* BADVERSION */
   "Target machine indicates protocol botch (addr)",	/* BADADDR */
   "Target machine indicates protocol botch (ctl_addr)",	/* BADCTLADDR */
@@ -104,7 +91,7 @@ jmp_buf invitebuf;
  * Transmit the invitation and process the response
  */
 int
-announce_invite ()
+announce_invite (void)
 {
   CTL_RESPONSE response;
 
@@ -120,12 +107,14 @@ announce_invite ()
   /* leave the actual invitation on my talk daemon */
   ctl_transact (my_machine_addr, msg, LEAVE_INVITE, &response);
   local_id = response.id_num;
+
+  return 0;
 }
 
 /*
  * Routine called on interupt to re-invite the callee
  */
-RETSIGTYPE
+void
 re_invite (int sig)
 {
 
@@ -138,7 +127,7 @@ re_invite (int sig)
 }
 
 int
-invite_remote ()
+invite_remote (void)
 {
   int new_sockt;
   struct itimerval itimer;
@@ -188,13 +177,15 @@ invite_remote ()
   msg.id_num = htonl (remote_id);
   ctl_transact (his_machine_addr, msg, DELETE, &response);
   invitation_waiting = 0;
+
+  return 0;
 }
 
 /*
  * Tell the daemon to remove your invitation
  */
 int
-send_delete ()
+send_delete (void)
 {
 
   msg.type = DELETE;
@@ -214,4 +205,6 @@ send_delete ()
 	      (struct sockaddr *) &daemon_addr,
 	      sizeof (daemon_addr)) != sizeof (msg))
     perror ("send_delete (local)");
+
+  return 0;
 }

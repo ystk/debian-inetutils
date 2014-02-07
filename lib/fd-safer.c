@@ -1,6 +1,6 @@
 /* Return a safer copy of a file descriptor.
 
-   Copyright (C) 2005, 2006 Free Software Foundation, Inc.
+   Copyright (C) 2005-2006, 2009-2011 Free Software Foundation, Inc.
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,14 +22,7 @@
 #include "unistd-safer.h"
 
 #include <errno.h>
-
 #include <unistd.h>
-#ifndef STDIN_FILENO
-# define STDIN_FILENO 0
-#endif
-#ifndef STDERR_FILENO
-# define STDERR_FILENO 2
-#endif
 
 /* Return FD, unless FD would be a copy of standard input, output, or
    error; in that case, return a duplicate of FD, closing FD.  On

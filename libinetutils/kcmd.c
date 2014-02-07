@@ -1,4 +1,23 @@
 /*
+  Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
+  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,11 +46,9 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
-#if defined(KERBEROS) || defined(SHISHI)
+#if defined KERBEROS || defined SHISHI
 
 # include <sys/param.h>
 # include <sys/file.h>
@@ -41,7 +58,7 @@
 # include <netinet/in.h>
 # include <arpa/inet.h>
 
-# if defined(KERBEROS)
+# if defined KERBEROS
 #  include <kerberosIV/des.h>
 #  include <kerberosIV/krb.h>
 # elif defined(SHISHI)
@@ -67,16 +84,16 @@
 
 int getport (int *);
 
-# if defined (KERBEROS)
+# if defined KERBEROS
 int
-kcmd (int *sock, char **ahost, u_short rport, char *locuser,
+kcmd (int *sock, char **ahost, unsigned short rport, char *locuser,
       char *remuser, char *cmd, int *fd2p, KTEXT ticket,
       char *service, char *realm,
       CREDENTIALS * cred, Key_schedule schedule, MSG_DAT * msg_data,
       struct sockaddr_in *laddr, struct sockaddr_in *faddr, long authopts)
 # elif defined(SHISHI)
 int
-kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
+kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
       char **remuser, char *cmd, int *fd2p, char *service, char *realm,
       Shishi_key ** key,
       struct sockaddr_in *laddr, struct sockaddr_in *faddr, long authopts)
@@ -97,7 +114,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
   char *host_save;
   int status;
 
-# if defined(SHISHI)
+# if defined SHISHI
   int zero = 0;
 # endif
 
@@ -134,11 +151,8 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
 	}
       fcntl (s, F_SETOWN, pid);
       sin.sin_family = hp->h_addrtype;
-# if defined(ultrix) || defined(sun)
-      bcopy (hp->h_addr, (caddr_t) & sin.sin_addr, hp->h_length);
-# else
-      bcopy (hp->h_addr_list[0], (caddr_t) & sin.sin_addr, hp->h_length);
-# endif
+
+      memcpy (&sin.sin_addr, hp->h_addr, hp->h_length);
       sin.sin_port = rport;
 
       if (connect (s, (struct sockaddr *) &sin, sizeof (sin)) >= 0)
@@ -158,7 +172,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
 	  timo *= 2;
 	  continue;
 	}
-# if !(defined(ultrix) || defined(sun))
+# if ! defined ultrix || defined sun
       if (hp->h_addr_list[1] != NULL)
 	{
 	  int oerrno = errno;
@@ -168,7 +182,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
 	  errno = oerrno;
 	  perror (NULL);
 	  hp->h_addr_list++;
-	  bcopy (hp->h_addr_list[0], (caddr_t) & sin.sin_addr, hp->h_length);
+	  memcpy (& sin.sin_addr, hp->h_addr_list, hp->h_length);
 	  fprintf (stderr, "Trying %s...\n", inet_ntoa (sin.sin_addr));
 	  continue;
 	}
@@ -215,7 +229,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
 	  goto bad;
 	}
       *fd2p = s3;
-      from.sin_port = ntohs ((u_short) from.sin_port);
+      from.sin_port = ntohs ((unsigned short) from.sin_port);
       if (from.sin_family != AF_INET || from.sin_port >= IPPORT_RESERVED)
 	{
 	  fprintf (stderr,
@@ -308,7 +322,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, u_short rport, char *locuser,
     }
   sigsetmask (oldmask);
   *sock = s;
-# if defined(KERBEROS)
+# if defined KERBEROS
   return (KSUCCESS);
 # elif defined(SHISHI)
   return (SHISHI_OK);
@@ -335,7 +349,7 @@ getport (int *alport)
     return (-1);
   for (;;)
     {
-      sin.sin_port = htons ((u_short) * alport);
+      sin.sin_port = htons ((unsigned short) * alport);
       if (bind (s, (struct sockaddr *) &sin, sizeof (sin)) >= 0)
 	return (s);
       if (errno != EADDRINUSE)

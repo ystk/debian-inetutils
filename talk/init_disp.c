@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1983, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,25 +47,7 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+#include <config.h>
 
 #include <stdlib.h>
 
@@ -54,26 +56,15 @@
  * as well as the signal handling routines.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
-
-#ifdef HAVE_TERMIOS_H
-# include <termios.h>
-#else
-# include <sys/ioctl.h>
-# ifdef HAVE_SYS_IOCTL_COMPAT_H
-#  include <sys/ioctl_compat.h>
-# endif
-#endif
-
+#include <termios.h>
 #include <unistd.h>
 #include <signal.h>
 #include <error.h>
 #include "talk.h"
+#include "unused-parameter.h"
 
-static RETSIGTYPE
-sig_sent (int sig ARG_UNUSED)
+static void
+sig_sent (int sig _GL_UNUSED_PARAMETER)
 {
 
   message ("Connection closing. Exiting");
@@ -85,7 +76,7 @@ sig_sent (int sig ARG_UNUSED)
  * and build the various windows.
  */
 int
-init_display ()
+init_display (void)
 {
 #ifdef HAVE_SIGACTION
   struct sigaction siga;
@@ -96,7 +87,7 @@ init_display ()
 #endif
 
   if (initscr () == NULL)
-    error (1, 0, "Terminal type unset or lacking necessary features.");
+    error (EXIT_FAILURE, 0, "Terminal type unset or lacking necessary features.");
 
 #ifdef HAVE_SIGACTION
   sigaction (SIGTSTP, (struct sigaction *) 0, &siga);
@@ -138,6 +129,8 @@ init_display ()
   wrefresh (line_win);
   /* let them know we are working on it */
   current_state = "No connection yet";
+
+  return 0;
 }
 
 /*
@@ -146,7 +139,7 @@ init_display ()
  * connection are the three edit characters.
  */
 int
-set_edit_chars ()
+set_edit_chars (void)
 {
   int cc;
   char buf[3];
@@ -155,7 +148,7 @@ set_edit_chars ()
   struct termios tty;
   cc_t disable = (cc_t) - 1, erase, werase, kill;
 
-# if !defined (_POSIX_VDISABLE) && defined (HAVE_FPATHCONF) && defined (_PC_VDISABLE)
+# if !defined _POSIX_VDISABLE && defined HAVE_FPATHCONF && defined _PC_VDISABLE
   disable = fpathconf (0, _PC_VDISABLE);
 # endif
 
@@ -206,13 +199,15 @@ set_edit_chars ()
   his_win.cerase = buf[0];
   his_win.kill = buf[1];
   his_win.werase = buf[2];
+
+  return 0;
 }
 
 /*
  * All done talking...hang up the phone and reset terminal thingy's
  */
 int
-quit ()
+quit (void)
 {
 
   if (curses_initialized)
@@ -224,5 +219,5 @@ quit ()
     }
   if (invitation_waiting)
     send_delete ();
-  exit (0);
+  exit (EXIT_SUCCESS);
 }

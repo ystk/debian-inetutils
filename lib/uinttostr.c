@@ -1,3 +1,3 @@
-#define inttostr uinttostr
+#define anytostr uinttostr
 #define inttype unsigned int
-#include "inttostr.c"
+#include "anytostr.c"

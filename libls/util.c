@@ -1,12 +1,25 @@
-/*	$OpenBSD: util.c,v 1.6 1999/05/05 07:06:01 deraadt Exp $	*/
-/*	$NetBSD: util.c,v 1.12 1995/09/07 06:43:02 jtc Exp $	*/
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
 /*
  * Copyright (c) 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
- *
- * This code is derived from software contributed to Berkeley by
- * Michael Fischbein.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -16,7 +29,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -33,9 +46,10 @@
  * SUCH DAMAGE.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+/* This code is derived from software contributed to Berkeley by
+   Michael Fischbein.  */
+
+#include <config.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -49,8 +63,7 @@
 #include "extern.h"
 
 int
-putname (name)
-     char *name;
+putname (char *name)
 {
   int len;
 
@@ -60,8 +73,8 @@ putname (name)
 }
 
 void
-usage ()
+usage (void)
 {
   fprintf (stderr, "usage: ls [-1ACFLRSTWacdfiklmnopqrstux] [file ...]\n");
-  exit (1);
+  exit (EXIT_FAILURE);
 }

@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1985, 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,33 +47,11 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
 /*
  * FTP User Program -- Command Interface.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 /*#include <sys/ioctl.h>*/
 #include <sys/types.h>
@@ -77,34 +75,38 @@
 #include "ftp_var.h"
 
 #include "libinetutils.h"
+#include "unused-parameter.h"
 
-#if HAVE_LIBREADLINE
-#  include <readline/readline.h>
-#else
-#  include "readline.h"
-#endif
+#include <readline/readline.h>
+#include <readline/history.h>
 
 
 #define DEFAULT_PROMPT "ftp> "
 static char *prompt = 0;
 
-ARGP_PROGRAM_DATA_SIMPLE ("ftp", "2007");
-
 const char args_doc[] = "[HOST [PORT]]";
 const char doc[] = "Remote file transfer.";
 
+enum {
+  OPT_PROMPT = CHAR_MAX + 1,
+};
+
 static struct argp_option argp_options[] = {
 #define GRP 0
-  {"debug", 'd', NULL, 0, "Set the SO_DEBUG option", GRP+1},
-  {"no-glob", 'g', NULL, 0, "Turn off file name globbing", GRP+1},
-  {"no-prompt", 'i', NULL, 0, "Don't prompt during multiple file transfers",
+  {"debug", 'd', NULL, 0, "set the SO_DEBUG option", GRP+1},
+  {"no-glob", 'g', NULL, 0, "turn off file name globbing", GRP+1},
+  {"no-prompt", 'i', NULL, 0, "do not prompt during multiple file transfers",
    GRP+1},
-  {"no-login", 'n', NULL, 0, "Don't automatically login to the remote system",
+  {"no-login", 'n', NULL, 0, "do not automatically login to the remote system",
    GRP+1},
-  {"trace", 't', NULL, 0, "Enable packet tracing", GRP+1},
-  {"prompt", 'p', "PROMPT", OPTION_ARG_OPTIONAL, "Print a command line PROMPT "
+  {"trace", 't', NULL, 0, "enable packet tracing", GRP+1},
+  {"passive", 'p', NULL, 0, "enable passive mode transfer", GRP+1},
+  {"active", 'A', NULL, 0, "enable active mode transfer", GRP+1},
+  {"prompt", OPT_PROMPT, "PROMPT", OPTION_ARG_OPTIONAL, "print a command line PROMPT "
    "(optionally), even if not on a tty", GRP+1},
-  {"verbose", 'v', NULL, 0, "Verbose output", GRP+1},
+  {"verbose", 'v', NULL, 0, "verbose output", GRP+1},
+  {"ipv4", '4', NULL, 0, "contact IPv4 hosts", GRP+1},
+  {"ipv6", '6', NULL, 0, "contact IPv6 hosts", GRP+1},
 #undef GRP
   {NULL}
 };
@@ -139,8 +141,24 @@ parse_opt (int key, char *arg, struct argp_state *state)
       verbose++;
       break;
 
-    case 'p':		/* Print command line prompt.  */
+    case OPT_PROMPT:		/* Print command line prompt.  */
       prompt = arg ? arg : DEFAULT_PROMPT;
+      break;
+
+    case 'p':		/* Enable passive transfer mode.  */
+      passivemode = 1;
+      break;
+
+    case 'A':	/* Enable active transfer mode.  */
+      passivemode = 0;
+      break;
+
+    case '4':
+      usefamily = AF_INET;
+      break;
+
+    case '6':
+      usefamily = AF_INET6;
       break;
 
     default:
@@ -162,19 +180,24 @@ main (int argc, char *argv[])
   char *cp;
 
   set_program_name (argv[0]);
-  
-  sp = getservbyname ("ftp", "tcp");
-  if (sp == 0)
-    error (EXIT_FAILURE, 0, "ftp/tcp: unknown service");
+
   doglob = 1;
   interactive = 1;
   autologin = 1;
+  passivemode = 0;		/* passive mode not active */
+  doepsv4 = 0;			/* use EPRT/EPSV for IPv4 */
+  usefamily = AF_UNSPEC;	/* allow any address family */
 
   /* Parse command line */
+  iu_argp_init ("ftp", default_program_authors);
   argp_parse (&argp, argc, argv, 0, &index, NULL);
 
   argc -= index;
   argv += index;
+
+  sp = getservbyname ("ftp", "tcp");
+  if (sp == 0)
+    error (EXIT_FAILURE, 0, "ftp/tcp: unknown service");
 
   fromatty = isatty (fileno (stdin));
   if (fromatty)
@@ -186,7 +209,6 @@ main (int argc, char *argv[])
 
   cpend = 0;			/* no pending replies */
   proxy = 0;			/* proxy not active */
-  passivemode = 0;		/* passive mode not active */
   crflag = 1;			/* strip c.r. on ascii gets */
   sendport = -1;		/* not using ports */
   /*
@@ -234,14 +256,14 @@ main (int argc, char *argv[])
     }
 }
 
-RETSIGTYPE
-intr (int sig ARG_UNUSED)
+void
+intr (int sig _GL_UNUSED_PARAMETER)
 {
   longjmp (toplevel, 1);
 }
 
-RETSIGTYPE
-lostpeer (int sig ARG_UNUSED)
+void
+lostpeer (int sig _GL_UNUSED_PARAMETER)
 {
   if (connected)
     {
@@ -321,10 +343,8 @@ cmdscanner (int top)
 	  break;
 	}
 
-#if HAVE_LIBHISTORY
       if (line && *line)
 	add_history (line);
-#endif
 
       if (l == 0)
 	break;
@@ -366,7 +386,7 @@ cmdscanner (int top)
 int slrflag;
 
 void
-makeargv ()
+makeargv (void)
 {
   char **argp;
 
@@ -385,7 +405,7 @@ makeargv ()
  * handle quoting and strings
  */
 char *
-slurpstring ()
+slurpstring (void)
 {
   int got_one = 0;
   char *sb = stringbase;

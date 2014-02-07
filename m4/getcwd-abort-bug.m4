@@ -1,9 +1,9 @@
-#serial 1
+# serial 7
 # Determine whether getcwd aborts when the length of the working directory
 # name is unusually large.  Any length between 4k and 16k trigger the bug
 # when using glibc-2.4.90-9 or older.
 
-# Copyright (C) 2006 Free Software Foundation, Inc.
+# Copyright (C) 2006, 2009-2011 Free Software Foundation, Inc.
 # This file is free software; the Free Software Foundation
 # gives unlimited permission to copy and/or distribute it,
 # with or without modifications, as long as this notice is preserved.
@@ -13,22 +13,30 @@
 # gl_FUNC_GETCWD_ABORT_BUG([ACTION-IF-FOUND[, ACTION-IF-NOT-FOUND]])
 AC_DEFUN([gl_FUNC_GETCWD_ABORT_BUG],
 [
-  AC_CHECK_DECLS_ONCE(getcwd)
-  AC_CHECK_FUNCS(getpagesize)
+  AC_CHECK_DECLS_ONCE([getcwd])
+  AC_CHECK_HEADERS_ONCE([unistd.h])
+  AC_REQUIRE([gl_PATHMAX_SNIPPET_PREREQ])
+  AC_CHECK_FUNCS([getpagesize])
   AC_CACHE_CHECK([whether getcwd aborts when 4k < cwd_length < 16k],
     gl_cv_func_getcwd_abort_bug,
     [# Remove any remnants of a previous test.
      rm -rf confdir-14B---
      # Arrange for deletion of the temporary directory this test creates.
      ac_clean_files="$ac_clean_files confdir-14B---"
+     dnl Please keep this in sync with tests/test-getcwd.c.
      AC_RUN_IFELSE(
        [AC_LANG_SOURCE(
-	  [[
+          [[
 #include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
+#if HAVE_UNISTD_H
+# include <unistd.h>
+#else /* on Windows with MSVC */
+# include <direct.h>
+#endif
 #include <string.h>
 #include <sys/stat.h>
+
+]gl_PATHMAX_SNIPPET[
 
 /* Don't get link errors because mkdir is redefined to rpl_mkdir.  */
 #undef mkdir
@@ -58,32 +66,33 @@ main ()
   size_t d;
 
   /* The bug is triggered when PATH_MAX < getpagesize (), so skip
-     this relative expensive and invasive test if that's not true.  */
+     this relatively expensive and invasive test if that's not true.  */
   if (getpagesize () <= PATH_MAX)
     return 0;
 
   cwd = getcwd (NULL, 0);
   if (cwd == NULL)
-    return 0;
+    return 2;
 
   initial_cwd_len = strlen (cwd);
   free (cwd);
   desired_depth = ((TARGET_LEN - 1 - initial_cwd_len)
-		   / (1 + strlen (dir_name)));
+                   / (1 + strlen (dir_name)));
   for (d = 0; d < desired_depth; d++)
     {
       if (mkdir (dir_name, S_IRWXU) < 0 || chdir (dir_name) < 0)
-	{
-	  fail = 3; /* Unable to construct deep hierarchy.  */
-	  break;
-	}
+        {
+          fail = 3; /* Unable to construct deep hierarchy.  */
+          break;
+        }
     }
 
   /* If libc has the bug in question, this invocation of getcwd
      results in a failed assertion.  */
   cwd = getcwd (NULL, 0);
   if (cwd == NULL)
-    fail = 4; /* getcwd failed.  This is ok, and expected.  */
+    fail = 4; /* getcwd failed: it refuses to return a string longer
+                 than PATH_MAX.  */
   free (cwd);
 
   /* Call rmdir first, in case the above chdir failed.  */
@@ -91,15 +100,29 @@ main ()
   while (0 < d--)
     {
       if (chdir ("..") < 0)
-	break;
+        {
+          fail = 5;
+          break;
+        }
       rmdir (dir_name);
     }
 
-  return 0;
+  return fail;
 }
           ]])],
     [gl_cv_func_getcwd_abort_bug=no],
-    [gl_cv_func_getcwd_abort_bug=yes],
+    [dnl An abort will provoke an exit code of something like 134 (128 + 6).
+     dnl An exit code of 4 can also occur (in OpenBSD 4.9, NetBSD 5.1 for
+     dnl example): getcwd (NULL, 0) fails rather than returning a string
+     dnl longer than PATH_MAX.  This may be POSIX compliant (in some
+     dnl interpretations of POSIX).  But gnulib's getcwd module wants to
+     dnl provide a non-NULL value in this case.
+     ret=$?
+     if test $ret -ge 128 || test $ret = 4; then
+       gl_cv_func_getcwd_abort_bug=yes
+     else
+       gl_cv_func_getcwd_abort_bug=no
+     fi],
     [gl_cv_func_getcwd_abort_bug=yes])
   ])
   AS_IF([test $gl_cv_func_getcwd_abort_bug = yes], [$1], [$2])

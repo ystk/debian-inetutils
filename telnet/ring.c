@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,6 +47,8 @@
  * SUCH DAMAGE.
  */
 
+#include <config.h>
+
 #include <string.h>
 
 /*
@@ -39,10 +61,6 @@
  *]]]
  *
  */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
 
 #include	<stdio.h>
 #include	<errno.h>
@@ -62,7 +80,7 @@
 
 /* Internal macros */
 
-#if !defined(MIN)
+#if !defined MIN
 # define MIN(a,b)	(((a)<(b))? (a):(b))
 #endif /* !defined(MIN) */
 
@@ -83,7 +101,7 @@
  * to ZERO on allocation, we need to make sure, when interpreting the
  * clock, that when the times are EQUAL, then the buffer is FULL.
  */
-static u_long ring_clock = 0;
+static unsigned long ring_clock = 0;
 
 
 #define ring_empty(d) (((d)->consume == (d)->supply) && \

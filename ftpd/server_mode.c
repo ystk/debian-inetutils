@@ -1,6 +1,23 @@
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+/*
+  Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
+  2009, 2010, 2011 Free Software Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include <signal.h>
 #include <sys/types.h>
@@ -19,6 +36,9 @@
 #ifdef HAVE_TCPD_H
 # include <tcpd.h>
 #endif
+
+#include <libinetutils.h>
+#include "unused-parameter.h"
 
 static void reapchild (int);
 
@@ -64,8 +84,8 @@ check_host (struct sockaddr *sa)
 }
 #endif
 
-static RETSIGTYPE
-reapchild (int signo ARG_UNUSED)
+static void
+reapchild (int signo _GL_UNUSED_PARAMETER)
 {
   int save_errno = errno;
 
@@ -75,7 +95,7 @@ reapchild (int signo ARG_UNUSED)
 }
 
 int
-server_mode (const char *pidfile, struct sockaddr_in *phis_addr)
+server_mode (const char *pidfile, struct sockaddr_in *phis_addr, char *argv[])
 {
   int ctl_sock, fd;
   struct servent *sv;
@@ -113,6 +133,9 @@ server_mode (const char *pidfile, struct sockaddr_in *phis_addr)
   memset (&server_addr, 0, sizeof server_addr);
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons (port);
+#if HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+  server_addr.sin_len = sizeof (struct sockaddr_in);
+#endif
 
   if (bind (ctl_sock, (struct sockaddr *) &server_addr, sizeof server_addr))
     {
@@ -142,7 +165,7 @@ server_mode (const char *pidfile, struct sockaddr_in *phis_addr)
      children to handle them.  */
   while (1)
     {
-      int addrlen = sizeof (*phis_addr);
+      socklen_t addrlen = sizeof (*phis_addr);
       fd = accept (ctl_sock, (struct sockaddr *) phis_addr, &addrlen);
       if (fork () == 0)		/* child */
 	{
@@ -159,5 +182,10 @@ server_mode (const char *pidfile, struct sockaddr_in *phis_addr)
   if (!check_host ((struct sockaddr *) phis_addr))
     return -1;
 #endif
+
+#ifndef HAVE_FORK
+  _exit (execvp (argv[0], argv));
+#endif
+
   return fd;
 }

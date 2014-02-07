@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -25,59 +45,33 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)externs.h	8.3 (Berkeley) 5/30/95
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+#include <unistd.h>
 
 #ifndef BSD
 # define BSD 43
 #endif
 
-#ifdef HAVE_TERMIOS_H
-# define USE_TERMIO
-#else /* !HAVE_TERMIOS_H */
-# ifdef HAVE_TERMIO_H
-#  define USE_TERMIO
-#  define SYSV_TERMIO
-# endif
-#endif /* HAVE_TERMIOS_H */
+
+#define USE_TERMIO
 
 /*
  * ucb stdio.h defines BSD as something wierd
  */
-#if defined(sun) && defined(__svr4__)
+#if defined sun && defined __svr4__
 # define BSD 43
 #endif
 
 #ifndef USE_TERMIO
-# if BSD > 43 || defined(SYSV_TERMIO)
+# if BSD > 43 || defined SYSV_TERMIO
 #  define USE_TERMIO
 # endif
 #endif
 
 #include <stdio.h>
 #include <setjmp.h>
-#if defined(CRAY) && !defined(NO_BSD_SETJMP)
+#if defined CRAY && !defined NO_BSD_SETJMP
 # include <bsdsetjmp.h>
 #endif
 #include <sys/ioctl.h>
@@ -96,15 +90,15 @@
 #  endif
 # endif
 #endif
-#if defined(NO_CC_T) || !defined(USE_TERMIO)
-# if !defined(USE_TERMIO)
+#if defined NO_CC_T || !defined USE_TERMIO
+# if !defined USE_TERMIO
 typedef char cc_t;
 # else
 typedef unsigned char cc_t;
 # endif
 #endif
 
-#if defined (USE_TERMIO) && !defined (SYSV_TERMIO)
+#if defined USE_TERMIO && !defined SYSV_TERMIO
 # define termio termios
 #endif
 
@@ -156,7 +150,7 @@ extern int autologin,		/* Autologin enabled */
   dontlecho,			/* do we suppress local echoing right now? */
   crmod, netdata,		/* Print out network data flow */
   prettydump,			/* Print "netdata" output in user readable format */
-#if defined(TN3270)
+#if defined TN3270
   cursesdata,			/* Print out curses data flow */
   apitrace,			/* Trace API transactions */
 #endif
@@ -334,7 +328,7 @@ env_opt (unsigned char *, int),
 env_opt_start (void),
 env_opt_start_info (void), env_opt_add (unsigned char *), env_opt_end (int);
 
-extern unsigned char *env_default (int, int), *env_getvalue (unsigned char *);
+extern unsigned char *env_default (int, int), *env_getvalue (const char *);
 
 extern int get_status (void), dosynch (void);
 
@@ -393,7 +387,7 @@ extern cc_t termSuspChar;
 # else
 #  define termSuspChar		new_tc.c_cc[VSUSP]
 # endif
-# if defined(VFLUSHO) && !defined(VDISCARD)
+# if defined VFLUSHO && !defined VDISCARD
 #  define VDISCARD VFLUSHO
 # endif
 # ifndef VDISCARD
@@ -442,7 +436,7 @@ extern cc_t termAytChar;
 #  define termAytChar		new_tc.c_cc[VSTATUS]
 # endif
 
-# if !defined(CRAY) || defined(__STDC__)
+# if !defined CRAY || defined __STDC__
 #  define termEofCharp		&termEofChar
 #  define termEraseCharp	&termEraseChar
 #  define termIntCharp		&termIntChar
@@ -484,7 +478,7 @@ extern cc_t termAytChar;
 extern Ring netoring, netiring, ttyoring, ttyiring;
 
 /* Tn3270 section */
-#if defined(TN3270)
+#if defined TN3270
 
 extern int HaveInput,		/* Whether an asynchronous I/O indication came in */
   noasynchtty,			/* Don't do signals on I/O (SIGURG, SIGIO) */

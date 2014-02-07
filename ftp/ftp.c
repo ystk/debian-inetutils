@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1985, 1989, 1993, 1994
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -27,44 +47,14 @@
  * SUCH DAMAGE.
  */
 
-/* Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008
-   Free Software Foundation, Inc.
-
-   This file is part of GNU Inetutils.
-
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
-
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
-
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
+#include <sys/time.h>
+#include <time.h>
 #include <sys/file.h>
 
 #include <netinet/in.h>
@@ -89,16 +79,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
-# include <stdarg.h>
-#else
-# include <varargs.h>
-#endif
-#ifdef HAVE_SYS_SELECT_H
-# include <sys/select.h>
-#endif
+#include <stdarg.h>
+#include <sys/select.h>
 
 #include "ftp_var.h"
+#include "unused-parameter.h"
 
 #if !HAVE_DECL_FCLOSE
 /* Some systems don't declare fclose in <stdio.h>, so do it ourselves.  */
@@ -112,99 +97,112 @@ extern int pclose (FILE *);
 
 extern int h_errno;
 
-struct sockaddr_in hisctladdr;
-struct sockaddr_in data_addr;
 int data = -1;
 int abrtflag = 0;
 jmp_buf ptabort;
 int ptabflg;
 int ptflag = 0;
-struct sockaddr_in myctladdr;
 off_t restart_point = 0;
 
+struct sockaddr_storage myctladdr;
+struct sockaddr_storage hisctladdr;
+struct sockaddr_storage data_addr;
+socklen_t ctladdrlen;	/* Applies to all addresses.  */
+
+/* For temporary resolving: hookup() and initconn()/noport.  */
+static char ia[INET6_ADDRSTRLEN];
+static char portstr[10];
 
 FILE *cin, *cout;
 
+#if ! defined FTP_CONNECT_TIMEOUT || FTP_CONNECT_TIMEOUT < 1
+# define FTP_CONNECT_TIMEOUT 5
+#endif
+
 char *
-hookup (host, port)
-     char *host;
-     int port;
+hookup (char *host, int port)
 {
-  struct hostent *hp = 0;
-  int s, len, tos;
+  struct addrinfo hints, *ai = NULL, *res = NULL;
+  struct timeval timeout;
+  int status, again = 0;
+  int s, tos;
+  socklen_t len;
   static char hostnamebuf[80];
 
-  memset ((char *) &hisctladdr, 0, sizeof (hisctladdr));
-  hisctladdr.sin_addr.s_addr = inet_addr (host);
-  if (hisctladdr.sin_addr.s_addr != -1)
-    {
-      hisctladdr.sin_family = AF_INET;
-      strncpy (hostnamebuf, host, sizeof (hostnamebuf));
-    }
-  else
-    {
-      hp = gethostbyname (host);
-      if (hp == NULL)
-	{
-#ifdef HAVE_HSTRERROR
-	  error (0, 0, "%s: %s", host, hstrerror (h_errno));
-#else
-	  char *pfx = malloc (strlen (program_name) + 2 + strlen (host) + 1);
-	  sprintf (pfx, "%s: %s", program_name, host);
-	  herror (pfx);
-#endif
-	  code = -1;
-	  return ((char *) 0);
-	}
-      hisctladdr.sin_family = hp->h_addrtype;
-      memmove ((caddr_t) & hisctladdr.sin_addr,
-#ifdef HAVE_STRUCT_HOSTENT_H_ADDR_LIST
-	       hp->h_addr_list[0],
-#else
-	       hp->h_addr,
-#endif
-	       hp->h_length);
-      strncpy (hostnamebuf, hp->h_name, sizeof (hostnamebuf));
-    }
-  hostname = hostnamebuf;
-  s = socket (hisctladdr.sin_family, SOCK_STREAM, 0);
-  if (s < 0)
-    {
-      error (0, errno, "socket");
-      code = -1;
-      return (0);
-    }
-  hisctladdr.sin_port = port;
-  while (connect (s, (struct sockaddr *) &hisctladdr, sizeof (hisctladdr)) <
-	 0)
-    {
-#ifdef HAVE_STRUCT_HOSTENT_H_ADDR_LIST
-      if (hp && hp->h_addr_list[1])
-	{
-	  int oerrno = errno;
-	  char *ia;
+  snprintf (portstr, sizeof (portstr) - 1, "%u", port);
+  memset (&hisctladdr, 0, sizeof (hisctladdr));
+  memset (&hints, 0, sizeof (hints));
 
-	  ia = inet_ntoa (hisctladdr.sin_addr);
+  hints.ai_family = usefamily;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_CANONNAME;
+#ifdef AI_ADDRCONFIG
+  if (hints.ai_family == AF_UNSPEC)
+    hints.ai_flags |= AI_ADDRCONFIG;
+#endif /* AI_ADDRCONFIG */
+
+  status = getaddrinfo (host, portstr, &hints, &res);
+  if (status)
+    {
+      error (0, 0, "%s: %s", host, gai_strerror (status));
+      code = -1;
+      return ((char *) 0);
+    }
+  strncpy (hostnamebuf, res->ai_canonname, sizeof (hostnamebuf));
+  hostname = hostnamebuf;
+
+  for (ai = res; ai != NULL; ai = ai->ai_next, ++again)
+    {
+      if (again)
+        {
+	  getnameinfo (ai->ai_addr, ai->ai_addrlen, ia, sizeof (ia),
+			NULL, 0, NI_NUMERICHOST);
+	  error (0, 0, "Trying %s ...", ia);
+	}
+
+      s = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+      if (s < 0)
+	continue;
+
+      timeout.tv_sec = FTP_CONNECT_TIMEOUT;
+      timeout.tv_usec = 0;
+      if (setsockopt (s, SOL_SOCKET, SO_SNDTIMEO, &timeout,
+			sizeof (timeout)) < 0 && debug)
+	error (0, errno, "setsockopt (SO_SNDTIMEO)");
+
+      if (connect (s, ai->ai_addr, ai->ai_addrlen) < 0)
+	{
+	  int oerrno = (errno != EINPROGRESS) ? errno : ETIMEDOUT;
+
+	  getnameinfo (ai->ai_addr, ai->ai_addrlen, ia, sizeof (ia),
+			NULL, 0, NI_NUMERICHOST);
 	  error (0, oerrno, "connect to address %s", ia);
-	  hp->h_addr_list++;
-	  memmove ((caddr_t) & hisctladdr.sin_addr,
-		   hp->h_addr_list[0], hp->h_length);
-	  fprintf (stdout, "Trying %s...\n", inet_ntoa (hisctladdr.sin_addr));
 	  close (s);
-	  s = socket (hisctladdr.sin_family, SOCK_STREAM, 0);
-	  if (s < 0)
-	    {
-	      error (0, errno, "socket");
-	      code = -1;
-	      return (0);
-	    }
+	  s = -1;
 	  continue;
 	}
-#endif
-      error (0, errno, "connect");
+
+      /* A standing connection is found: register the address.  */
+      timeout.tv_sec = 0;
+      timeout.tv_usec = 0;
+      (void) setsockopt (s, SOL_SOCKET, SO_SNDTIMEO, &timeout,
+			  sizeof (timeout));
+
+      ctladdrlen = ai->ai_addrlen;
+      memmove ((caddr_t) &hisctladdr, ai->ai_addr, ai->ai_addrlen);
+      break;
+    } /* for (ai = ai->ai_next) */
+
+  if (res)
+    freeaddrinfo (res);
+
+  if (ai == NULL)
+    {
+      error (0, 0, "no respons from host");
       code = -1;
       goto bad;
     }
+
   len = sizeof (myctladdr);
   if (getsockname (s, (struct sockaddr *) &myctladdr, &len) < 0)
     {
@@ -212,11 +210,14 @@ hookup (host, port)
       code = -1;
       goto bad;
     }
-#if defined (IP_TOS) && defined (IPPROTO_IP) && defined (IPTOS_LOWDELAY)
+
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_LOWDELAY
   tos = IPTOS_LOWDELAY;
-  if (setsockopt (s, IPPROTO_IP, IP_TOS, (char *) &tos, sizeof (int)) < 0)
+  if (myctladdr.ss_family == AF_INET &&
+	setsockopt (s, IPPROTO_IP, IP_TOS, (char *) &tos, sizeof (int)) < 0)
     error (0, errno, "setsockopt TOS (ignored)");
 #endif
+
   cin = fdopen (s, "r");
   /* dup(s) is for sake of stdio implementations who do not
      allow two fdopen's on the same file-descriptor */
@@ -242,6 +243,7 @@ hookup (host, port)
       code = -1;
       goto bad;
     }
+
 #ifdef SO_OOBINLINE
   {
     int on = 1;
@@ -257,19 +259,18 @@ hookup (host, port)
   return (hostname);
 bad:
   close (s);
-  return NULL;
+  return ((char *) 0);
 }
 
 int
-login (host)
-     char *host;
+login (char *host)
 {
   char tmp[80];
   char *user, *pass, *acct;
   int n, aflag = 0;
 
   user = pass = acct = 0;
-  if (ruserpass (host, &user, &pass, &acct) < 0)
+  if (remote_userpass (host, &user, &pass, &acct) < 0)
     {
       code = -1;
       return (0);
@@ -327,8 +328,7 @@ login (host)
     {
       if (!strcmp ("init", macros[n].mac_name))
 	{
-	  if (line)
-	    free (line);
+	  free (line);
 	  line = calloc (200, sizeof (*line));
 	  if (!line)
 	    quit (0, 0);
@@ -342,8 +342,8 @@ login (host)
   return (1);
 }
 
-RETSIGTYPE
-cmdabort (int sig ARG_UNUSED)
+void
+cmdabort (int sig _GL_UNUSED_PARAMETER)
 {
 
   printf ("\n");
@@ -354,30 +354,17 @@ cmdabort (int sig ARG_UNUSED)
 }
 
 int
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
 command (const char *fmt, ...)
-#else
-command (va_alist)
-     va_dcl
-#endif
 {
   va_list ap;
-#if !(defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__)
-  const char *fmt;
-#endif
   int r;
-  sig_t oldintr;
+  sighandler_t oldintr;
 
   abrtflag = 0;
   if (debug)
     {
       printf ("---> ");
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
       va_start (ap, fmt);
-#else
-      va_start (ap);
-      fmt = va_arg (ap, char *);
-#endif
       if (strncmp ("PASS ", fmt, 5) == 0)
 	printf ("PASS XXXX");
       else
@@ -395,12 +382,7 @@ command (va_alist)
   oldintr = signal (SIGINT, cmdabort);
   /* Under weird circumstances, we get a SIGPIPE from fflush().  */
   signal (SIGPIPE, SIG_IGN);
-#if defined(HAVE_STDARG_H) && defined(__STDC__) && __STDC__
   va_start (ap, fmt);
-#else
-  va_start (ap);
-  fmt = va_arg (ap, char *);
-#endif
   vfprintf (cout, fmt, ap);
   va_end (ap);
   fprintf (cout, "\r\n");
@@ -417,13 +399,12 @@ command (va_alist)
 char reply_string[BUFSIZ];	/* last line of previous reply */
 
 int
-getreply (expecteof)
-     int expecteof;
+getreply (int expecteof)
 {
   int c, n;
   int dig;
   int originalcode = 0, continuation = 0;
-  sig_t oldintr;
+  sighandler_t oldintr;
   int pflag = 0;
   char *cp, *pt = pasv;
 
@@ -464,7 +445,7 @@ getreply (expecteof)
 		  code = 221;
 		  return (0);
 		}
-	      lostpeer ();
+	      lostpeer (0);
 	      if (verbose)
 		{
 		  printf
@@ -477,13 +458,13 @@ getreply (expecteof)
 	  if (c != '\r' && (verbose > 0 ||
 			    (verbose > -1 && n == '5' && dig > 4)))
 	    {
-	      if (proxflag && (dig == 1 || dig == 5 && verbose == 0))
+	      if (proxflag && (dig == 1 || (dig == 5 && verbose == 0)))
 		printf ("%s:", hostname);
 	      putchar (c);
 	    }
 	  if (dig < 4 && isdigit (c))
 	    code = code * 10 + (c - '0');
-	  if (!pflag && code == 227)
+	  if (!pflag && (code == 227 || code == 228 || code == 229)) /* PASV || LPSV || EPSV */
 	    pflag = 1;
 	  if (dig > 4 && pflag == 1 && isdigit (c))
 	    pflag = 2;
@@ -508,7 +489,7 @@ getreply (expecteof)
 	  if (cp < &reply_string[sizeof (reply_string) - 1])
 	    *cp++ = c;
 	}
-      if (verbose > 0 || verbose > -1 && n == '5')
+      if (verbose > 0 || (verbose > -1 && n == '5'))
 	{
 	  putchar (c);
 	  fflush (stdout);
@@ -524,7 +505,7 @@ getreply (expecteof)
 	cpend = 0;
       signal (SIGINT, oldintr);
       if (code == 421 || originalcode == 421)
-	lostpeer ();
+	lostpeer (0);
       if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN)
 	(*oldintr) (SIGINT);
       return (n - '0');
@@ -532,9 +513,7 @@ getreply (expecteof)
 }
 
 int
-empty (mask, sec)
-     fd_set *mask;
-     int sec;
+empty (fd_set *mask, int sec)
 {
   struct timeval t;
 
@@ -546,8 +525,7 @@ empty (mask, sec)
 jmp_buf sendabort;
 
 void
-abortsend (sig)
-     int sig;
+abortsend (int sig)
 {
 
   mflag = 0;
@@ -558,16 +536,14 @@ abortsend (sig)
 }
 
 void
-sendrequest (cmd, local, remote, printnames)
-     char *cmd, *local, *remote;
-     int printnames;
+sendrequest (char *cmd, char *local, char *remote, int printnames)
 {
   struct stat st;
   struct timeval start, stop;
   int c, d;
-  FILE *fin, *dout = 0, *popen ();
+  FILE *fin, *dout = 0, *popen (const char *, const char *);
   int (*closefunc) (FILE *);
-  sig_t oldintr, oldintp;
+  sighandler_t oldintr, oldintp;
   long bytes = 0, local_hashbytes = hashbytes;
   char *lmode, buf[BUFSIZ], *bufp;
 
@@ -665,7 +641,7 @@ sendrequest (cmd, local, remote, printnames)
       switch (curtype)
 	{
 	case TYPE_A:
-	  rc = fseek (fin, (long) restart_point, SEEK_SET);
+	  rc = fseeko (fin, (long) restart_point, SEEK_SET);
 	  break;
 	case TYPE_I:
 	case TYPE_L:
@@ -834,8 +810,7 @@ abort:
 jmp_buf recvabort;
 
 void
-abortrecv (sig)
-     int sig;
+abortrecv (int sig)
 {
 
   mflag = 0;
@@ -846,13 +821,11 @@ abortrecv (sig)
 }
 
 void
-recvrequest (cmd, local, remote, lmode, printnames)
-     char *cmd, *local, *remote, *lmode;
-     int printnames;
+recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
 {
   FILE *fout, *din = 0;
   int (*closefunc) (FILE *);
-  sig_t oldintr, oldintp;
+  sighandler_t oldintr, oldintp;
   int c, d, is_retr, tcrflag, bare_lfs = 0, blksize;
   static int bufsize = 0;
   static char *buf;
@@ -965,8 +938,7 @@ recvrequest (cmd, local, remote, lmode, printnames)
   blksize = BUFSIZ;
   if (blksize > bufsize)
     {
-      if (buf)
-	free (buf);
+      free (buf);
       buf = malloc ((unsigned) blksize);
       if (buf == NULL)
 	{
@@ -1032,7 +1004,7 @@ recvrequest (cmd, local, remote, lmode, printnames)
 	{
 	  int i, n, ch;
 
-	  if (fseek (fout, 0L, SEEK_SET) < 0)
+	  if (fseeko (fout, 0L, SEEK_SET) < 0)
 	    goto done;
 	  n = restart_point;
 	  for (i = 0; i++ < n;)
@@ -1042,7 +1014,7 @@ recvrequest (cmd, local, remote, lmode, printnames)
 	      if (ch == '\n')
 		i++;
 	    }
-	  if (fseek (fout, 0L, SEEK_CUR) < 0)
+	  if (fseeko (fout, 0L, SEEK_CUR) < 0)
 	    {
 	    done:
 	      error (0, errno, "local: %s", local);
@@ -1153,16 +1125,21 @@ abort:
  * otherwise the server's connect may fail.
  */
 int
-initconn ()
+initconn (void)
 {
-  char *p, *a;
-  int result, len, tmpno = 0;
+  char *p = NULL, *a = NULL;
+  int result, tmpno = 0;
+  int good_epsv = 0, good_lpsv = 0, j;
+  socklen_t len;
   int on = 1;
-  int a0, a1, a2, a3, p0, p1;
+  uint32_t a0, a1, a2, a3, p0, p1, port;
+  uint32_t af, hal, h[16], pal; /* RFC 1639: LPSV resonse.  */
+  struct sockaddr_in *data_addr_sa4 = (struct sockaddr_in *) &data_addr;
+  struct sockaddr_in6 *data_addr_sa6 = (struct sockaddr_in6 *) &data_addr;
 
   if (passivemode)
     {
-      data = socket (AF_INET, SOCK_STREAM, 0);
+      data = socket (myctladdr.ss_family, SOCK_STREAM, 0);
       if (data < 0)
 	{
 	  perror ("ftp: socket");
@@ -1172,47 +1149,177 @@ initconn ()
 	  setsockopt (data, SOL_SOCKET, SO_DEBUG, (char *) &on,
 		      sizeof (on)) < 0)
 	perror ("ftp: setsockopt (ignored)");
-      if (command ("PASV") != COMPLETE)
-	{
-	  printf ("Passive mode refused.\n");
-	  goto bad;
-	}
 
-      /*
-       * What we've got at this point is a string of comma
-       * separated one-byte unsigned integer values.
-       * The first four are the an IP address. The fifth is
-       * the MSB of the port number, the sixth is the LSB.
-       * From that we'll prepare a sockaddr_in.
+      /* Be contemporary:
+       *   first try EPSV,
+       *   then fall back to PASV/LPSV.
        */
-
-      if (sscanf (pasv, "%d,%d,%d,%d,%d,%d",
-		  &a0, &a1, &a2, &a3, &p0, &p1) != 6)
-	{
-	  printf ("Passive mode address scan failure. Shouldn't happen!\n");
-	  goto bad;
+      switch (myctladdr.ss_family)
+        {
+	  case AF_INET:
+	    if (doepsv4 && command ("EPSV") == COMPLETE)
+	      {
+	        good_epsv = 1;
+	        break;
+	      }
+	    if (doepsv4)
+	      {
+		/* When arriving here, EPSV failed. Prevent new attempts.  */
+		doepsv4 = 0;
+	      }
+	    if (command ("PASV") == COMPLETE)
+		break;
+	    if (command ("LPSV") == COMPLETE)
+	      {
+		good_lpsv = 1;
+		break;
+	      }
+	    printf ("Passive mode refused.\n");
+	    goto bad;
+	    break;
+	  case AF_INET6:
+	    if (command ("EPSV") == COMPLETE)
+	      {
+		good_epsv = 1;
+		break;
+	      }
+	    if (command ("LPSV") == COMPLETE)
+	      {
+		good_lpsv = 1;
+		break;
+	      }
+	    printf ("Passive mode refused.\n");
+	    goto bad;
+	    break;
 	}
 
-      bzero (&data_addr, sizeof (data_addr));
-      data_addr.sin_family = AF_INET;
-      a = (char *) &data_addr.sin_addr.s_addr;
-      a[0] = a0 & 0xff;
-      a[1] = a1 & 0xff;
-      a[2] = a2 & 0xff;
-      a[3] = a3 & 0xff;
-      p = (char *) &data_addr.sin_port;
-      p[0] = p0 & 0xff;
-      p[1] = p1 & 0xff;
+      if (good_epsv)
+	{
+	  /* EPSV: IPv4 or IPv6
+	   *
+	   * Expected response (perl): pasv =~ '%u|'
+	   * This communicates a port number.
+	   */
+	  if (sscanf (pasv, "%u|", &port) != 1)
+	    {
+	      printf ("Extended passive mode scan failure. "
+			"Should not happen!\n");
+	      (void) command ("ABOR");	/* Cancel any open connection.  */
+	      goto bad;
+	    }
+	  data_addr = hisctladdr;
+	  switch (data_addr.ss_family)
+	    {
+	      case AF_INET:
+		data_addr_sa4->sin_port = htons (port);
+		break;
+	      case AF_INET6:
+		data_addr_sa6->sin6_port = htons (port);
+		break;
+	    }
+	} /* EPSV */
+      else if (good_lpsv)
+	{
+	  /* LPSV: IPv4 or IPv6
+	   *
+	   * At this point we have got a string of comma
+	   * separated, one-byte unsigned integer values.
+	   * Length and interpretation depends on address
+	   * family.
+	   */
 
-      if (connect (data, (struct sockaddr *) &data_addr,
-		   sizeof (data_addr)) < 0)
+	  if (myctladdr.ss_family == AF_INET)
+	    {
+	      if ((sscanf (pasv, "%u," /* af */
+				"%u,%u,%u,%u,%u," /* hal, h[4] */
+				"%u,%u,%u", /* pal, p0, p1 */
+				&af, &hal, &h[0], &h[1], &h[2], &h[3], &pal, &p0, &p1) != 9)
+		  || (/* Strong checking */ af != 4 || hal != 4 || pal != 2) )
+		{
+		  printf ("Passive mode address scan failure. "
+			  "Shouldn't happen!\n");
+		  (void) command ("ABOR");	/* Cancel any open connection.  */
+		  goto bad;
+		}
+	      for (j = 0; j < 4; ++j)
+		h[j] &= 0xff; /* Mask only the significant bits.  */
+
+	      data_addr.ss_family = AF_INET;
+	      data_addr_sa4->sin_port =
+		  htons (((p0 & 0xff) << 8) | (p1 & 0xff));
+
+		{
+		  uint32_t *pu32 = (uint32_t *) &data_addr_sa4->sin_addr.s_addr;
+		  pu32[0] = htonl ( (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]);
+		}
+	    } /* LPSV IPv4 */
+	  else /* IPv6 */
+	    {
+	      if ((sscanf (pasv, "%u," /* af */
+				"%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u," /* hal, h[16] */
+				"%u,%u,%u", /* pal, p0, p1 */
+				&af, &hal, &h[0], &h[1], &h[2], &h[3], &h[4], &h[5], &h[6], &h[7],
+				&h[8], &h[9], &h[10], &h[11], &h[12], &h[13], &h[14], &h[15],
+				&pal, &p0, &p1) != 21)
+		  || (/* Strong checking */ af != 6 || hal != 16 || pal != 2) )
+		{
+		  printf ("Passive mode address scan failure. "
+			  "Shouldn't happen!\n");
+		  (void) command ("ABOR");	/* Cancel any open connection.  */
+		  goto bad;
+		}
+	      for (j = 0; j < 16; ++j)
+		h[j] &= 0xff; /* Mask only the significant bits.  */
+
+	      data_addr.ss_family = AF_INET6;
+	      data_addr_sa6->sin6_port =
+		  htons (((p0 & 0xff) << 8) | (p1 & 0xff));
+
+		{
+		  uint32_t *pu32 = (uint32_t *) &data_addr_sa6->sin6_addr.s6_addr;
+		  pu32[0] = htonl ( (h[0] << 24) | (h[1] << 16) | (h[2] << 8) | h[3]);
+		  pu32[1] = htonl ( (h[4] << 24) | (h[5] << 16) | (h[6] << 8) | h[7]);
+		  pu32[2] = htonl ( (h[8] << 24) | (h[9] << 16) | (h[10] << 8) | h[11]);
+		  pu32[3] = htonl ( (h[12] << 24) | (h[13] << 16) | (h[14] << 8) | h[15]);
+		}
+	    } /* LPSV IPv6 */
+	}
+      else /* !EPSV && !LPSV */
+	{ /* PASV */
+	  if (myctladdr.ss_family == AF_INET)
+	    { /* PASV */
+	      if (sscanf (pasv, "%u,%u,%u,%u,%u,%u",
+			  &a0, &a1, &a2, &a3, &p0, &p1) != 6)
+		{
+		  printf ("Passive mode address scan failure. "
+			  "Shouldn't happen!\n");
+		  (void) command ("ABOR");	/* Cancel any open connection.  */
+		  goto bad;
+		}
+	      data_addr.ss_family = AF_INET;
+	      data_addr_sa4->sin_addr.s_addr =
+		  htonl ( (a0 << 24) | ((a1 & 0xff) << 16)
+			 | ((a2 & 0xff) << 8) | (a3 & 0xff) );
+	      data_addr_sa4->sin_port =
+		  htons (((p0 & 0xff) << 8) | (p1 & 0xff));
+	    } /* PASV */
+	  else
+	    {
+	      /* Catch all impossible cases.  */
+	      printf ("Passive mode address scan failure. Shouldn't happen!\n");
+	      goto bad;
+	    }
+	} /* PASV */
+
+      if (connect (data, (struct sockaddr *) &data_addr, ctladdrlen) < 0)
 	{
 	  perror ("ftp: connect");
 	  goto bad;
 	}
-#if defined(IP_TOS) && defined(IPTOS_THROUGPUT)
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
       on = IPTOS_THROUGHPUT;
-      if (setsockopt (data, IPPROTO_IP, IP_TOS, (char *) &on,
+      if (data_addr.ss_family == AF_INET &&
+	   setsockopt (data, IPPROTO_IP, IP_TOS, (char *) &on,
 		      sizeof (int)) < 0)
 	perror ("ftp: setsockopt TOS (ignored)");
 #endif
@@ -1222,10 +1329,20 @@ initconn ()
 noport:
   data_addr = myctladdr;
   if (sendport)
-    data_addr.sin_port = 0;	/* let system pick one */
+    /* Let the system pick a port.  */
+    switch (myctladdr.ss_family)
+      {
+	case AF_INET:
+	  data_addr_sa4->sin_port = 0;
+	  break;
+	case AF_INET6:
+	  data_addr_sa6->sin6_port = 0;
+	  break;
+      }
+
   if (data != -1)
     close (data);
-  data = socket (AF_INET, SOCK_STREAM, 0);
+  data = socket (myctladdr.ss_family, SOCK_STREAM, 0);
   if (data < 0)
     {
       error (0, errno, "socket");
@@ -1240,7 +1357,7 @@ noport:
 	error (0, errno, "setsockopt (reuse address)");
 	goto bad;
       }
-  if (bind (data, (struct sockaddr *) &data_addr, sizeof (data_addr)) < 0)
+  if (bind (data, (struct sockaddr *) &data_addr, ctladdrlen) < 0)
     {
       error (0, errno, "bind");
       goto bad;
@@ -1258,13 +1375,63 @@ noport:
     error (0, errno, "listen");
   if (sendport)
     {
-      a = (char *) &data_addr.sin_addr;
-      p = (char *) &data_addr.sin_port;
 #define UC(b)	(((int)b)&0xff)
-      result =
-	command ("PORT %d,%d,%d,%d,%d,%d",
-		 UC (a[0]), UC (a[1]), UC (a[2]), UC (a[3]),
-		 UC (p[0]), UC (p[1]));
+      /* Preferences:
+       *   IPv4: EPRT, PORT, LPRT
+       *   IPv6: EPRT, LPRT
+       */
+      result = ERROR;	/* For success detection.  */
+      if (data_addr.ss_family != AF_INET || doepsv4)
+	{
+	  /* Use EPRT mode.  */
+	  getnameinfo ((struct sockaddr *) &data_addr, ctladdrlen,
+			ia, sizeof (ia), portstr, sizeof (portstr),
+			NI_NUMERICHOST | NI_NUMERICSERV);
+	  result = command ("EPRT |%d|%s|%s|",
+			    (data_addr.ss_family == AF_INET) ? 1 : 2,
+			    ia, portstr);
+	}
+
+      if (data_addr.ss_family == AF_INET && doepsv4 && result != COMPLETE)
+	/* Do not try EPRT with IPv4 again.  It fails for this host.  */
+	doepsv4 = 0;
+
+      if (data_addr.ss_family == AF_INET && result != COMPLETE)
+	{
+	  /* PORT for IPv4; possibly EPRT has failed.  */
+	  a = (char *) &data_addr_sa4->sin_addr;
+	  p = (char *) &data_addr_sa4->sin_port;
+	  result = command ("PORT %d,%d,%d,%d,%d,%d",
+			    UC (a[0]), UC (a[1]), UC (a[2]), UC (a[3]),
+			    UC (p[0]), UC (p[1]));
+	}
+
+      if (result != COMPLETE)
+	{
+	  /* Fall back to LPRT.  */
+	  uint8_t *h, *p;
+
+	  switch (data_addr.ss_family)
+	    {
+	      case AF_INET:
+		h = (uint8_t *) &data_addr_sa4->sin_addr;
+		p = (uint8_t *) &data_addr_sa4->sin_port;
+		result = command ("LPRT 4,4,%u,%u,%u,%u,2,%u,%u",
+				  h[0], h[1], h[2], h[3], p[0], p[1]);
+		break;
+	      case AF_INET6:
+		h = (uint8_t *) &data_addr_sa6->sin6_addr;
+		p = (uint8_t *) &data_addr_sa6->sin6_port;
+		result = command ("LPRT 6,16," /* af, hal */
+				  "%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u," /* h[16] */
+				  "2,%u,%u", /* pal, p[2] */
+				  h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7],
+				  h[8], h[9], h[10], h[11], h[12], h[13], h[14], h[15],
+				  p[0], p[1]);
+		break;
+	    }
+	}
+
       if (result == ERROR && sendport == -1)
 	{
 	  sendport = 0;
@@ -1275,9 +1442,10 @@ noport:
     }
   if (tmpno)
     sendport = 1;
-#if defined (IP_TOS) && defined (IPPROTO_IP) && defined (IPTOS_THROUGHPUT)
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
   on = IPTOS_THROUGHPUT;
-  if (setsockopt (data, IPPROTO_IP, IP_TOS, (char *) &on, sizeof (int)) < 0)
+  if (data_addr.ss_family == AF_INET &&
+	setsockopt (data, IPPROTO_IP, IP_TOS, (char *) &on, sizeof (int)) < 0)
     error (0, errno, "setsockopt TOS (ignored)");
 #endif
   return (0);
@@ -1289,11 +1457,11 @@ bad:
 }
 
 FILE *
-dataconn (lmode)
-     char *lmode;
+dataconn (char *lmode)
 {
-  struct sockaddr_in from;
-  int s, fromlen = sizeof (from), tos;
+  struct sockaddr_storage from;
+  int s, tos;
+  socklen_t fromlen = sizeof (from);
 
   if (passivemode)
     return (fdopen (data, lmode));
@@ -1307,19 +1475,17 @@ dataconn (lmode)
     }
   close (data);
   data = s;
-#if defined (IP_TOS) && defined (IPPROTO_IP) && defined (IPTOS_THROUGHPUT)
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
   tos = IPTOS_THROUGHPUT;
-  if (setsockopt (s, IPPROTO_IP, IP_TOS, (char *) &tos, sizeof (int)) < 0)
+  if (from.ss_family == AF_INET &&
+	setsockopt (s, IPPROTO_IP, IP_TOS, (char *) &tos, sizeof (int)) < 0)
     error (0, errno, "setsockopt TOS (ignored)");
 #endif
   return (fdopen (data, lmode));
 }
 
 void
-ptransfer (direction, bytes, t0, t1)
-     char *direction;
-     long bytes;
-     struct timeval *t0, *t1;
+ptransfer (char *direction, long int bytes, struct timeval *t0, struct timeval *t1)
 {
   struct timeval td;
   float s;
@@ -1350,8 +1516,7 @@ tvadd(tsum, t0)
 */
 
 void
-tvsub (tdiff, t1, t0)
-     struct timeval *tdiff, *t1, *t0;
+tvsub (struct timeval *tdiff, struct timeval *t1, struct timeval *t0)
 {
 
   tdiff->tv_sec = t1->tv_sec - t0->tv_sec;
@@ -1361,24 +1526,22 @@ tvsub (tdiff, t1, t0)
 }
 
 void
-psabort (sig)
-     int sig;
+psabort (int sig)
 {
 
   abrtflag++;
 }
 
 void
-pswitch (flag)
-     int flag;
+pswitch (int flag)
 {
-  sig_t oldintr;
+  sighandler_t oldintr;
   static struct comvars
   {
     int connect;
     char *name;
-    struct sockaddr_in mctl;
-    struct sockaddr_in hctl;
+    struct sockaddr_storage mctl;
+    struct sockaddr_storage hctl;
     FILE *in;
     FILE *out;
     int tpe;
@@ -1421,8 +1584,7 @@ pswitch (flag)
   ip->connect = connected;
   connected = op->connect;
 
-  if (ip->name)
-    free (ip->name);
+  free (ip->name);
   ip->name = hostname;
   hostname = op->name;
   op->name = 0;
@@ -1458,14 +1620,12 @@ pswitch (flag)
   ip->mapflg = mapflag;
   mapflag = op->mapflg;
 
-  if (ip->mi)
-    free (ip->mi);
+  free (ip->mi);
   ip->mi = mapin;
   mapin = op->mi;
   op->mi = 0;
 
-  if (ip->mo)
-    free (ip->mo);
+  free (ip->mo);
   ip->mo = mapout;
   mapout = op->mo;
   op->mo = 0;
@@ -1479,8 +1639,7 @@ pswitch (flag)
 }
 
 void
-abortpt (sig)
-     int sig;
+abortpt (int sig)
 {
 
   printf ("\n");
@@ -1492,10 +1651,9 @@ abortpt (sig)
 }
 
 void
-proxtrans (cmd, local, remote)
-     char *cmd, *local, *remote;
+proxtrans (char *cmd, char *local, char *remote)
 {
-  sig_t oldintr;
+  sighandler_t oldintr;
   int secndflag = 0, prox_type, nfnd;
   char *cmd2;
   fd_set mask;
@@ -1609,7 +1767,7 @@ abort:
 	    }
 	  if (ptabflg)
 	    code = -1;
-	  lostpeer ();
+	  lostpeer (0);
 	}
       getreply (0);
       getreply (0);
@@ -1623,9 +1781,7 @@ abort:
 }
 
 void
-reset (argc, argv)
-     int argc;
-     char *argv[];
+reset (int argc, char **argv)
 {
   fd_set mask;
   int nfnd = 1;
@@ -1638,7 +1794,7 @@ reset (argc, argv)
 	{
 	  error (0, errno, "reset");
 	  code = -1;
-	  lostpeer ();
+	  lostpeer (0);
 	}
       else if (nfnd)
 	{
@@ -1648,16 +1804,14 @@ reset (argc, argv)
 }
 
 char *
-gunique (local)
-     char *local;
+gunique (char *local)
 {
   static char *new = 0;
   char *cp;
   int count = 0;
   char ext = '1';
 
-  if (new)
-    free (new);
+  free (new);
   new = malloc (strlen (local) + 1 + 3 + 1);	/* '.' + 100 + '\0' */
   if (!new)
     {
@@ -1685,10 +1839,12 @@ gunique (local)
 	ext++;
 
       if (stat (new, &st) != 0)
-	if (errno == ENOENT)
-	  return new;
-	else
-	  return 0;
+        {
+          if (errno == ENOENT)
+            return new;
+          else
+            return 0;
+        }
 
       if (ext != '0')
 	cp--;
@@ -1703,8 +1859,7 @@ gunique (local)
 }
 
 void
-abort_remote (din)
-     FILE *din;
+abort_remote (FILE *din)
 {
   char buf[BUFSIZ];
   int nfnd;
@@ -1733,7 +1888,7 @@ abort_remote (din)
 	}
       if (ptabflg)
 	code = -1;
-      lostpeer ();
+      lostpeer (0);
     }
   if (din && FD_ISSET (fileno (din), &mask))
     {

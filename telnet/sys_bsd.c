@@ -1,4 +1,24 @@
 /*
+  Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
+  Foundation, Inc.
+
+  This file is part of GNU Inetutils.
+
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
+
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+/*
  * Copyright (c) 1988, 1990, 1993
  *	The Regents of the University of California.  All rights reserved.
  *
@@ -10,7 +30,7 @@
  * 2. Redistributions in binary form must reproduce the above copyright
  *    notice, this list of conditions and the following disclaimer in the
  *    documentation and/or other materials provided with the distribution.
- * 4. Neither the name of the University nor the names of its contributors
+ * 3. Neither the name of the University nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
  *
@@ -32,40 +52,27 @@
  * (at least between 4.x and dos) which is used in telnet.c.
  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <fcntl.h>
 #include <sys/types.h>
-#ifdef TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# ifdef HAVE_SYS_TIME_H
-#  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
-#endif
+#include <sys/time.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <signal.h>
 #include <errno.h>
 #include <arpa/telnet.h>
-#ifdef HAVE_SYS_SELECT_H
-# include <sys/select.h>
-#endif
+#include <sys/select.h>
 
 #include "ring.h"
-
-#include "fdset.h"
 
 #include "defines.h"
 #include "externs.h"
 #include "types.h"
 
 #ifdef	SIGINFO
-extern RETSIGTYPE ayt_status ();
+extern void ayt_status ();
+extern void sendayt ();
 #endif
 
 int tout,			/* Output file descriptor */
@@ -118,7 +125,7 @@ static fd_set ibits, obits, xbits;
 
 
 void
-init_sys ()
+init_sys (void)
 {
   tout = fileno (stdout);
   tin = fileno (stdin);
@@ -147,9 +154,9 @@ TerminalRead (char *buf, int n)
  */
 
 int
-TerminalAutoFlush ()
+TerminalAutoFlush (void)
 {
-#if defined(LNOFLSH)
+#if defined LNOFLSH
   int flush;
 
   ioctl (0, TIOCLGET, (char *) &flush);
@@ -174,7 +181,7 @@ extern int kludgelinemode;
  *	1	Do add this character
  */
 
-extern void xmitAO (), xmitEL (), xmitEC (), intp (), sendbrk ();
+extern void xmitAO (void), xmitEL (void), xmitEC (void), intp (void), sendbrk (void);
 
 int
 TerminalSpecialChars (int c)
@@ -235,7 +242,7 @@ TerminalSpecialChars (int c)
  */
 
 void
-TerminalFlushOutput ()
+TerminalFlushOutput (void)
 {
   int flags = 0;
 #ifdef	TIOCFLUSH
@@ -246,7 +253,7 @@ TerminalFlushOutput ()
 }
 
 void
-TerminalSaveState ()
+TerminalSaveState (void)
 {
 #ifndef USE_TERMIO
   ioctl (0, TIOCGETP, (char *) &ottyb);
@@ -346,7 +353,7 @@ tcval (register int func)
 }
 
 void
-TerminalDefaultChars ()
+TerminalDefaultChars (void)
 {
 #ifndef USE_TERMIO
   ntc = otc;
@@ -665,10 +672,10 @@ TerminalNewMode (register int f)
   if (f != -1)
     {
 #ifdef	SIGTSTP
-      RETSIGTYPE susp ();
+      void susp (int sig);
 #endif /* SIGTSTP */
 #ifdef	SIGINFO
-      RETSIGTYPE ayt ();
+      void ayt ();
 #endif
 
 #ifdef	SIGTSTP
@@ -677,7 +684,7 @@ TerminalNewMode (register int f)
 #ifdef	SIGINFO
       signal (SIGINFO, ayt);
 #endif
-#if defined(USE_TERMIO) && defined(NOKERNINFO)
+#if defined USE_TERMIO && defined NOKERNINFO
       tmp_tc.c_lflag |= NOKERNINFO;
 #endif
       /*
@@ -720,7 +727,7 @@ TerminalNewMode (register int f)
   else
     {
 #ifdef	SIGINFO
-      RETSIGTYPE ayt_status ();
+      void ayt_status ();
 
       signal (SIGINFO, ayt_status);
 #endif
@@ -756,13 +763,13 @@ TerminalNewMode (register int f)
     tcsetattr (tin, TCSANOW, &tmp_tc);
 #endif
 
-#if (!defined(TN3270)) || ((!defined(NOT43)) || defined(PUTCHAR))
-# if !defined(sysV88)
+#if  !defined TN3270 ||  (!defined NOT43 || defined PUTCHAR)
+# if !defined sysV88
   ioctl (tin, FIONBIO, (char *) &onoff);
   ioctl (tout, FIONBIO, (char *) &onoff);
 # endif
 #endif /* (!defined(TN3270)) || ((!defined(NOT43)) || defined(PUTCHAR)) */
-#if defined(TN3270)
+#if defined TN3270
   if (noasynchtty == 0)
     {
       ioctl (tin, FIOASYNC, (char *) &onoff);
@@ -911,7 +918,7 @@ NetNonblockingIO (int fd, int onoff)
   ioctl (fd, FIONBIO, (char *) &onoff);
 }
 
-#if defined(TN3270)
+#if defined TN3270
 void
 NetSigIO (int fd, int onoff)
 {
@@ -932,7 +939,7 @@ NetSetPgrp (int fd)
  * Various signal handling routines.
  */
 
-RETSIGTYPE
+void
 deadpeer (int sig)
 {
   setcommandmode ();
@@ -940,7 +947,7 @@ deadpeer (int sig)
 }
 
 
-RETSIGTYPE
+void
 intr (int sig)
 {
   if (localchars)
@@ -953,7 +960,7 @@ intr (int sig)
 }
 
 
-RETSIGTYPE
+void
 intr2 (int sig)
 {
   if (localchars)
@@ -969,7 +976,7 @@ intr2 (int sig)
 }
 
 #ifdef	SIGTSTP
-RETSIGTYPE
+void
 susp (int sig)
 {
   if ((rlogin != _POSIX_VDISABLE) && rlogin_susp ())
@@ -980,7 +987,7 @@ susp (int sig)
 #endif
 
 #ifdef	SIGWINCH
-RETSIGTYPE
+void
 sendwin (int sig)
 {
   if (connected)
@@ -991,7 +998,7 @@ sendwin (int sig)
 #endif
 
 #ifdef	SIGINFO
-RETSIGTYPE
+void
 ayt (int sig)
 {
   if (connected)
@@ -1003,7 +1010,7 @@ ayt (int sig)
 
 
 void
-sys_telnet_init ()
+sys_telnet_init (void)
 {
   signal (SIGINT, intr);
   signal (SIGQUIT, intr2);
@@ -1022,7 +1029,7 @@ sys_telnet_init ()
 
   NetNonblockingIO (net, 1);
 
-#if defined(TN3270)
+#if defined TN3270
   if (noasynchnet == 0)
     {				/* DBX can't handle! */
       NetSigIO (net, 1);
@@ -1030,7 +1037,7 @@ sys_telnet_init ()
     }
 #endif /* defined(TN3270) */
 
-#if defined(SO_OOBINLINE)
+#if defined SO_OOBINLINE
   if (SetSockOpt (net, SOL_SOCKET, SO_OOBINLINE, 1) == -1)
     {
       perror ("SetSockOpt");
@@ -1076,7 +1083,7 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
       if (tout > nfds)
         nfds = tout;
     }
-#if defined(TN3270)
+#if defined TN3270
   if (ttyin)
     {
       FD_SET (tin, &ibits);
@@ -1091,7 +1098,7 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
         nfds = tin;
     }
 #endif /* defined(TN3270) */
-#if defined(TN3270)
+#if defined TN3270
   if (netin)
     {
       FD_SET (net, &ibits);
@@ -1126,7 +1133,7 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
 	    {
 	      return 0;
 	    }
-#if defined(TN3270)
+#if defined TN3270
 	  /*
 	   * we can get EBADF if we were in transparent
 	   * mode, and the transcom process died.
@@ -1170,7 +1177,7 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
 
       FD_CLR (net, &ibits);
       canread = ring_empty_consecutive (&netiring);
-#if !defined(SO_OOBINLINE)
+#if !defined SO_OOBINLINE
       /*
        * In 4.2 (and some early 4.3) systems, the
        * OOB indication and data handling in the kernel
@@ -1300,7 +1307,8 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
   if (FD_ISSET (tin, &ibits))
     {
       FD_CLR (tin, &ibits);
-      c = TerminalRead (ttyiring.supply, ring_empty_consecutive (&ttyiring));
+      c = TerminalRead ((char *)ttyiring.supply,
+                        ring_empty_consecutive (&ttyiring));
       if (c < 0 && errno == EIO)
 	c = 0;
       if (c < 0 && errno == EWOULDBLOCK)

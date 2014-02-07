@@ -1,77 +1,29 @@
-/* Copyright (C) 1998,2001,2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
+  2011 Free Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
+
+#include <config.h>
 
 #include <telnetd.h>
 
-#if defined(HAVE_TERMIOS_H)
 typedef struct termios TERMDESC;
-# define _term_getattr tcgetattr
-# define _term_setattr(fd, tp) tcsetattr (fd, TCSANOW, tp)
-
-#elif defined(HAVE_TERMIO_H)
-typedef struct termio TERMDESC;
-# define _term_getattr tcgetattr
-# define _term_setattr(fd, tp) tcsetattr (fd, TCSANOW, tp)
-
-#else
-
-# define IOCTL_INTERFACE
-
-typedef struct
-{
-  struct sgttyb sg;
-  struct tchars tc;
-  struct ltchars ltc;
-  int state;
-  int lflags;
-# define termdesc_eofc   tc.t_eofc
-# define termdesc_erase  tc.sg.sg_erase
-# define termdesc_kill   sg.sg_kill
-# define termdesc_ip     tc.t_intrc
-# define termdesc_abort  tc.t_quitc
-# define termdesc_xon    tc.t_startc
-# define termdesc_xoff   tc.t_stopc
-# define termdesc_ao     ltc.t_flushc
-# define termdesc_susp   ltc.t_suspc
-# define termdesc_ew     ltc.t_werasc
-# define termdesc_rp     ltc.t_rprntc
-# define termdesc_lnext  ltc.t_lnextc
-# define termdesc_forw1  tc.t_brkc
-} TERMDESC;
-
-# define cfsetospeed(tp, val) (tp)->sg.sg_ospeed = (val)
-# define cfsetispeed(tp, val) (tp)->sg.sg_ispeed = (val)
-# define cfgetospeed(tp)      (tp)->sg.sg_ospeed
-# define cfgetispeed(tp)      (tp)->sg.sg_ispeed
-
-int
-_term_getattr (int fd, TERMDESC * tp)
-{
-  ioctl (fd, TIOCGETP, (char *) &tp->sg);
-  ioctl (fd, TIOCGETC, (char *) &tp->tc);
-  ioctl (fd, TIOCGLTC, (char *) &tp->ltc);
-# ifdef	TIOCGSTATE
-  ioctl (fd, TIOCGSTATE, (char *) &tp->state);
-# endif
-  return 0;
-}
-#endif
+#define _term_getattr tcgetattr
+#define _term_setattr(fd, tp) tcsetattr (fd, TCSANOW, tp)
 
 TERMDESC termbuf, termbuf2;
 
@@ -158,7 +110,7 @@ tty_israw ()
   return termbuf.sg.sg_flags & RAW;
 }
 
-# if defined (AUTHENTICATION) && defined(NO_LOGIN_F) && defined(LOGIN_R)
+# if defined AUTHENTICATION && defined NO_LOGIN_F && defined LOGIN_R
 int
 tty_setraw (int on)
 {
@@ -275,7 +227,7 @@ tty_iscrnl ()
 #  define termdesc_xoff   c_cc[VSTOP]
 # endif
 
-# if !defined(VDISCARD) && defined(VFLUSHO)
+# if !defined VDISCARD && defined VFLUSHO
 #  define VDISCARD VFLUSHO
 # endif
 # ifdef	VDISCARD
@@ -304,10 +256,12 @@ tty_iscrnl ()
 #  define termdesc_status c_cc[VSTATUS]
 # endif
 
+# if VEOF == VMIN
 static cc_t oldeofc = '\004';
+# endif
 
 void
-term_send_eof ()
+term_send_eof (void)
 {
 # if VEOF == VMIN
   if (!tty_isediting ())
@@ -316,19 +270,20 @@ term_send_eof ()
 }
 
 int
-term_change_eof ()
+term_change_eof (void)
 {
 # if VEOF == VMIN
   if (!tty_isediting ())
     return 1;
   if (slctab[SLC_EOF].sptr)
     oldeofc = *slctab[SLC_EOF].sptr;
-  return 0;
 # endif
+
+  return 0;
 }
 
 int
-tty_linemode ()
+tty_linemode (void)
 {
 # ifdef EXTPROC
   return (termbuf.c_lflag & EXTPROC);
@@ -355,19 +310,19 @@ tty_setlinemode (int on)
 }
 
 int
-tty_isecho ()
+tty_isecho (void)
 {
   return termbuf.c_lflag & ECHO;
 }
 
 int
-tty_flowmode ()
+tty_flowmode (void)
 {
   return (termbuf.c_iflag & IXON) ? 1 : 0;
 }
 
 int
-tty_restartany ()
+tty_restartany (void)
 {
   return (termbuf.c_iflag & IXANY) ? 1 : 0;
 }
@@ -382,12 +337,12 @@ tty_setecho (int on)
 }
 
 int
-tty_israw ()
+tty_israw (void)
 {
   return !(termbuf.c_lflag & ICANON);
 }
 
-# if defined (AUTHENTICATION) && defined(NO_LOGIN_F) && defined(LOGIN_R)
+# if defined AUTHENTICATION && defined NO_LOGIN_F && defined LOGIN_R
 int
 tty_setraw (int on)
 {
@@ -425,25 +380,25 @@ tty_binaryout (int on)
 }
 
 int
-tty_isbinaryin ()
+tty_isbinaryin (void)
 {
   return !(termbuf.c_iflag & ISTRIP);
 }
 
 int
-tty_isbinaryout ()
+tty_isbinaryout (void)
 {
   return !(termbuf.c_oflag & OPOST);
 }
 
 int
-tty_isediting ()
+tty_isediting (void)
 {
   return termbuf.c_lflag & ICANON;
 }
 
 int
-tty_istrapsig ()
+tty_istrapsig (void)
 {
   return termbuf.c_lflag & ISIG;
 }
@@ -467,7 +422,7 @@ tty_setsig (int on)
 }
 
 int
-tty_issofttab ()
+tty_issofttab (void)
 {
 # ifdef	OXTABS
   return termbuf.c_oflag & OXTABS;
@@ -503,7 +458,7 @@ tty_setsofttab (int on)
 }
 
 int
-tty_islitecho ()
+tty_islitecho (void)
 {
 # ifdef	ECHOCTL
   return !(termbuf.c_lflag & ECHOCTL);
@@ -511,7 +466,7 @@ tty_islitecho ()
 # ifdef	TCTLECH
   return !(termbuf.c_lflag & TCTLECH);
 # endif
-# if !defined(ECHOCTL) && !defined(TCTLECH)
+# if !defined ECHOCTL && !defined TCTLECH
   return 0;			/* assumes ctl chars are echoed '^x' */
 # endif
 }
@@ -534,7 +489,7 @@ tty_setlitecho (int on)
 }
 
 int
-tty_iscrnl ()
+tty_iscrnl (void)
 {
   return termbuf.c_iflag & ICRNL;
 }
@@ -542,13 +497,13 @@ tty_iscrnl ()
 #endif
 
 void
-init_termbuf ()
+init_termbuf (void)
 {
   _term_getattr (pty, &termbuf);
   termbuf2 = termbuf;
 }
 
-#if defined(TIOCPKT_IOCTL)
+#if defined TIOCPKT_IOCTL
 /*FIXME: Hardly needed*/
 void
 copy_termbuf ()
@@ -567,19 +522,19 @@ copy_termbuf ()
 #endif
 
 void
-set_termbuf ()
+set_termbuf (void)
 {
   if (memcmp (&termbuf, &termbuf2, sizeof (termbuf)))
     _term_setattr (pty, &termbuf);
 }
 
 /* spcset(func, valp, valpp)
- 
+
    This function takes various special characters (func), and
    sets *valp to the current value of that character, and
    *valpp to point to where in the "termbuf" structure that
    value is kept.
- 
+
    It returns the SLC_ level of support for this function. */
 
 #define setval(a, b)	*valp = termbuf.a ; \

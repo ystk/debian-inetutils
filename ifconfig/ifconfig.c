@@ -1,41 +1,33 @@
 /* ifconfig.c -- network interface configuration utility
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   Copyright (C) 2001, 2002, 2007 Free Software Foundation, Inc.
+  This file is part of GNU Inetutils.
 
-   Written by Marcus Brinkmann.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   This program is free software; you can redistribute it and/or
-   modify it under the terms of the GNU General Public License
-   as published by the Free Software Foundation; either version 3
-   of the License, or (at your option) any later version.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-   You should have received a copy of the GNU General Public License
-   along with this program; if not, write to the Free Software
-   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
-   MA 02110-1301 USA. */
+/* Written by Marcus Brinkmann.  */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/stat.h>
 #include <stdio.h>
 #include <errno.h>
 
-#if HAVE_UNISTD_H
-# include <unistd.h>
-#endif
+#include <unistd.h>
 
-#if HAVE_STRING_H
-# include <string.h>
-#else
-# include <strings.h>
-#endif
+#include <string.h>
 
 #if STDC_HEADERS
 # include <stdlib.h>
@@ -50,7 +42,9 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
+#include <progname.h>
 #include "ifconfig.h"
 
 int
@@ -59,26 +53,23 @@ main (int argc, char *argv[])
   int err = 0;
   int sfd;
   struct ifconfig *ifp;
-
-  parse_opt (argc, argv);
+  set_program_name (argv[0]);
+  parse_cmdline (argc, argv);
 
   sfd = socket (AF_INET, SOCK_STREAM, 0);
   if (sfd < 0)
     {
-      fprintf (stderr, "%s: socket error: %s\n",
-	       program_name, strerror (errno));
-      exit (1);
+      error (0, errno, "socket error");
+      exit (EXIT_FAILURE);
     }
 
-  ifp = ifs;
-  while (ifp - ifs < nifs)
+  for (ifp = ifs; ifp < ifs + nifs; ifp++)
     {
       err = configure_if (sfd, ifp);
       if (err)
 	break;
-      ifp++;
     }
 
   close (sfd);
-  return (err);
+  return err;
 }

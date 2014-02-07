@@ -1,38 +1,37 @@
-/* Copyright (C) 2001, 2002, 2004, 2007 Free Software Foundation, Inc.
+/*
+  Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+  2010, 2011 Free Software Foundation, Inc.
 
-   This file is part of GNU Inetutils.
+  This file is part of GNU Inetutils.
 
-   GNU Inetutils is free software; you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 3, or (at your option)
-   any later version.
+  GNU Inetutils is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or (at
+  your option) any later version.
 
-   GNU Inetutils is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+  GNU Inetutils is distributed in the hope that it will be useful, but
+  WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  General Public License for more details.
 
-   You should have received a copy of the GNU General Public License
-   along with GNU Inetutils; see the file COPYING.  If not, write
-   to the Free Software Foundation, Inc., 51 Franklin Street,
-   Fifth Floor, Boston, MA 02110-1301 USA. */
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see `http://www.gnu.org/licenses/'. */
 
-#ifdef HAVE_CONFIG_H
-# include <config.h>
-#endif
+#include <config.h>
 
 #include <sys/param.h>
 #include <sys/socket.h>
 #include <sys/file.h>
 #include <sys/time.h>
-#include <signal.h>
+
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 /*#include <netinet/ip_icmp.h>  -- deliberately not including this */
 #ifdef HAVE_NETINET_IP_VAR_H
 # include <netinet/ip_var.h>
 #endif
 
-#include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -95,7 +94,7 @@ ping_echo (char *hostname)
       rspace[IPOPT_OFFSET] = IPOPT_MINOFF;
       if (setsockopt (ping->ping_fd, IPPROTO_IP,
 		      IP_OPTIONS, rspace, sizeof (rspace)) < 0)
-        error (EXIT_FAILURE, errno, NULL);
+        error (EXIT_FAILURE, errno, "setsockopt");
 #else
       error (EXIT_FAILURE, 0, "record route not available in this "
              "implementation.");
@@ -283,10 +282,10 @@ static void
 print_ip_header (struct ip *ip)
 {
   int hlen;
-  u_char *cp;
+  unsigned char *cp;
 
   hlen = ip->ip_hl << 2;
-  cp = (u_char *) ip + 20;	/* point to options */
+  cp = (unsigned char *) ip + 20;	/* point to options */
 
   printf
     ("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src      Dst Data\n");
@@ -307,13 +306,13 @@ void
 print_ip_data (icmphdr_t * icmp, void *data)
 {
   int hlen;
-  u_char *cp;
+  unsigned char *cp;
   struct ip *ip = &icmp->icmp_ip;
 
   print_ip_header (ip);
 
   hlen = ip->ip_hl << 2;
-  cp = (u_char *) ip + hlen;
+  cp = (unsigned char *) ip + hlen;
 
   if (ip->ip_p == 6)
     printf ("TCP: from port %u, to port %u (decimal)\n",
@@ -393,12 +392,12 @@ print_icmp_header (struct sockaddr_in *from,
 void
 print_ip_opt (struct ip *ip, int hlen)
 {
-  u_char *cp;
+  unsigned char *cp;
   int i, j, l;
   static int old_rrlen;
   static char old_rr[MAX_IPOPTLEN];
 
-  cp = (u_char *) (ip + 1);
+  cp = (unsigned char *) (ip + 1);
 
   for (; hlen > (int) sizeof (struct ip); --hlen, ++cp)
     switch (*cp)
@@ -450,7 +449,7 @@ print_ip_opt (struct ip *ip, int hlen)
 	if (i <= 0)
 	  continue;
 	if (i == old_rrlen
-	    && cp == (u_char *) (ip + 1) + 2
+	    && cp == (unsigned char *) (ip + 1) + 2
 	    && !memcmp ((char *) cp, old_rr, i) && !(options & OPT_FLOOD))
 	  {
 	    printf ("\t (same route)");
@@ -513,7 +512,7 @@ print_ip_opt (struct ip *ip, int hlen)
 }
 
 int
-echo_finish ()
+echo_finish (void)
 {
   ping_finish ();
   if (ping->ping_num_recv && PING_TIMING (data_length))
