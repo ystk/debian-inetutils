@@ -1,7 +1,7 @@
 dnl
 dnl Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-dnl Inc.
+dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012 Free Software
+dnl Foundation, Inc.
 dnl
 dnl This file is part of GNU Inetutils.
 dnl
@@ -29,7 +29,7 @@ dnl -I flag to get access to ncurses include files.
 dnl
 AC_DEFUN([IU_LIB_NCURSES], [
   AC_ARG_ENABLE([ncurses],
-                AC_HELP_STRING([--disable-ncurses],
+                AS_HELP_STRING([--disable-ncurses],
                                [don't prefer -lncurses over -lcurses]),
               , [enable_ncurses=yes])
   if test "$enable_ncurses" = yes; then
@@ -39,7 +39,7 @@ AC_DEFUN([IU_LIB_NCURSES], [
       # is there a better way of doing this, that avoids looking in specific
       # directories?
       AC_ARG_WITH([ncurses-include-dir],
-                  AC_HELP_STRING([--with-ncurses-include-dir=DIR],
+                  AS_HELP_STRING([--with-ncurses-include-dir=DIR],
                                  [Set directory containing the include files for
                           use with -lncurses, when it isn't installed as
                           the default curses library.  If DIR is "none",
@@ -80,34 +80,64 @@ dnl IU_LIB_TERMCAP -- check for various termcap libraries
 dnl
 dnl Checks for various common libraries implementing the termcap interface,
 dnl including ncurses (unless --disable ncurses is specified), curses (which
-dnl does on some systems), termcap, and termlib.  If termcap is found, then
+dnl does so on some systems), termcap, and termlib.  If termcap is found, then
 dnl LIBTERMCAP is defined with the appropriate linker specification.
+dnl
+dnl Solaris is known to use libtermcap for tgetent, but to declare tgetent
+dnl in <term.h>!
 dnl
 AC_DEFUN([IU_LIB_TERMCAP], [
   AC_REQUIRE([IU_LIB_NCURSES])
   if test "$LIBNCURSES"; then
     LIBTERMCAP="$LIBNCURSES"
   else
+    dnl Must check declaration in different settings,
+    dnl so caching in AC_CHECK_DECL is too distructive.
+    dnl
+    _IU_SAVE_LIBS=$LIBS
     AC_CHECK_LIB(termcap, tgetent, LIBTERMCAP=-ltermcap)
-    AC_CHECK_HEADERS([termcap.h])
+    AC_MSG_CHECKING([whether tgetent needs support])
+    location_tgetent=no
+    LIBS="$LIBS $LIBTERMCAP"
+    AC_LINK_IFELSE(
+      [AC_LANG_PROGRAM([[#include <termcap.h>]],
+	[[(void) tgetent((char *) 0, (char *) 0);]])],
+      [AC_DEFINE([HAVE_TERMCAP_TGETENT], 1,
+	[Define to 1 if tgetent() exists in <termcap.h>.])
+       ac_cv_have_decl_tgetent=yes
+       location_tgetent=termcap.h],
+      [AC_LINK_IFELSE(
+	[AC_LANG_PROGRAM([[#include <curses.h>
+#include <term.h>]],
+	  [[(void) tgetent((char *) 0, (char *) 0);]])],
+	[AC_DEFINE([HAVE_CURSES_TGETENT], 1,
+	  [Define to 1 if tgetent() exists in <term.h>.])
+	 ac_cv_have_decl_tgetent=yes
+	 location_tgetent=term.h])
+      ])
+    LIBS=$_IU_SAVE_LIBS
+    AC_MSG_RESULT($location_tgetent)
+
     if test "$ac_cv_lib_termcap_tgetent" = yes \
-	|| test "$ac_cv_header_termcap_h" = yes; then
-      AC_DEFINE([HAVE_TERMCAP_TGETENT], 1,
-		[Define to 1 if tgetent() exists in <termcap.h>.])
+	&& test "$ac_cv_have_decl_tgetent" = yes; then
+      :
     else
       AC_CHECK_LIB(curses, tgetent, LIBTERMCAP=-lcurses)
-    fi
-    if test "$ac_cv_lib_curses_tgetent" = yes \
-	&& test "$ac_cv_lib_termcap_tgetent" = no; then
-      AC_DEFINE([HAVE_CURSES_TGETENT], 1,
-		[Define to 1 if tgetent() exists in <curses.h>.])
+      AC_CHECK_DECLS([tgetent], , , [[#include <curses.h>
+#include <term.h>]])
+      if test "$ac_cv_lib_curses_tgetent" = yes \
+	  && test "$ac_cv_have_decl_tgetent" = yes; then
+	AC_DEFINE([HAVE_CURSES_TGETENT], 1)
+      fi
     fi
     if test "$ac_cv_lib_curses_tgetent" = no \
 	&& test "$ac_cv_lib_termcap_tgetent" = no; then
       AC_CHECK_LIB(termlib, tgetent, LIBTERMCAP=-ltermlib)
-      if "$ac_cv_lib_termlib_tgetent" = yes; then
-	AC_DEFINE([HAVE_TERMINFO_TGETENT], 1,
-		  [Define to 1 if tgetent() exists in libterminfo.])
+      if test "$ac_cv_lib_termlib_tgetent" = yes; then
+	AC_DEFINE([HAVE_TERMLIB_TGETENT], 1,
+		  [Define to 1 if tgetent() exists in libtermlib.])
+      else
+	LIBTERMCAP=
       fi
     fi
     if test -n "$LIBTERMCAP"; then

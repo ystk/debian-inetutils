@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -79,14 +79,16 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#include <grp.h>
+#include <pwd.h>
 
 #include "tftpsubs.h"
 
+#include <unused-parameter.h>
+#include <xalloc.h>
 #include <argp.h>
 #include <progname.h>
 #include <libinetutils.h>
-
-void usage (void);
 
 #define TIMEOUT		5
 
@@ -97,6 +99,13 @@ void usage (void);
 static int peer;
 static int rexmtval = TIMEOUT;
 static int maxtimeout = 5 * TIMEOUT;
+static char *chrootdir = NULL;
+static char *group = NULL;
+static char *user;
+
+#ifndef DEFAULT_USER
+# define DEFAULT_USER	"nobody"
+#endif
 
 /* Some systems define PKTSIZE in <arpa/tftp.h>.  */
 #ifndef PKTSIZE
@@ -132,16 +141,30 @@ static const char *verifyhost (struct sockaddr_storage *, socklen_t);
 
 
 static struct argp_option options[] = {
+#define GRP 0
   { "logging", 'l', NULL, 0,
-    "enable logging" },
+    "enable logging", GRP+1},
   { "nonexistent", 'n', NULL, 0,
     "supress negative acknowledgement of requests for "
-    "nonexistent relative filenames" },
-  { NULL }
+    "nonexistent relative filenames", GRP+1},
+#undef GRP
+#define GRP 10
+  { NULL, 0, NULL, 0, "", GRP},
+  { "group", 'g', "GRP", 0,
+    "set explicit group of process owner, used with '-s'", GRP+1},
+  { "secure-dir", 's', "DIR", 0,
+    "change root directory to DIR before searching and "
+    "serving content", GRP+1},
+  { "user", 'u', "USR", 0,
+    "set name of process owner, used with '-s' and "
+    "defaults to 'nobody'", GRP+1},
+#undef GRP
+  { NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg,
+	   struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
@@ -149,8 +172,22 @@ parse_opt (int key, char *arg, struct argp_state *state)
       logging = 1;
       break;
 
+    case 'g':
+      free (group);
+      group = xstrdup (arg);
+      break;
+
     case 'n':
       suppress_naks = 1;
+      break;
+
+    case 's':
+      chrootdir = xstrdup (arg);
+      break;
+
+    case 'u':
+      free (user);
+      user = xstrdup (arg);
       break;
 
     default:
@@ -165,7 +202,8 @@ static struct argp argp =
     options,
     parse_opt,
     "directory...",
-    "Trivial File Transfer Protocol server"
+    "Trivial File Transfer Protocol server",
+    NULL, NULL, NULL
   };
 
 
@@ -176,6 +214,8 @@ main (int argc, char *argv[])
   register struct tftphdr *tp;
   int on, n;
   struct sockaddr_storage sin;
+
+  user = xstrdup (DEFAULT_USER);
 
   set_program_name (argv[0]);
   iu_argp_init ("tftpd", default_program_authors);
@@ -202,9 +242,10 @@ main (int argc, char *argv[])
   on = 1;
   if (ioctl (0, FIONBIO, &on) < 0)
     {
-      syslog (LOG_ERR, "ioctl(FIONBIO): %m\n");
+      syslog (LOG_ERR, "ioctl(FIONBIO): %m");
       exit (EXIT_FAILURE);
     }
+
   fromlen = sizeof (from);
   n = recvfrom (0, buf, sizeof (buf), 0, (struct sockaddr *) &from, &fromlen);
   if (n < 0)
@@ -288,13 +329,82 @@ main (int argc, char *argv[])
     }
   memset (&sin, 0, sizeof (sin));
   sin.ss_family = from.ss_family;
-#if HAVE_STRUCT_SOCKADDR_SA_LEN
+#if HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
   sin.ss_len = from.ss_len;
 #endif
   if (bind (peer, (struct sockaddr *) &sin, fromlen) < 0)
     {
       syslog (LOG_ERR, "bind: %m\n");
       exit (EXIT_FAILURE);
+    }
+
+  if (chrootdir && *chrootdir)
+    {
+      struct passwd *pwd = NULL;
+      struct group *grp = NULL;
+
+      /* Ignore user and group setting for non-root invocations.  */
+      if (!getuid())
+	{
+	  pwd = getpwnam (user);
+	  if (!pwd)
+	    {
+	      syslog (LOG_ERR, "getpwnam('%s'): %m", user);
+	      nak (ENOUSER);
+	      exit (EXIT_FAILURE);
+	    }
+
+	  /* Group names are not portable enough to allow
+	   * for a preset value.  The server inherits
+	   * group membership from owner, in other cases.
+	   */
+	  if (group && *group)
+	    {
+	      grp = getgrnam (group);
+	      if (!grp)
+		{
+		  syslog (LOG_ERR, "getgrnam('%s'): %m", group);
+		  nak (ENOUSER);
+		  exit (EXIT_FAILURE);
+		}
+	    }
+	}
+
+      if (chroot (chrootdir) || chdir ("/"))
+	{
+	  syslog (LOG_ERR, "chroot('%s'): %m", chrootdir);
+	  nak (EACCESS);
+	  exit (EXIT_FAILURE);
+	}
+
+      if (pwd)
+	{
+	  if (grp)
+	    {
+	      if (setgid (grp->gr_gid))
+		{
+		  syslog (LOG_ERR, "setgid: %m");
+		  nak (ENOUSER);
+		  exit (EXIT_FAILURE);
+		}
+	    }
+	  else
+	    {
+	      if (setgid (pwd->pw_gid))
+		{
+		  syslog (LOG_ERR, "setgid: %m");
+		  nak (ENOUSER);
+		  exit (EXIT_FAILURE);
+		}
+	    }
+
+	  if (setuid (pwd->pw_uid))
+	    {
+	      syslog (LOG_ERR, "setuid: %m");
+	      nak (ENOUSER);
+	      exit (EXIT_FAILURE);
+	    }
+	}
     }
 
   tp = (struct tftphdr *) buf;
@@ -320,7 +430,7 @@ struct formats
   {
     {"netascii", validate_access, send_file, recvfile, 1},
     {"octet", validate_access, send_file, recvfile, 0},
-    {0}
+    {0, NULL, NULL, NULL, 0}
   };
 
 /*
@@ -522,10 +632,10 @@ validate_access (char **filep, int mode)
 }
 
 int timeout;
-jmp_buf timeoutbuf;
+sigjmp_buf timeoutbuf;
 
 void
-timer (int sig)
+timer (int sig _GL_UNUSED_PARAMETER)
 {
 
   timeout += rexmtval;
@@ -605,7 +715,7 @@ abort:
 }
 
 void
-justquit (int sig)
+justquit (int sig _GL_UNUSED_PARAMETER)
 {
   exit (EXIT_SUCCESS);
 }
@@ -777,20 +887,4 @@ verifyhost (struct sockaddr_storage *fromp, socklen_t frlen)
       syslog (LOG_ERR, "getnameinfo: %s\n", gai_strerror(rc));
       return "0.0.0.0";
     }
-}
-
-static const char usage_str[] =
-  "Usage: tftpd [OPTIONS...]\n"
-  "\n"
-  "Options are:\n"
-  "   -l                      Enable logging\n"
-  "   -n                      Supress negative acknowledgement of\n"
-  "                           requests for nonexistent relative filenames\n"
-  "       --help              Display usage instructions\n"
-  "       --version           Display program version\n";
-
-void
-usage (void)
-{
-  printf ("%s\n" "Send bug reports to <%s>\n", usage_str, PACKAGE_BUGREPORT);
 }

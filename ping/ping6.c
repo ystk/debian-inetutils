@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -19,9 +19,9 @@
 
 #include <config.h>
 
-#ifdef __sun__
+#ifdef __sun
 #  define _XPG4_2	1	/* OpenSolaris: msg_control */
-#endif /* __sun__ */
+#endif /* __sun */
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -31,6 +31,7 @@
 #include <netinet/in.h>
 #include <netinet/ip6.h>
 #include <netinet/icmp6.h>
+#include <arpa/inet.h>
 
 #include <netdb.h>
 #include <unistd.h>
@@ -41,7 +42,14 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
+#ifdef HAVE_IDNA_H
+# include <idna.h>
+#endif
 
+#include <unused-parameter.h>
 #include <xalloc.h>
 #include "ping6.h"
 #include "libinetutils.h"
@@ -57,8 +65,15 @@ size_t count = DEFAULT_PING_COUNT;
 size_t interval;
 int socket_type;
 int timeout = -1;
-static unsigned int options;
+int hoplimit = 0;
+unsigned int options;
 static unsigned long preload = 0;
+#ifdef IPV6_TCLASS
+int tclass = -1;	/* Kernel sets default: -1, RFC 3542.  */
+#endif
+#ifdef IPV6_FLOWINFO
+int flowinfo;
+#endif
 
 static int ping_echo (char *hostname);
 static void ping_reset (PING * p);
@@ -73,17 +88,30 @@ const char *program_authors[] = {
 	NULL
 };
 
+enum {
+  ARG_HOPLIMIT = 256,
+};
+
 static struct argp_option argp_options[] = {
 #define GRP 0
   {NULL, 0, NULL, 0, "Options valid for all request types:", GRP},
   {"count", 'c', "NUMBER", 0, "stop after sending NUMBER packets", GRP+1},
   {"debug", 'd', NULL, 0, "set the SO_DEBUG option", GRP+1},
+#ifdef IPV6_FLOWINFO
+  {"flowinfo", 'F', "N", 0, "set N as flow identifier", GRP+1},
+#endif
+  {"hoplimit", ARG_HOPLIMIT, "N", 0, "specify N as hop-limit", GRP+1},
   {"interval", 'i', "NUMBER", 0, "wait NUMBER seconds between sending each "
    "packet", GRP+1},
   {"numeric", 'n', NULL, 0, "do not resolve host addresses", GRP+1},
   {"ignore-routing", 'r', NULL, 0, "send directly to a host on an attached "
    "network", GRP+1},
+#ifdef IPV6_TCLASS
+  {"tos", 'T', "N", 0, "set traffic class to N", GRP+1},
+#endif
   {"timeout", 'w', "N", 0, "stop after N seconds", GRP+1},
+  {"ttl", ARG_HOPLIMIT, "N", 0, "synonym for --hoplimit", GRP+1},
+  {"verbose", 'v', NULL, 0, "verbose output", GRP+1},
 #undef GRP
 #define GRP 10
   {NULL, 0, NULL, 0, "Options valid for --echo requests:", GRP},
@@ -95,7 +123,7 @@ static struct argp_option argp_options[] = {
   {"quiet", 'q', NULL, 0, "quiet output", GRP+1},
   {"size", 's', "NUMBER", 0, "send NUMBER data octets", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
@@ -121,6 +149,13 @@ parse_opt (int key, char *arg, struct argp_state *state)
       options |= OPT_FLOOD;
       setbuf (stdout, (char *) NULL);
       break;
+
+#ifdef IPV6_FLOWINFO
+    case 'F':
+      options |= OPT_FLOWINFO;
+      flowinfo = ping_cvt_number (arg, 0, 0) & IPV6_FLOWINFO_FLOWLABEL;
+      break;
+#endif
 
     case 'i':
       options |= OPT_INTERVAL;
@@ -154,12 +189,27 @@ parse_opt (int key, char *arg, struct argp_state *state)
       socket_type |= SO_DONTROUTE;
       break;
 
+    case 's':
+      data_length = ping_cvt_number (arg, PING_MAX_DATALEN, 1);
+      break;
+
+#ifdef IPV6_TCLASS
+    case 'T':
+      options |= OPT_TCLASS;
+      tclass = ping_cvt_number (arg, 0, 0);
+      break;
+#endif
+
+    case 'v':
+      options |= OPT_VERBOSE;
+      break;
+
     case 'w':
       timeout = ping_cvt_number (arg, INT_MAX, 0);
       break;
 
-    case 's':
-      data_length = ping_cvt_number (arg, PING_MAX_DATALEN, 1);
+    case ARG_HOPLIMIT:
+      hoplimit = ping_cvt_number (arg, 255, 0);
       break;
 
     case ARGP_KEY_NO_ARGS:
@@ -172,7 +222,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char **argv)
@@ -181,6 +232,10 @@ main (int argc, char **argv)
   int status = 0;
 
   set_program_name (argv[0]);
+
+# ifdef HAVE_SETLOCALE
+  setlocale (LC_ALL, "");
+# endif
 
   if (getuid () == 0)
     is_root = true;
@@ -211,6 +266,25 @@ main (int argc, char **argv)
   if (options & OPT_INTERVAL)
     ping_set_interval (ping, interval);
 
+  if (hoplimit > 0)
+    if (setsockopt (ping->ping_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+		    &hoplimit, sizeof (hoplimit)) < 0)
+      error (0, errno, "setsockopt(IPV6_HOPLIMIT)");
+
+#ifdef IPV6_TCLASS
+  if (options & OPT_TCLASS)
+    if (setsockopt (ping->ping_fd, IPPROTO_IPV6, IPV6_TCLASS,
+		    &tclass, sizeof (tclass)) < 0)
+      error (EXIT_FAILURE, errno, "setsockopt(IPV6_TCLASS)");
+#endif
+
+#ifdef IPV6_FLOWINFO
+  if (options & OPT_FLOWINFO)
+    if (setsockopt (ping->ping_fd, IPPROTO_IPV6, IPV6_FLOWINFO,
+		    &flowinfo, sizeof (flowinfo)) < 0)
+      error (EXIT_FAILURE, errno, "setsockopt(IPV6_FLOWINFO)");
+#endif
+
   init_data_buffer (patptr, pattern_len);
 
   while (argc--)
@@ -222,48 +296,10 @@ main (int argc, char **argv)
   return status;
 }
 
-static char *
-ipaddr2str (struct sockaddr_in6 *from)
-{
-  int err;
-  size_t len;
-  char *buf, ipstr[256], hoststr[256];
-
-  err = getnameinfo ((struct sockaddr *) from, sizeof (*from), ipstr,
-		     sizeof (ipstr), NULL, 0, NI_NUMERICHOST);
-  if (err)
-    {
-      const char *errmsg;
-
-      if (err == EAI_SYSTEM)
-	errmsg = strerror (errno);
-      else
-	errmsg = gai_strerror (err);
-
-      fprintf (stderr, "ping: getnameinfo: %s\n", errmsg);
-      return xstrdup ("unknown");
-    }
-
-  if (options & OPT_NUMERIC)
-    return xstrdup (ipstr);
-
-  err = getnameinfo ((struct sockaddr *) from, sizeof (*from), hoststr,
-		     sizeof (hoststr), NULL, 0, NI_NAMEREQD);
-  if (err)
-    return xstrdup (ipstr);
-
-  len = strlen (ipstr) + strlen (hoststr) + 4;	/* Pair of parentheses, a space
-						   and a NUL. */
-  buf = xmalloc (len);
-  sprintf (buf, "%s (%s)", hoststr, ipstr);
-
-  return buf;
-}
-
 static volatile int stop = 0;
 
 static void
-sig_int (int signal)
+sig_int (int signal _GL_UNUSED_PARAMETER)
 {
   stop = 1;
 }
@@ -277,12 +313,20 @@ ping_run (PING * ping, int (*finish) ())
   struct timeval last, intvl, now;
   struct timeval *t = NULL;
   int finishing = 0;
-  int nresp = 0;
-  int i;
+  size_t nresp = 0;
+  unsigned long i;
 
   signal (SIGINT, sig_int);
 
   fdmax = ping->ping_fd + 1;
+
+  /* Some systems use `struct timeval' of size 16.  As these are
+   * not initialising `timeval' properly by assignment alone, let
+   * us play safely here.  gettimeofday() is always sufficient.
+   */
+  memset (&resp_time, 0, sizeof (resp_time));
+  memset (&intvl, 0, sizeof (intvl));
+  memset (&now, 0, sizeof (now));
 
   for (i = 0; i < preload; i++)
     send_echo (ping);
@@ -304,6 +348,7 @@ ping_run (PING * ping, int (*finish) ())
 
       FD_ZERO (&fdset);
       FD_SET (ping->ping_fd, &fdset);
+
       gettimeofday (&now, NULL);
       resp_time.tv_sec = last.tv_sec + intvl.tv_sec - now.tv_sec;
       resp_time.tv_usec = last.tv_usec + intvl.tv_usec - now.tv_usec;
@@ -326,7 +371,7 @@ ping_run (PING * ping, int (*finish) ())
       if (n < 0)
 	{
 	  if (errno != EINTR)
-	    perror ("select");
+	    error (EXIT_FAILURE, errno, "select failed");
 	  continue;
 	}
       else if (n == 1)
@@ -380,7 +425,8 @@ ping_run (PING * ping, int (*finish) ())
 static int
 send_echo (PING * ping)
 {
-  int off = 0;
+  size_t off = 0;
+  int rc;
 
   if (PING_TIMING (data_length))
     {
@@ -391,9 +437,14 @@ send_echo (PING * ping)
     }
   if (data_buffer)
     ping_set_data (ping, data_buffer, off,
-		   data_length > PING_HEADER_LEN ?
-		   data_length - PING_HEADER_LEN : data_length, USE_IPV6);
-  return ping_xmit (ping);
+		   data_length > off ? data_length - off : data_length,
+		   USE_IPV6);
+
+  rc = ping_xmit (ping);
+  if (rc < 0)
+    error (EXIT_FAILURE, errno, "sending packet");
+
+  return rc;
 }
 
 static int
@@ -401,10 +452,10 @@ ping_finish (void)
 {
   fflush (stdout);
   printf ("--- %s ping statistics ---\n", ping->ping_hostname);
-  printf ("%ld packets transmitted, ", ping->ping_num_xmit);
-  printf ("%ld packets received, ", ping->ping_num_recv);
+  printf ("%zu packets transmitted, ", ping->ping_num_xmit);
+  printf ("%zu packets received, ", ping->ping_num_recv);
   if (ping->ping_num_rept)
-    printf ("+%ld duplicates, ", ping->ping_num_rept);
+    printf ("+%zu duplicates, ", ping->ping_num_rept);
   if (ping->ping_num_xmit)
     {
       if (ping->ping_num_recv > ping->ping_num_xmit)
@@ -462,8 +513,12 @@ ping_echo (char *hostname)
       error (EXIT_FAILURE, 0, "getnameinfo: %s", errmsg);
     }
 
-  printf ("PING %s (%s): %d data bytes\n",
+  printf ("PING %s (%s): %zu data bytes",
 	  ping->ping_hostname, buffer, data_length);
+  if (options & OPT_VERBOSE)
+    printf (", id 0x%04x = %u", ping->ping_ident, ping->ping_ident);
+
+  printf ("\n");
 
   status = ping_run (ping, echo_finish);
   free (ping->ping_hostname);
@@ -480,7 +535,8 @@ ping_reset (PING * p)
 
 static int
 print_echo (int dupflag, int hops, struct ping_stat *ping_stat,
-	    struct sockaddr_in6 *dest, struct sockaddr_in6 *from,
+	    struct sockaddr_in6 *dest _GL_UNUSED_PARAMETER,
+	    struct sockaddr_in6 *from,
 	    struct icmp6_hdr *icmp6, int datalen)
 {
   int err;
@@ -521,8 +577,15 @@ print_echo (int dupflag, int hops, struct ping_stat *ping_stat,
       return 0;
     }
 
-  err = getnameinfo ((struct sockaddr *) from, sizeof (*from), buf,
-		     sizeof (buf), NULL, 0, 0);
+  err = getnameinfo ((struct sockaddr *) from, sizeof (*from),
+		     buf, sizeof (buf), NULL, 0,
+		     (options & OPT_NUMERIC) ? NI_NUMERICHOST
+#ifdef NI_IDN
+		     : NI_IDN
+#else
+		     : 0
+#endif
+		     );
   if (err)
     {
       const char *errmsg;
@@ -538,7 +601,7 @@ print_echo (int dupflag, int hops, struct ping_stat *ping_stat,
     }
 
   printf ("%d bytes from %s: icmp_seq=%u", datalen, buf,
-	  htons (icmp6->icmp6_seq));
+	  ntohs (icmp6->icmp6_seq));
   if (hops >= 0)
     printf (" ttl=%d", hops);
   if (timing)
@@ -641,20 +704,68 @@ print_param_prob (struct icmp6_hdr *icmp6)
   printf ("Unknown code %d\n", icmp6->icmp6_code);
 }
 
+void
+print_ip_data (struct icmp6_hdr *icmp6)
+{
+  size_t j;
+  struct ip6_hdr *ip = (struct ip6_hdr *) ((char *) icmp6 + sizeof (*icmp6));
+  char src[INET6_ADDRSTRLEN], dst[INET6_ADDRSTRLEN];
+
+  (void) inet_ntop (AF_INET6, &ip->ip6_dst, dst, sizeof (dst));
+  (void) inet_ntop (AF_INET6, &ip->ip6_src, src, sizeof (src));
+
+  printf ("IP Header Dump:\n ");
+  for (j = 0; j < sizeof (*ip) - sizeof (ip->ip6_src) - sizeof (ip->ip6_dst); ++j)
+    printf ("%02x%s", *((unsigned char *) ip + j),
+	    (j % 2) ? " " : "");	/* Group bytes two by two.  */
+  printf ("(src) (dst)\n");
+
+  printf ("Vr TC Flow Plen Nxt Hop Src\t\t  Dst\n");
+  printf (" %1x %02x %04x %4hu %3hhu %3hhu %s %s\n",
+	  ntohl (ip->ip6_flow) >> 28,
+	  (ntohl (ip->ip6_flow) & 0x0fffffff) >> 20,
+	  ntohl (ip->ip6_flow) & 0x0fffff,
+	  ntohs (ip->ip6_plen), ip->ip6_nxt, ip->ip6_hlim,
+	  src, dst);
+
+  switch (ip->ip6_nxt)
+    {
+    case IPPROTO_ICMPV6:
+      {
+	struct icmp6_hdr *hdr =
+	  (struct icmp6_hdr *) ((unsigned char *) ip + sizeof (*ip));
+
+	printf ("ICMP: type %hhu, code %hhu, size %hu",
+		hdr->icmp6_type, hdr->icmp6_code, ntohs (ip->ip6_plen));
+	switch (hdr->icmp6_type)
+	  {
+	  case ICMP6_ECHO_REQUEST:
+	  case ICMP6_ECHO_REPLY:
+	    printf (", id 0x%04x, seq 0x%04x",
+		    ntohs (hdr->icmp6_id), ntohs (hdr->icmp6_seq));
+	    break;
+	  default:
+	    break;
+	  }
+      }
+      break;
+    default:
+      break;
+    }
+
+  printf ("\n");
+};
+
 static struct icmp_diag
 {
   int type;
   void (*func) (struct icmp6_hdr *);
-} icmp_diag[] =
-{
-  {
-  ICMP6_DST_UNREACH, print_dst_unreach},
-  {
-  ICMP6_PACKET_TOO_BIG, print_packet_too_big},
-  {
-  ICMP6_TIME_EXCEEDED, print_time_exceeded},
-  {
-ICMP6_PARAM_PROB, print_param_prob},};
+} icmp_diag[] = {
+  {ICMP6_DST_UNREACH, print_dst_unreach},
+  {ICMP6_PACKET_TOO_BIG, print_packet_too_big},
+  {ICMP6_TIME_EXCEEDED, print_time_exceeded},
+  {ICMP6_PARAM_PROB, print_param_prob},
+};
 
 static void
 print_icmp_error (struct sockaddr_in6 *from, struct icmp6_hdr *icmp6, int len)
@@ -662,7 +773,7 @@ print_icmp_error (struct sockaddr_in6 *from, struct icmp6_hdr *icmp6, int len)
   char *s;
   struct icmp_diag *p;
 
-  s = ipaddr2str (from);
+  s = ipaddr2str ((struct sockaddr *) from, sizeof (*from));
   printf ("%d bytes from %s: ", len, s);
   free (s);
 
@@ -671,6 +782,9 @@ print_icmp_error (struct sockaddr_in6 *from, struct icmp6_hdr *icmp6, int len)
       if (p->type == icmp6->icmp6_type)
 	{
 	  p->func (icmp6);
+	  if (options & OPT_VERBOSE)
+	    print_ip_data (icmp6);
+
 	  return;
 	}
     }
@@ -698,7 +812,7 @@ echo_finish (void)
 }
 
 static PING *
-ping_init (int type, int ident)
+ping_init (int type _GL_UNUSED_PARAMETER, int ident)
 {
   int fd, err;
   const int on = 1;
@@ -751,7 +865,7 @@ ping_init (int type, int ident)
   p->ping_fd = fd;
   p->ping_count = DEFAULT_PING_COUNT;
   p->ping_interval = PING_DEFAULT_INTERVAL;
-  p->ping_datalen = sizeof (struct icmp6_hdr);
+  p->ping_datalen = sizeof (struct timeval);
   /* Make sure we use only 16 bits in this field, id for icmp is a unsigned short.  */
   p->ping_ident = ident & 0xFFFF;
   p->ping_cktab_size = PING_CKTABSIZE;
@@ -782,9 +896,10 @@ ping_xmit (PING * p)
   icmp6->icmp6_seq = htons (p->ping_num_xmit);
 
   i = sendto (p->ping_fd, (char *) p->ping_buffer, buflen, 0,
-	      (struct sockaddr *) &p->ping_dest.ping_sockaddr6, sizeof (p->ping_dest.ping_sockaddr6));
+	      (struct sockaddr *) &p->ping_dest.ping_sockaddr6,
+	      sizeof (p->ping_dest.ping_sockaddr6));
   if (i < 0)
-    perror ("ping: sendto");
+    return -1;
   else
     {
       p->ping_num_xmit++;
@@ -884,20 +999,38 @@ ping_set_dest (PING * ping, char *host)
 {
   int err;
   struct addrinfo *result, hints;
+  char *rhost;
+
+#ifdef HAVE_IDN
+  err = idna_to_ascii_lz (host, &rhost, 0);
+  if (err)
+    return 1;
+#else /* !HAVE_IDN */
+  rhost = host;
+#endif
 
   memset (&hints, 0, sizeof (hints));
-
   hints.ai_family = AF_INET6;
+  hints.ai_flags = AI_CANONNAME;
+#ifdef AI_IDN
+  hints.ai_flags |= AI_IDN;
+#endif
+#ifdef AI_CANONIDN
+  hints.ai_flags |= AI_CANONIDN;
+#endif
 
-  err = getaddrinfo (host, NULL, &hints, &result);
+  err = getaddrinfo (rhost, NULL, &hints, &result);
+#if HAVE_IDN
+  free (rhost);
+#endif
   if (err)
     return 1;
 
   memcpy (&ping->ping_dest.ping_sockaddr6, result->ai_addr, result->ai_addrlen);
 
+  ping->ping_hostname = strdup (result->ai_canonname);
   freeaddrinfo (result);
 
-  ping->ping_hostname = strdup (host);
   if (!ping->ping_hostname)
     return 1;
 

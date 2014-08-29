@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -69,10 +69,16 @@
 #include <errno.h>
 
 #include <stdlib.h>
+#include <limits.h>	/* LLONG_MAX for Solaris. */
 
 #include <arpa/inet.h>
 #include <arpa/telnet.h>
 
+#ifdef HAVE_IDNA_H
+# include <idna.h>
+#endif
+
+#include <unused-parameter.h>
 #include <libinetutils.h>
 
 #include "general.h"
@@ -85,6 +91,14 @@
 
 #include "xalloc.h"
 #include "xvasprintf.h"
+#include "xalloc.h"
+
+#ifdef	ENCRYPTION
+# include <libtelnet/encrypt.h>
+#endif
+#if defined AUTHENTICATION || defined ENCRYPTION
+# include <libtelnet/misc.h>
+#endif
 
 #if !defined CRAY && !defined sysV88
 # ifdef HAVE_NETINET_IN_SYSTM_H
@@ -811,8 +825,8 @@ static struct togglelist Togglelist[] = {
    lclchars,
    &localchars,
    "recognize certain control characters"},
-  {" ", "", 0},			/* empty line */
-#if defined unix && defined TN3270
+  {" ", "", 0, NULL, NULL},			/* empty line */
+#if (defined unix || defined __unix || defined __unix__) && defined TN3270
   {"apitrace",
    "(debugging) toggle tracing of API transactions",
    0,
@@ -823,7 +837,7 @@ static struct togglelist Togglelist[] = {
    0,
    &cursesdata,
    "print hexadecimal representation of curses data"},
-#endif /* defined(unix) && defined(TN3270) */
+#endif /* (unix || __unix || __unix__)) && TN3270 */
   {"debug",
    "debugging",
    togdebug,
@@ -851,11 +865,11 @@ static struct togglelist Togglelist[] = {
    "print hexadecimal representation of terminal traffic"},
   {"?",
    0,
-   togglehelp},
+   togglehelp, NULL, NULL},
   {"help",
    0,
-   togglehelp},
-  {0}
+   togglehelp, NULL, NULL},
+  {NULL, NULL, 0, NULL, NULL}
 };
 
 static int
@@ -974,13 +988,13 @@ static struct setlist Setlist[] = {
   {"rlogin", "rlogin escape character", 0, &rlogin},
   {"tracefile", "file to write trace information to", SetNetTrace,
    (cc_t *) NetTraceFile},
-  {" ", ""},
+  {" ", "", 0, NULL},
   {" ", "The following need 'localchars' to be toggled true", 0, 0},
   {"flushoutput", "character to cause an Abort Output", 0, termFlushCharp},
   {"interrupt", "character to cause an Interrupt Process", 0, termIntCharp},
   {"quit", "character to cause an Abort process", 0, termQuitCharp},
   {"eof", "character to cause an EOF ", 0, termEofCharp},
-  {" ", ""},
+  {" ", "", 0, NULL},
   {" ", "The following are for local editing in linemode", 0, 0},
   {"erase", "character to use to erase a character", 0, termEraseCharp},
   {"kill", "character to use to erase a line", 0, termKillCharp},
@@ -993,7 +1007,7 @@ static struct setlist Setlist[] = {
   {"forw1", "alternate end of line character", 0, termForw1Charp},
   {"forw2", "alternate end of line character", 0, termForw2Charp},
   {"ayt", "alternate AYT character", 0, termAytCharp},
-  {0}
+  {NULL, NULL, 0, NULL}
 };
 
 #if defined CRAY && !defined __STDC__
@@ -1306,16 +1320,16 @@ struct modelist
 extern int modehelp (void);
 
 static struct modelist ModeList[] = {
-  {"character", "Disable LINEMODE option", docharmode, 1},
+  {"character", "Disable LINEMODE option", docharmode, 1, 0},
 #ifdef	KLUDGELINEMODE
-  {"", "(or disable obsolete line-by-line mode)", 0},
+  {"", "(or disable obsolete line-by-line mode)", NULL, 0, 0},
 #endif
-  {"line", "Enable LINEMODE option", dolinemode, 1},
+  {"line", "Enable LINEMODE option", dolinemode, 1, 0},
 #ifdef	KLUDGELINEMODE
-  {"", "(or enable obsolete line-by-line mode)", 0},
+  {"", "(or enable obsolete line-by-line mode)", NULL, 0, 0},
 #endif
-  {"", "", 0},
-  {"", "These require the LINEMODE option to be enabled", 0},
+  {"", "", NULL, 0, 0},
+  {"", "These require the LINEMODE option to be enabled", NULL, 0, 0},
   {"isig", "Enable signal trapping", set_mode, 1, MODE_TRAPSIG},
   {"+isig", 0, set_mode, 1, MODE_TRAPSIG},
   {"-isig", "Disable signal trapping", clear_mode, 1, MODE_TRAPSIG},
@@ -1329,13 +1343,13 @@ static struct modelist ModeList[] = {
   {"+litecho", 0, set_mode, 1, MODE_LIT_ECHO},
   {"-litecho", "Disable literal character echo", clear_mode, 1,
    MODE_LIT_ECHO},
-  {"help", 0, modehelp, 0},
+  {"help", 0, modehelp, 0, 0},
 #ifdef	KLUDGELINEMODE
-  {"kludgeline", 0, dokludgemode, 1},
+  {"kludgeline", 0, dokludgemode, 1, 0},
 #endif
-  {"", "", 0},
-  {"?", "Print help information", modehelp, 0},
-  {0},
+  {"", "", NULL, 0, 0},
+  {"?", "Print help information", modehelp, 0, 0},
+  {NULL, NULL, NULL, 0, 0},
 };
 
 
@@ -1491,7 +1505,11 @@ setescape (int argc, char *argv[])
   else
     {
       printf ("new escape character: ");
-      fgets (buf, sizeof (buf), stdin);
+      if (fgets (buf, sizeof (buf), stdin) == NULL)
+	{
+	  buf[0] = '\0';
+	  printf ("\n");
+	}
       arg = buf;
     }
   if (arg[0] != '\0')
@@ -1546,7 +1564,7 @@ suspend (void)
 
 #if !defined TN3270
 int
-shell (int argc, char *argv[])
+shell (int argc, char *argv[] _GL_UNUSED_PARAMETER)
 {
   long oldrows, oldcols, newrows, newcols, err;
 
@@ -1571,8 +1589,9 @@ shell (int argc, char *argv[])
 
 	shellp = getenv ("SHELL");
 	if (shellp == NULL)
-	  shellp = "/bin/sh";
-	if ((shellname = strrchr (shellp, '/')) == 0)
+	  shellp = PATH_BSHELL;
+	shellname = strrchr (shellp, '/');
+	if (shellname == NULL)
 	  shellname = shellp;
 	else
 	  shellname++;
@@ -1581,7 +1600,7 @@ shell (int argc, char *argv[])
 	else
 	  execl (shellp, shellname, NULL);
 	perror ("Execl");
-	_exit (1);
+	_exit (EXIT_FAILURE);
       }
     default:
       wait ((int *) 0);		/* Wait for the shell to complete */
@@ -1670,7 +1689,7 @@ struct slclist SlcList[] = {
    slc_mode_import, 0},
   {"help", 0, slc_help, 0},
   {"?", "Print help information", slc_help, 0},
-  {0},
+  {NULL, NULL, NULL, 0},
 };
 
 static void
@@ -1767,7 +1786,7 @@ struct envlist EnvList[] = {
 #endif
   {"help", 0, env_help, 0},
   {"?", "Print help information", env_help, 0},
-  {0},
+  {NULL, NULL, NULL, 0},
 };
 
 static void
@@ -1888,7 +1907,7 @@ env_init (void)
       char *hostname = localhost ();
       char *cp2 = strchr ((char *) ep->value, ':');
 
-      cp = malloc (strlen (hostname) + strlen (cp2) + 1);
+      cp = xmalloc (strlen (hostname) + strlen (cp2) + 1);
       sprintf (cp, "%s%s", hostname, cp2);
 
       free (ep->value);
@@ -1921,7 +1940,7 @@ env_define (const char *var, unsigned char *value)
     }
   else
     {
-      ep = (struct env_lst *) malloc (sizeof (struct env_lst));
+      ep = (struct env_lst *) xmalloc (sizeof (struct env_lst));
       ep->next = envlisthead.next;
       envlisthead.next = ep;
       ep->prev = &envlisthead;
@@ -2105,7 +2124,7 @@ struct authlist AuthList[] = {
    auth_enable, 1},
   {"help", 0, auth_help, 0},
   {"?", "Print help information", auth_help, 0},
-  {0},
+  {NULL, NULL, NULL, 0},
 };
 
 static int
@@ -2214,7 +2233,7 @@ struct encryptlist EncryptList[] = {
    EncryptStatus, 0, 0, 0},
   {"help", 0, EncryptHelp, 0, 0, 0},
   {"?", "Print help information", EncryptHelp, 0, 0, 0},
-  {0},
+  {NULL, NULL, NULL, 0, 0, 0},
 };
 
 static int
@@ -2292,7 +2311,7 @@ encrypt_cmd (int argc, char *argv[])
 }
 #endif /* ENCRYPTION */
 
-#if defined unix && defined TN3270
+#if (defined unix || defined __unix || defined __unix__) && defined TN3270
 static void
 filestuff (int fd)
 {
@@ -2321,7 +2340,7 @@ filestuff (int fd)
       return;
     }
 }
-#endif /* defined(unix) && defined(TN3270) */
+#endif /* (unix || __unix || __unix__) && TN3270 */
 
 /*
  * Print status about the connection.
@@ -2378,7 +2397,7 @@ status (int argc, char *argv[])
     {
       printf ("Escape character is '%s'.\n", control (escape));
     }
-# if defined unix
+# if defined unix || defined __unix || defined __unix__
   if ((argc >= 2) && !strcmp (argv[1], "everything"))
     {
       printf ("SIGIO received %d time%s.\n",
@@ -2399,7 +2418,7 @@ status (int argc, char *argv[])
     {
       printf ("Transparent mode command is '%s'.\n", transcom);
     }
-# endif	/* defined(unix) */
+# endif /* unix || __unix || __unix__ */
   fflush (stdout);
   if (In3270)
     {
@@ -2417,8 +2436,9 @@ int
 ayt_status ()
 {
   call (status, "status", "notmuch", 0);
+  return 1;	/* not used */
 }
-#endif
+#endif /* SIGINFO */
 
 static void cmdrc (char *m1, char *m2);
 
@@ -2436,6 +2456,9 @@ tn (int argc, char *argv[])
   const int on = 1;
   int err;
   char *cmd, *hostp = 0, *portp = 0, *user = 0;
+#ifdef HAVE_IDN
+  char *hosttmp = 0;
+#endif
 
 #ifdef IPV6
   memset (&hints, 0, sizeof (hints));
@@ -2453,10 +2476,15 @@ tn (int argc, char *argv[])
     {
       strcpy (line, "open ");
       printf ("(to) ");
-      fgets (&line[strlen (line)], sizeof (line) - strlen (line), stdin);
-      makeargv ();
-      argc = margc;
-      argv = margv;
+      if (fgets (&line[strlen (line)],
+		 sizeof (line) - strlen (line), stdin))
+	{
+	  makeargv ();
+	  argc = margc;
+	  argv = margv;
+	}
+      else
+	printf ("?Name of host was not understood.\n");
     }
   cmd = *argv;
   --argc;
@@ -2535,6 +2563,25 @@ tn (int argc, char *argv[])
 	}
       else
 	telnetport = 0;
+      if (*portp >= '0' && *portp <= '9')
+	{
+	  long long int val;
+	  char *endp;
+
+	  val = strtoll (portp, &endp, 10);
+
+	  if ((errno == ERANGE && (val == LLONG_MAX || val == LLONG_MIN))
+	      || (*endp == '\0' && (val < 1 || val > 65535)))
+	    {
+	      printf ("Port number %s is out of range.\n", portp);
+	      return 0;
+	    }
+	  else if (*endp)
+	    {
+	      printf ("Invalid port name '%s'.\n", portp);
+	      return 0;
+	    }
+	}
     }
 
   free (hostname);
@@ -2547,11 +2594,34 @@ tn (int argc, char *argv[])
       return 0;
     }
 
+#if defined AUTHENTICATION || defined ENCRYPTION
+  {
+    /* Extract instance name of server, eliminating
+     * the Kerberos principal prefix.
+     */
+    char *p = strchr (hostp, '/');
+
+    if (p)
+      hostp = ++p;
+  }
+#endif /* AUTHENTICATION || ENCRYPTION */
+
+#ifdef HAVE_IDN
+  err = idna_to_ascii_lz (hostp, &hosttmp, 0);
+  if (err)
+    {
+      printf ("Server lookup failure:  %s:%s, %s\n",
+	      hostp, portp, idna_strerror (err));
+      return 0;
+    }
+  hostp = hosttmp;
+#endif /* !HAVE_IDN */
+
 #ifdef IPV6
-# ifdef AI_ADDRCONFIG
-  hints.ai_flags = AI_ADDRCONFIG;
-# endif
   hints.ai_socktype = SOCK_STREAM;
+# ifdef AI_IDN
+  hints.ai_flags = AI_IDN;
+# endif
 
   err = getaddrinfo (hostp, portp, &hints, &result);
   if (err)
@@ -2563,7 +2633,7 @@ tn (int argc, char *argv[])
       else
 	errmsg = gai_strerror (err);
 
-      printf ("%s/%s: lookup failure: %s\n", hostp, portp, errmsg);
+      printf ("Server lookup failure:  %s:%s, %s\n", hostp, portp, errmsg);
       return 0;
     }
 
@@ -2718,7 +2788,13 @@ tn (int argc, char *argv[])
     }
   while (connected == 0);
 #endif /* !IPV6 */
+
   cmdrc (hostp, hostname);
+#ifdef HAVE_IDN
+  /* Last use of HOSTP, alias HOSTTMP.  */
+  free (hosttmp);
+#endif
+
   if (autologin && user == NULL)
     {
       struct passwd *pw;
@@ -2738,11 +2814,15 @@ tn (int argc, char *argv[])
       env_export ("USER");
     }
   call (status, "status", "notmuch", 0);
+  err = 0;
   if (setjmp (peerdied) == 0)
     telnet (user);
+  else
+    err = 1;
 
   close (net);
-  ExitString ("Connection closed by foreign host.\n", 1);
+  ExitString ("Connection closed by foreign host.\n", err);
+  /* NOT REACHED */
   return 0;
 }
 
@@ -2761,10 +2841,9 @@ static char
   togglestring[] = "toggle operating parameters ('toggle ?' for more)",
   slchelp[] = "change state of special characters ('slc ?' for more)",
   displayhelp[] = "display operating parameters",
-#if defined TN3270 && defined unix
+#if defined TN3270 && (defined unix || defined __unix || defined __unix__)
   transcomhelp[] = "specify Unix command for transparent mode pipe",
-#endif
-  /* defined(TN3270) && defined(unix) */
+#endif /* TN3270 && (unix || __unix || __unix__) */
 #if defined AUTHENTICATION
   authhelp[] = "turn on (off) authentication ('auth ?' for more)",
 #endif
@@ -2772,10 +2851,9 @@ static char
   encrypthelp[] = "turn on (off) encryption ('encrypt ?' for more)",
 #endif
   /* ENCRYPTION */
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
   zhelp[] = "suspend telnet",
-#endif
-  /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
   shellhelp[] = "invoke a subshell",
   envhelp[] = "change environment variables ('environ ?' for more)",
   modestring[] = "try to enter line or character mode ('mode ?' for more)";
@@ -2795,18 +2873,18 @@ static Command cmdtab[] = {
   {"status", statushelp, status, 0},
   {"toggle", togglestring, toggle, 0},
   {"slc", slchelp, slccmd, 0},
-#if defined TN3270 && defined unix
+#if defined TN3270 && (defined unix || defined __unix || defined __unix__)
   {"transcom", transcomhelp, settranscom, 0},
-#endif /* defined(TN3270) && defined(unix) */
+#endif /* TN3270 && (unix || __unix || __unix__) */
 #if defined AUTHENTICATION
   {"auth", authhelp, auth_cmd, 0},
 #endif
 #ifdef	ENCRYPTION
   {"encrypt", encrypthelp, encrypt_cmd, 0},
 #endif /* ENCRYPTION */
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
   {"z", zhelp, suspend, 0},
-#endif /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
 #if defined TN3270
   {"!", shellhelp, shell, 1},
 #else
@@ -2814,7 +2892,7 @@ static Command cmdtab[] = {
 #endif
   {"environ", envhelp, env_cmd, 0},
   {"?", helphelp, help, 0},
-  {0}
+  {NULL, NULL, NULL, 0}
 };
 
 static char crmodhelp[] = "deprecated command -- use 'toggle crmod' instead";
@@ -2824,7 +2902,7 @@ static Command cmdtab2[] = {
   {"help", 0, help, 0},
   {"escape", escapehelp, setescape, 0},
   {"crmod", crmodhelp, togcrmod, 0},
-  {0}
+  {NULL, NULL, NULL, 0}
 };
 
 
@@ -2868,14 +2946,14 @@ command (int top, char *tbuf, int cnt)
   if (!top)
     {
       putchar ('\n');
-#if defined unix
     }
+#if defined unix || defined __unix || defined __unix__
   else
     {
       signal (SIGINT, SIG_DFL);
       signal (SIGQUIT, SIG_DFL);
-#endif /* defined(unix) */
     }
+#endif /* unix || __unix || __unix__ */
   for (;;)
     {
       if (rlogin == _POSIX_VDISABLE)
@@ -2902,6 +2980,7 @@ command (int top, char *tbuf, int cnt)
 	    {
 	      if (feof (stdin) || ferror (stdin))
 		{
+		  printf ("\n");
 		  quit ();
 		}
 	      break;
@@ -2966,7 +3045,7 @@ help (int argc, char *argv[])
       for (c = cmdtab; c->name; c++)
 	if (c->help)
 	  {
-	    printf ("%-*s\t%s\n", HELPINDENT, c->name, c->help);
+	    printf ("%-*s\t%s\n", (int) HELPINDENT, c->name, c->help);
 	  }
       return 0;
     }

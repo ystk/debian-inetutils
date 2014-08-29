@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -35,6 +35,13 @@
 #define OPT_QUIET       0x008
 #define OPT_RROUTE      0x010
 #define OPT_VERBOSE     0x020
+#define OPT_IPTIMESTAMP 0x040
+#define OPT_FLOWINFO    0x080
+#define OPT_TCLASS      0x100
+
+#define SOPT_TSONLY     0x001
+#define SOPT_TSADDR     0x002
+#define SOPT_TSPRESPEC  0x004
 
 struct ping_stat
 {
@@ -54,8 +61,8 @@ struct ping_stat
    want to follow the traditional behaviour of ping.  */
 #define DEFAULT_PING_COUNT 0
 
-#define PING_TIMING(s) (s >= PING_HEADER_LEN)
-#define PING_HEADER_LEN sizeof (struct timeval)
+#define PING_HEADER_LEN (USE_IPV6 ? sizeof (struct icmp6_hdr) : ICMP_MINLEN)
+#define PING_TIMING(s)  ((s) >= sizeof (struct timeval))
 #define PING_DATALEN    (64 - PING_HEADER_LEN)  /* default data length */
 
 #define PING_DEFAULT_INTERVAL 1000      /* Milliseconds */
@@ -66,9 +73,9 @@ struct ping_stat
   (t).tv_usec = ((i)%PING_PRECISION)*(1000000/PING_PRECISION) ;\
 } while (0)
 
-/* Not sure about this step*/
-#define _PING_BUFLEN(p, USE_IPV6) ((USE_IPV6)? ((p)->ping_datalen + sizeof (struct icmp6_hdr)) : \
-				   ((p)->ping_datalen + sizeof (icmphdr_t)))
+/* FIXME: Adjust IPv6 case for options and their consumption.  */
+#define _PING_BUFLEN(p, u) ((u)? ((p)->ping_datalen + sizeof (struct icmp6_hdr)) : \
+				   (MAXIPLEN + (p)->ping_datalen + ICMP_TSLEN))
 
 typedef int (*ping_efp6) (int code, void *closure, struct sockaddr_in6 * dest,
 			  struct sockaddr_in6 * from, struct icmp6_hdr * icmp,
@@ -112,9 +119,9 @@ struct ping_data
 
   unsigned char *ping_buffer;         /* I/O buffer */
   union ping_address ping_from;
-  long ping_num_xmit;          /* Number of packets transmitted */
-  long ping_num_recv;          /* Number of packets received */
-  long ping_num_rept;          /* Number of duplicates received */
+  size_t ping_num_xmit;        /* Number of packets transmitted */
+  size_t ping_num_recv;        /* Number of packets received */
+  size_t ping_num_rept;        /* Number of duplicates received */
 };
 
 #define _C_BIT(p,bit)   (p)->ping_cktab[(bit)>>3]	/* byte in ck array */
@@ -146,15 +153,20 @@ double nabs (double a);
 double nsqrt (double a, double prec);
 
 size_t ping_cvt_number (const char *optarg, size_t maxval, int allow_zero);
+int is_normed_time (n_time t);
+const char * ping_cvt_time (char *buf, size_t buflen, n_time t);
 
-void init_data_buffer (unsigned char *pat, int len);
+void init_data_buffer (unsigned char *pat, size_t len);
 
 void decode_pattern (const char *text, int *pattern_len,
 		     unsigned char *pattern_data);
-int _ping_setbuf (PING * p, bool USE_IPV6);
-int ping_set_data (PING *p, void *data, size_t off, size_t len, bool USE_IPV6);
+int _ping_setbuf (PING * p, bool use_ipv6);
+int ping_set_data (PING *p, void *data, size_t off, size_t len, bool use_ipv6);
 void ping_set_count (PING * ping, size_t count);
 void ping_set_sockopt (PING * ping, int opt, void *val, int valsize);
 void ping_set_interval (PING * ping, size_t interval);
 void ping_unset_data (PING * p);
 int ping_timeout_p (struct timeval *start_time, int timeout);
+
+char * ipaddr2str (struct sockaddr *from, socklen_t fromlen);
+char * sinaddr2str (struct in_addr ina);

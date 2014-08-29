@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -70,11 +70,22 @@
 #ifndef __AUTH__
 # define __AUTH__
 
-# define AUTH_REJECT	0	/* Rejected */
-# define AUTH_UNKNOWN	1	/* We don't know who he is, but he's okay */
-# define AUTH_OTHER	2	/* We know him, but not his name */
-# define AUTH_USER	3	/* We know he name */
-# define AUTH_VALID	4	/* We know him, and he needs no password */
+/* These might be defined in <arpa/telnet.h>.  */
+# ifndef AUTH_REJECT
+#  define AUTH_REJECT	0	/* Rejected */
+# endif
+# ifndef AUTH_UNKNOWN
+#  define AUTH_UNKNOWN	1	/* We don't know who he is, but he's okay */
+# endif
+# ifndef AUTH_OTHER
+#  define AUTH_OTHER	2	/* We know him, but not his name */
+# endif
+# ifndef AUTH_USER
+#  define AUTH_USER	3	/* We know the name */
+# endif
+# ifndef AUTH_VALID
+#  define AUTH_VALID	4	/* We know him, and he needs no password */
+# endif
 
 typedef struct XauthP
 {
@@ -84,8 +95,8 @@ typedef struct XauthP
   int (*send) (struct XauthP *);
   void (*is) (struct XauthP *, unsigned char *, int);
   void (*reply) (struct XauthP *, unsigned char *, int);
-  int (*status) (struct XauthP *, char *, int);
-  void (*printsub) (unsigned char *, int, unsigned char *, int);
+  int (*status) (struct XauthP *, char *, size_t, int);
+  void (*printsub) (unsigned char *, int, char *, int);
   void (*cleanup) (struct XauthP *);
 } TN_Authenticator;
 

@@ -1,6 +1,6 @@
 /* solaris.c -- Solaris specific code for ifconfig
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -45,6 +45,8 @@
 #include <net/if_arp.h>
 #include <netinet/if_ether.h>
 
+#include <unused-parameter.h>
+
 #include "../ifconfig.h"
 
 
@@ -56,12 +58,15 @@ const char *system_default_format = "unix";
 /* Argument parsing stuff.  */
 
 const char *system_help = "\
-NAME [ADDR [DSTADDR]] [broadcast BRDADDR] [netmask MASK] [metric N] [mtu N]";
+NAME [ADDR [DSTADDR]] [broadcast BRDADDR] [netmask MASK] "
+"[metric N] [mtu N] [up|down]";
 
 struct argp_child system_argp_child;
 
 int
-system_parse_opt (struct ifconfig **ifp, char option, char *optarg)
+system_parse_opt (struct ifconfig **ifp _GL_UNUSED_PARAMETER,
+		  char option _GL_UNUSED_PARAMETER,
+		  char *optarg _GL_UNUSED_PARAMETER)
 {
   return 0;
 }
@@ -115,10 +120,13 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 	expect = EXPECT_METRIC;
       else if (!strcmp (argv[i], "mtu"))
 	expect = EXPECT_MTU;
+      else if (!strcmp (argv[i], "up"))
+	parse_opt_set_flag (*ifp, IFF_UP | IFF_RUNNING, 0);
+      else if (!strcmp (argv[i], "down"))
+	parse_opt_set_flag (*ifp, IFF_UP, 1);
       else
 	{
 	  /* Recognize AF here.  */
-	  /* Recognize up/down.  */
 	  /* Also auto-revarp, trailers, -trailers,
 	     private, -private, arp, -arp, plumb, unplumb.  */
 	  if (!((*ifp)->valid & IF_VALID_ADDR))
@@ -161,7 +169,7 @@ system_configure (int sfd, struct ifreq *ifr, struct system_ifconfig *ifs)
 # ifndef SIOCSIFTXQLEN
       error (0, 0, "don't know how to set the txqlen on this system");
       return -1;
-# else
+# else /* SIOCSIFTXQLEN */
       int err = 0;
 
       ifr->ifr_qlen = ifs->txqlen;
@@ -171,10 +179,14 @@ system_configure (int sfd, struct ifreq *ifr, struct system_ifconfig *ifs)
       if (verbose)
 	printf ("Set txqlen value of `%s' to `%i'.\n",
 		ifr->ifr_name, ifr->ifr_qlen);
-# endif
+# endif /* SIOCSIFTXQLEN */
     }
+#else /* !IF_VALID_TXQLEN */
+  (void) sfd;
+  (void) ifr;
+  (void) ifs;
+#endif /* !IF_VALID_TXQLEN */
   return 0;
-#endif
 }
 
 

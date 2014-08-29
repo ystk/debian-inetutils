@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -50,6 +50,7 @@
 #include <config.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <arpa/telnet.h>
 
 #include "auth.h"
 #include "encrypt.h"
@@ -57,15 +58,18 @@
 
 char *RemoteHostName;
 char *LocalHostName;
-char *UserNameRequested = 0;
+char *UserNameRequested = NULL;
+char *ServerPrincipal;
 
 void
-auth_encrypt_init (char *local, char *remote, char *name, int server)
+auth_encrypt_init (char *local, char *remote, char *principal,
+		   char *name, int server)
 {
   RemoteHostName = remote;
   LocalHostName = local;
+  ServerPrincipal = principal;
   (void) name;
-  (void) server;		/* shutup gcc */
+  (void) server;		/* silence gcc */
 #if defined AUTHENTICATION
   auth_init (name, server);
 #endif
@@ -73,7 +77,7 @@ auth_encrypt_init (char *local, char *remote, char *name, int server)
   encrypt_init (name, server);
 #endif /* ENCRYPTION */
   free (UserNameRequested);
-  UserNameRequested = 0;
+  UserNameRequested = NULL;
 }
 
 void
@@ -82,13 +86,13 @@ auth_encrypt_user (char *name)
   extern char *strdup (const char *);
 
   free (UserNameRequested);
-  UserNameRequested = name ? strdup (name) : 0;
+  UserNameRequested = name ? strdup (name) : NULL;
 }
 
 void
 auth_encrypt_connect (int cnt)
 {
-  (void) cnt;			/*shutup gcc */
+  (void) cnt;			/* silence gcc */
 }
 
 void

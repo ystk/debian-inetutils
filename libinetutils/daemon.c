@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -55,6 +55,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <unused-parameter.h>
 
 /*
   According to Unix-FAQ maintained by Andrew Gierth:
@@ -103,7 +104,7 @@
 #define MAXFD 64
 
 void
-waitdaemon_timeout (int signo)
+waitdaemon_timeout (int signo _GL_UNUSED_PARAMETER)
 {
   int left;
 
@@ -141,14 +142,16 @@ waitdaemon (int nochdir, int noclose, int maxwait)
 	  alarm (maxwait);
 	  pause ();
 	}
-      _exit (0);
+      _exit (EXIT_SUCCESS);
     }
 
   if (setsid () == -1)
     return -1;
 
-  /* SIGHUP is ignore because when the session leader terminates
-     all process in the session (the second child) are sent the SIGHUP.  */
+  /* SIGHUP must be ignored, because when the session leader terminates,
+     then SIGHUP is sent to all process belonging to the same session,
+     i.e., also to the second child.
+   */
   signal (SIGHUP, SIG_IGN);
 
   switch (fork ())
@@ -160,18 +163,18 @@ waitdaemon (int nochdir, int noclose, int maxwait)
       return -1;
 
     default:
-      _exit (0);
+      _exit (EXIT_SUCCESS);
     }
 
-  if (!nochdir)
-    chdir ("/");
+  if (!nochdir && chdir ("/") < 0)
+    return -1;			/* Unlikely failure, but check it.  */
 
   if (!noclose)
     {
       int i;
       long fdlimit = -1;
 
-#if defined HAVE_SYSCONF && defined _SC_OPEN_MAX
+#if defined _SC_OPEN_MAX
       fdlimit = sysconf (_SC_OPEN_MAX);
 #elif defined (HAVE_GETDTABLESIZE)
       fdlimit = getdtablesize ();

@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -67,7 +67,7 @@ struct icmp_header
 
   union
   {
-    struct id_ts		/* ICMP_TIMESTAMP, ICMP_TIMESTAMP_REPLY */
+    struct id_ts		/* ICMP_TIMESTAMP, ICMP_TIMESTAMPREPLY */
     {
       n_time its_otime;		/* Originate timestamp */
       n_time its_rtime;		/* Recieve timestamp */
@@ -140,7 +140,7 @@ struct icmp_header
 #define MAXIPLEN	60
 #define MAXICMPLEN	76
 #define ICMP_MINLEN	8	/* abs minimum */
-#define ICMP_TSLEN	(8 + 3 * sizeof (unsigned long))	/* timestamp */
+#define ICMP_TSLEN	(8 + 3 * sizeof (n_time))	/* timestamp */
 #define ICMP_MASKLEN	12	/* address mask */
 #define ICMP_ADVLENMIN	(8 + sizeof (struct ip) + 8)	/* min */
 #define ICMP_ADVLEN(p)	(8 + ((p)->icmp_ip.ip_hl << 2) + 8)

@@ -1,6 +1,6 @@
 /* options.c -- process the command line options
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -37,10 +37,20 @@
 
 #include <sys/socket.h>
 #include <net/if.h>
+
+#include <unused-parameter.h>
+
 #include "ifconfig.h"
+
+/* List available interfaces.  */
+int list_mode;
 
 /* Be verbose about actions.  */
 int verbose;
+
+/* Flags asked for, possibly still pending application.  */
+int pending_setflags;
+int pending_clrflags;
 
 /* Array of all interfaces on the command line.  */
 struct ifconfig *ifs;
@@ -51,6 +61,7 @@ int nifs;
 static struct ifconfig ifconfig_initializer = {
   NULL,				/* name */
   0,				/* valid */
+  NULL, NULL, 0, NULL, NULL, NULL, NULL, 0, 0, 0, 0
 };
 
 struct format formats[] = {
@@ -62,7 +73,8 @@ struct format formats[] = {
   /* This is the standard GNU output.  */
   {"gnu",
    "Standard GNU output format.",
-   "${first?}{}{${\\n}}${format}{gnu-one-entry}"},
+   "${ifdisplay?}{${first?}{}{${\\n}}${format}{gnu-one-entry}}"
+  },
   {"gnu-one-entry",
    "Same as GNU, but without additional newlines between the entries.",
    "${format}{check-existence}"
@@ -77,6 +89,8 @@ struct format formats[] = {
    "${metric?}{  metric ${tab}{16}${metric}${\\n}}"
    "${exists?}{hwtype?}{${hwtype?}{  link encap ${tab}{16}${hwtype}${\\n}}}"
    "${exists?}{hwaddr?}{${hwaddr?}{  hardware addr ${tab}{16}${hwaddr}${\\n}}}"
+   "${media?}{  link medium ${tab}{16}${media}${\\n}}"
+   "${status?}{  link status ${tab}{16}${status}${\\n}}"
    "${exists?}{txqlen?}{${txqlen?}{  tx queue len ${tab}{16}${txqlen}${\\n}}}"
    "}"
   },
@@ -94,6 +108,9 @@ struct format formats[] = {
    "${tab}{10}${flags}"
    "${mtu?}{  MTU:${mtu}}"
    "${metric?}{  Metric:${metric}}"
+   "${media?}{"
+   "${newline}${tab}{10}Media: ${media}"
+   "${status?}{, ${status}}}"
    "${exists?}{ifstat?}{"
    "${ifstat?}{"
    "${newline}          RX packets:${rxpackets}"
@@ -108,7 +125,6 @@ struct format formats[] = {
    "${newline}"
    "          RX bytes:${rxbytes}  TX bytes:${txbytes}"
    "}}{"
-   "${newline}"
    "${exists?}{txqlen?}{${txqlen?}{ ${tab}{10}txqueuelen:${txqlen}}${\\n}}}"
    "${newline}"
    "${exists?}{map?}{${map?}{${irq?}{"
@@ -126,27 +142,35 @@ struct format formats[] = {
    "${first?}{Iface    MTU Met    RX-OK RX-ERR RX-DRP RX-OVR    TX-OK TX-ERR TX-DRP TX-OVR Flg${newline}}"
    "${format}{check-existence}"
    "${name}${tab}{6}${mtu}{%6d} ${metric}{%3d}"
+   /* Insert blanks without ifstat.  */
+   "${exists?}{ifstat?}{"
    "${ifstat?}{"
    " ${rxpackets}{%8lu} ${rxerrors}{%6lu} ${rxdropped}{%6lu} ${rxfifoerr}{%6lu}"
    " ${txpackets}{%8lu} ${txerrors}{%6lu} ${txdropped}{%6lu} ${txfifoerr}{%6lu}"
-   "}{   - no statistics available -}"
+   "}{   - no statistics available -}}"
    "${tab}{76} ${flags?}{${flags}{short}}{[NO FLAGS]}"
    "${newline}"
   },
   /* Resembles the output of ifconfig shipped with unix systems like
      Solaris 2.7 or HPUX 10.20.  */
   {"unix",
-   "Traditional UNIX interface listing.  Default for Solaris and HPUX.",
+   "Traditional UNIX interface listing.  Default for Solaris, BSD and HPUX.",
    "${format}{check-existence}"
    "${ifdisplay?}{"
    "${name}: flags=${flags}{number}{%hx}<${flags}{string}{,}>"
+   "${metric?}{ metric ${metric}}"
    "${mtu?}{ mtu ${mtu}}${\\n}"
+   /* Print only if hwtype emits something.  */
+   "${exists?}{hwtype?}{"
+     "${hwtype?}{${\\t}${hwtype}${exists?}{hwaddr?}{"
+       "${hwaddr?}{ ${hwaddr}}}${\\n}}}"
    "${addr?}{${\\t}inet ${addr}"
+   "${dstaddr?}{ --> ${dstaddr}}"
    " netmask ${netmask}{0}{%#02x}${netmask}{1}{%02x}"
    "${netmask}{2}{%02x}${netmask}{3}{%02x}"
    "${brdaddr?}{ broadcast ${brdaddr}}${\\n}}"
-   "${exists?}{hwtype?}{${hwtype?}{${\\t}${hwtype}"
-   "}${exists?}{hwaddr?}{${hwaddr?}{ ${hwaddr}}}${\\n}}"
+   "${media?}{${\\t}media: ${media}${\\n}}"
+   "${status?}{${\\t}status: ${status}${\\n}}"
    "}"
   },
   /* Resembles the output of ifconfig shipped with OSF 4.0g.  */
@@ -181,7 +205,7 @@ struct format formats[] = {
    "${newline}"
    "}"
    "${exit}{0}"},
-  {0, 0}
+  {NULL, NULL, NULL}
 };
 
 /* Default format.  */
@@ -199,37 +223,43 @@ enum {
 };
 
 static struct argp_option argp_options[] = {
+#define GRP 10
   { "verbose", 'v', NULL, 0,
-    "output information when configuring interface" },
+    "output information when configuring interface", GRP },
   { "all", 'a', NULL, 0,
-    "display all available interfaces" },
+    "display all available interfaces", GRP },
   { "interface", 'i', "NAME", 0,
-    "configure network interface NAME" },
+    "configure network interface NAME", GRP },
   { "address", 'A', "ADDR", 0,
-    "set interface address to ADDR" },
+    "set interface address to ADDR", GRP },
   { "netmask", 'm', "MASK", 0,
-    "set netmask to MASK" },
+    "set netmask to MASK", GRP },
   { "dstaddr", 'd', "ADDR", 0,
-    "set destination (peer) address to ADDR" },
-  { "peer", 'p', "ADDR", OPTION_ALIAS },
+    "set destination (peer) address to ADDR", GRP },
+  { "peer", 'p', "ADDR", OPTION_ALIAS,
+    "synonym for dstaddr", GRP },
   { "broadcast", 'B', "ADDR", 0,
-    "set broadcast address to ADDR" },
-  { "brdaddr", 'b', NULL, OPTION_ALIAS, }, /* FIXME: Do we really need it? */
+    "set broadcast address to ADDR", GRP },
+  { "brdaddr", 'b', NULL, OPTION_ALIAS,
+    "synonym for broadcast", GRP }, /* FIXME: Do we really need it? */
   { "mtu", 'M', "N", 0,
-    "set mtu of interface to N" },
+    "set mtu of interface to N", GRP },
   { "metric", METRIC_OPTION, "N", 0,
-    "set metric of interface to N" },
+    "set metric of interface to N", GRP },
   { "format", FORMAT_OPTION, "FORMAT", 0,
-    "select output format (or set back to default)" },
+    "select output format; set to `help' for info", GRP },
   { "up", UP_OPTION, NULL, 0,
-    "activate the interface (default if address is given)" },
+    "activate the interface (default if address is given)", GRP },
   { "down", DOWN_OPTION, NULL, 0,
-    "shut the interface down" },
+    "shut the interface down", GRP },
   { "flags", 'F', "FLAG[,FLAG...]", 0,
-    "set interface flags" },
+    "set interface flags", GRP },
+  { "list", 'l', NULL, 0,
+    "list available or selected interfaces", GRP },
   { "short", 's', NULL, 0,
-    "short output format" },
-  { NULL }
+    "short output format", GRP },
+#undef GRP
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 const char doc[] = "Configure network interfaces.";
@@ -326,12 +356,19 @@ void parse_opt_set_af (struct ifconfig *ifp, char *af)
 }
 
 void
-parse_opt_set_flag (struct ifconfig *ifp, int flag, int rev)
+parse_opt_set_flag (struct ifconfig *ifp _GL_UNUSED_PARAMETER,
+		    int flag, int rev)
 {
   if (rev)
-    ifp->clrflags |= flag;
+    {
+      pending_clrflags |= flag;
+      pending_setflags &= ~flag;
+    }
   else
-    ifp->setflags |= flag;
+    {
+      pending_setflags |= flag;
+      pending_clrflags &= ~flag;
+    }
 }
 
 void
@@ -349,7 +386,8 @@ parse_opt_flag_list (struct ifconfig *ifp, const char *name)
 	len = strlen (name);
 
       if ((mask = if_nametoflag (name, len, &rev)) == 0)
-	error (EXIT_FAILURE, 0, "unknown flag %*.*s", len, len, name);
+	error (EXIT_FAILURE, 0, "unknown flag %*.*s",
+	       (int) len, (int) len, name);
       parse_opt_set_flag (ifp, mask, rev);
 
       name += len;
@@ -440,6 +478,8 @@ parse_opt_finalize (struct ifconfig *ifp)
     {
       ifp->valid = IF_VALID_FORMAT;
       ifp->format = default_format;
+      ifp->setflags |= pending_setflags;
+      ifp->clrflags |= pending_clrflags;
     }
 }
 
@@ -494,6 +534,10 @@ parse_opt (int key, char *arg, struct argp_state *state)
       parse_opt_set_default_format ("netstat");
       break;
 
+    case 'l':
+      list_mode++;
+      break;
+
     case 'v':
       verbose++;
       break;
@@ -525,7 +569,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
 }
 
 static char *
-default_help_filter (int key, const char *text, void *input)
+default_help_filter (int key, const char *text,
+		     void *input _GL_UNUSED_PARAMETER)
 {
   char *s;
 
@@ -549,7 +594,8 @@ static struct argp argp =
     NULL,
     doc,
     NULL,
-    default_help_filter
+    default_help_filter,
+    NULL
   };
 
 static int

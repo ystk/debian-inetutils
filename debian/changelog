@@ -1,3 +1,66 @@
+inetutils (2:1.9.2-1) unstable; urgency=low
+
+  * New upstream release.
+  * Fix typos in local man pages.
+  * Escape hyphens in local man pages.
+  * Add tar.xz as an alternative upstream extension in the watch file.
+  * Use dh_autotools-dev_updateconfig and dh_autotools-dev_restoreconfig
+    from autotools-dev to update the config.sub and config.guess files.
+
+ -- Guillem Jover <guillem@debian.org>  Thu, 16 Jan 2014 20:23:19 +0100
+
+inetutils (2:1.9.1.363-bbc1-1) unstable; urgency=low
+
+  * New upstream snapshot.
+  * Fix update-inetd --remove syntax for talkd and telnetd, later versions
+    of update-inetd do not support a regex matching the start of the line
+    (including the comment).
+  * Fix inetd entry for talkd. (Closes: #465987, #732633)
+  * Use tcpd in inetd entries for talkd and telnetd. (Closes: #412891)
+  * Now using Standards-Version 3.9.5 (no changes needed).
+  * Switch to debhelper compatibility level 9.
+  * Add signature checking support to debian/watch, and ship upstream signing
+    keys in debian/upstream-signing-key.pgp.
+  * Use xz for source Debian packaging.
+  * Use «which» instead of hard-coding update-inetd pathnames.
+  * Disable «set -e» in init scripts, just before the action case block.
+  * Update debian/copyright information with new years and switch to GFDL-1.3.
+  * Remove first packaging information from debian/copyright.
+
+ -- Guillem Jover <guillem@debian.org>  Sun, 22 Dec 2013 05:42:05 +0100
+
+inetutils (2:1.9.1.306-0a482-1) unstable; urgency=high
+
+  * New upstream snapshot.
+    - Fix security issue, by enforcing again ‘/etc/ftpusers’ access checks in
+      ftpd. Regression introduced in 2:1.9.1.282-e8541-1.
+      Thanks to Mats Erik Andersson <gnu@gisladisker.se> for reporting.
+    - debian/patches/50_split_load_conffile.patch: Remove, merged upstream.
+    - debian/patches/51_add_load_confdir_support.patch: Likewise.
+
+ -- Guillem Jover <guillem@debian.org>  Thu, 20 Jun 2013 01:05:02 +0200
+
+inetutils (2:1.9.1.282-e8541-1) unstable; urgency=low
+
+  * New upstream snapshot.
+    - Fix FTBFS with newer glibc due to undefined gets. (Closes: #701399)
+    - Do not accept invalid port numbers in telnet. (Closes: #300281)
+    - Support <user>.<group> in inetd. (Closes: #342769)
+    - Fix talk to print error messages correctly. (Closes: #355588)
+    - debian/patches/0001-ping-CVE-2010-2529.patch: Remove, merged upstream.
+    - debian/patches/03_reduce_shared_lib_depends.patch: Likewise.
+    - debian/patches/30_ping-Abort-on-sendto-error.patch: Likewise.
+    - debian/patches/70_ftbfs_non-linux.patch: Likewise.
+    - debian/patches/71_ftbfs_format_security.patch: Likewise.
+    - debian/patches/01_disable_useless_man_pages.patch: Refresh.
+    - debian/patches/22_syslogd_conf.patch: Likewise.
+    - debian/patches/50_split_load_conffile.patch: Likewise.
+    - debian/patches/51_add_load_confdir_support.patch: Likewise.
+    - debian/patches/62_inetd_change_ipv6_protocol_semantics.patch: Likewise.
+  * Now using Standards-Version 3.9.4 (no changes needed).
+
+ -- Guillem Jover <guillem@debian.org>  Sat, 11 May 2013 05:43:46 +0200
+
 inetutils (2:1.9-2) unstable; urgency=medium
 
   * Fix DoS against inetutils-ping via a crafted echo response.
@@ -854,4 +917,3 @@ inetutils (1.3.2-1) unstable; urgency=low
   * Initial Release.
 
  -- Marcus Brinkmann <Marcus.Brinkmann@ruhr-uni-bochum.de>  Wed,  3 Feb 1999 15:53:32 +0100
-

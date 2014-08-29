@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -72,7 +72,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
+#ifdef HAVE_IDNA_H
+# include <idna.h>
+#endif
+
 #include <argp.h>
+#include <unused-parameter.h>
 
 #include <libinetutils.h>
 
@@ -109,6 +117,7 @@ static int port; /* Port number in host byte order of the server. */
 static int trace;
 static int verbose;
 static int connected;
+static int fromatty;
 
 char mode[32];
 char line[200];
@@ -178,7 +187,7 @@ struct cmd cmdtab[] = {
   {"rexmt", xhelp, setrexmt},
   {"timeout", ihelp, settimeout},
   {"?", hhelp, help},
-  {0}
+  {NULL, NULL, NULL}
 };
 
 struct cmd *getcmd (register char *name);
@@ -189,8 +198,8 @@ const char args_doc[] = "[HOST [PORT]]";
 const char doc[] = "Trivial file transfer protocol client";
 
 static struct argp_option argp_options[] = {
-  {"verbose", 'v', NULL, 0, "verbose output"},
-  {NULL}
+  {"verbose", 'v', NULL, 0, "verbose output", 1},
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 char *hostport_argv[3] = { "connect" };
@@ -252,7 +261,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char *argv[])
@@ -260,6 +270,9 @@ main (int argc, char *argv[])
   struct servent *sp;
 
   set_program_name (argv[0]);
+#ifdef HAVE_SETLOCALE
+  setlocale (LC_ALL, "");
+#endif
   iu_argp_init ("tftp", default_program_authors);
   argp_parse (&argp, argc, argv, 0, NULL, NULL);
 
@@ -269,6 +282,8 @@ main (int argc, char *argv[])
     port = 69;
   else
     port = ntohs (sp->s_port);
+
+  fromatty = isatty (STDIN_FILENO);
 
   strcpy (mode, "netascii");
   signal (SIGINT, intr);
@@ -296,23 +311,42 @@ static int
 resolve_name (char *name)
 {
   int err;
+  char *rname;
   struct sockaddr_storage ss;
   struct addrinfo hints, *ai, *aiptr;
+
+#ifdef HAVE_IDN
+  err = idna_to_ascii_lz (name, &rname, 0);
+  if (err)
+    {
+      fprintf (stderr, "tftp: %s: %s\n", name, idna_strerror (err));
+      return RESOLVE_FAIL;
+    }
+#else /* !HAVE_IDN */
+  rname = name;
+#endif
 
   memset (&hints, 0, sizeof (hints));
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_flags = AI_CANONNAME;
-#ifdef AI_ADDRCONFIG
-  hints.ai_flags += AI_ADDRCONFIG;
+#ifdef AI_IDN
+  hints.ai_flags |= AI_IDN;
+#endif
+#ifdef AI_CANONIDN
+  hints.ai_flags |= AI_CANONIDN;
 #endif
 
-  err = getaddrinfo (name, "tftp", &hints, &aiptr);
+  err = getaddrinfo (rname, "tftp", &hints, &aiptr);
   if (err)
     {
-      fprintf (stderr, "tftp: %s: %s\n", name, gai_strerror (err));
+      fprintf (stderr, "tftp: %s: %s\n", rname, gai_strerror (err));
       return RESOLVE_FAIL;
     }
+
+#ifdef HAVE_IDN
+  free (rname);
+#endif
 
   if (f >= 0)
     {
@@ -328,7 +362,7 @@ resolve_name (char *name)
 
       memset (&ss, 0, sizeof (ss));
       ss.ss_family = ai->ai_family;
-#if HAVE_STRUCT_SOCKADDR_SA_LEN
+#if HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
       ss.ss_len = ai->ai_addrlen;
 #endif
       if (bind (f, (struct sockaddr *) &ss, ai->ai_addrlen))
@@ -343,7 +377,10 @@ resolve_name (char *name)
       memcpy (&peeraddr, ai->ai_addr, ai->ai_addrlen);
       connected = 1;
       free (hostname);
-      hostname = xstrdup (ai->ai_canonname);
+      if (ai->ai_canonname)
+	hostname = xstrdup (ai->ai_canonname);
+      else
+	hostname = xstrdup ("<dummy>");
       break;
     }
 
@@ -367,11 +404,17 @@ get_args (char *arg0, char *prompt, int *argc, char ***argv)
   strcat (line, " ");
 
   printf ("%s", prompt);
-  fgets (line + arg0_len + 1, sizeof line - arg0_len - 1, stdin);
-
-  makeargv ();
-  *argc = margc;
-  *argv = margv;
+  if (fgets (line + arg0_len + 1, sizeof line - arg0_len - 1, stdin))
+    {
+      makeargv ();
+      *argc = margc;
+      *argv = margv;
+    }
+  else
+    {
+      *argv[0] = arg0;
+      *argc = 1;		/* Will produce a usage printout.  */
+    }
 }
 
 void
@@ -470,13 +513,13 @@ modecmd (int argc, char *argv[])
 }
 
 void
-setbinary (int argc, char *argv[])
+setbinary (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   settftpmode ("octet");
 }
 
 void
-setascii (int argc, char *argv[])
+setascii (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   settftpmode ("netascii");
 }
@@ -746,7 +789,7 @@ settimeout (int argc, char *argv[])
 }
 
 void
-status (int argc, char *argv[])
+status (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   if (connected)
     printf ("Connected to %s.\n", hostname);
@@ -759,7 +802,7 @@ status (int argc, char *argv[])
 }
 
 void
-intr (int signo)
+intr (int signo _GL_UNUSED_PARAMETER)
 {
   signal (SIGALRM, SIG_IGN);
   alarm (0);
@@ -793,7 +836,8 @@ command (void)
 
   for (;;)
     {
-      printf ("%s> ", prompt);
+      if (fromatty)
+	printf ("%s> ", prompt);
       if (fgets (line, sizeof line, stdin) == 0)
 	{
 	  if (feof (stdin))
@@ -882,7 +926,7 @@ makeargv (void)
 }
 
 void
-quit (int argc, char *argv[])
+quit (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   exit (EXIT_SUCCESS);
 }
@@ -919,14 +963,14 @@ help (int argc, char *argv[])
 }
 
 void
-settrace (int argc, char **argv)
+settrace (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   trace = !trace;
   printf ("Packet tracing %s.\n", trace ? "on" : "off");
 }
 
 void
-setverbose (int argc, char **argv)
+setverbose (int argc _GL_UNUSED_PARAMETER, char *argv[] _GL_UNUSED_PARAMETER)
 {
   verbose = !verbose;
   printf ("Verbose mode %s.\n", verbose ? "on" : "off");
@@ -1173,16 +1217,37 @@ makerequest (int request, const char *name, struct tftphdr *tp,
 	     const char *mode)
 {
   register char *cp;
+  size_t arglen, len;
 
   tp->th_opcode = htons ((unsigned short) request);
 #if HAVE_STRUCT_TFTPHDR_TH_U
-  cp = tp->th_stuff;
+  /*
+   * GNU and BSD essentially, i.e. modulo a macro, define
+   * 'tftphdr.th_stuff' as a character array of length
+   * naught with GNU, and one with BSD!
+   *
+   * When compiling with stack protectors, like during
+   * hardened builds in Debian, every useful file name
+   * will overflow that limit.  However, our code ensures
+   * '*tp' to be of length PKTSIZE.  Assigning CP via an
+   * offset calculation avoids this issue.
+   */
+  cp = (char *) tp + (tp->th_stuff - (char *) tp);
 #else
   cp = (char *) &(tp->th_stuff);
 #endif
-  strcpy (cp, name);
-  cp += strlen (name);
+
+  /* Available space for naming the target file.  */
+  len = PKTSIZE - sizeof (struct tftphdr) - sizeof ("netascii");
+  arglen = strlen (name);
+
+  strncpy (cp, name, len);
+
+  cp += (arglen < len) ? arglen : len;
   *cp++ = '\0';
+
+  /* Mode is either "netascii" or "octet", so is always fits
+   * based on our choice of LEN.  */
   strcpy (cp, mode);
   cp += strlen (mode);
   *cp++ = '\0';
@@ -1310,7 +1375,7 @@ printstats (const char *direction, unsigned long amount)
 }
 
 static void
-timer (int sig)
+timer (int sig _GL_UNUSED_PARAMETER)
 {
   timeout += rexmtval;
   if (timeout >= maxtimeout)

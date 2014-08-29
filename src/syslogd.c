@@ -1,6 +1,7 @@
 /* syslogd - log system messages
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -104,6 +105,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
 #include <unistd.h>
 
 #include <stdarg.h>
@@ -121,8 +123,9 @@
 #include <error.h>
 #include <progname.h>
 #include <libinetutils.h>
-#include <readutmp.h>
+#include <readutmp.h>		/* May define UTMP_NAME_FUNCTION.  */
 #include "unused-parameter.h"
+#include "xalloc.h"
 
 /* A mask of all facilities mentioned explicitly in the configuration file
  *
@@ -132,7 +135,10 @@
  */
 int facilities_seen;
 
+char *selector;			/* Program origin to select.  */
+
 const char *ConfFile = PATH_LOGCONF;	/* Default Configuration file.  */
+const char *ConfDir = PATH_LOGCONFD;	/* Default Configuration directory.  */
 const char *PidFile = PATH_LOGPID;	/* Default path to tuck pid.  */
 char ctty[] = PATH_CONSOLE;	/* Default console to send message info.  */
 
@@ -185,6 +191,8 @@ struct filed
   char f_prevline[MAXSVLINE];	/* Last message logged.  */
   char f_lasttime[16];		/* Time of last occurrence.  */
   char *f_prevhost;		/* Host from which recd.  */
+  char *f_progname;		/* Submitting program.  */
+  int f_prognlen;		/* Length of the same.  */
   int f_prevpri;		/* Pri of f_prevline.  */
   int f_prevlen;		/* Length of f_prevline.  */
   int f_prevcount;		/* Repetition cnt of prevline.  */
@@ -250,7 +258,10 @@ int decode (const char *, CODE *);
 void die (int);
 void doexit (int);
 void domark (int);
+void find_inet_port (const char *);
 void fprintlog (struct filed *, const char *, int, const char *);
+static int load_conffile (const char *, struct filed **);
+static int load_confdir (const char *, struct filed **);
 void init (int);
 void logerror (const char *);
 void logmsg (int, const char *, const char *, int);
@@ -271,6 +282,11 @@ char *LocalHostName;		/* Our hostname.  */
 char *LocalDomain;		/* Our local domain name.  */
 char *BindAddress = NULL;	/* Binding address for INET listeners.
 				 * The default is a wildcard address.  */
+char *BindPort = NULL;		/* Optional non-standard port, instead
+				 * of the usual 514/udp.  */
+#ifdef IPPORT_SYSLOG
+char portstr[8];		/* Fallback port number.  */
+#endif
 char addrstr[INET6_ADDRSTRLEN];	/* Common address presentation.  */
 char addrname[NI_MAXHOST];	/* Common name lookup.  */
 int usefamily = AF_INET;	/* Address family for INET services.
@@ -280,7 +296,8 @@ int finet[2] = {-1, -1};	/* Internet datagram socket fd.  */
 #define IU_FD_IP4	0	/* Indices for the address families.  */
 #define IU_FD_IP6	1
 int fklog = -1;			/* Kernel log device fd.  */
-char *LogPortText = "syslog";	/* Service/port for INET connections.  */
+char *LogPortText = NULL;	/* Service/port for INET connections.  */
+char *LogForwardPort = NULL;	/* Target port for message forwarding.  */
 int Initialized;		/* True when we are initialized. */
 int MarkInterval = 20 * 60;	/* Interval between marks in seconds.  */
 int MarkSeq;			/* Mark sequence number.  */
@@ -327,8 +344,9 @@ static struct argp_option argp_options[] = {
   {"ipv6", '6', NULL, 0, "restrict to IPv6 transport", GRP+1},
   {"ipany", OPT_IPANY, NULL, 0, "allow transport with IPv4 and IPv6", GRP+1},
   {"bind", 'b', "ADDR", 0, "bind listener to this address/name", GRP+1},
-  {"mark", 'm', "INTVL", 0, "specify timestamp interval in logs (0 for no "
-   "timestamps)", GRP+1},
+  {"bind-port", 'B', "PORT", 0, "bind listener to this port", GRP+1},
+  {"mark", 'm', "INTVL", 0, "specify timestamp interval in minutes"
+   " (0 for no timestamping)", GRP+1},
   {"no-detach", 'n', NULL, 0, "do not enter daemon mode", GRP+1},
   {"no-forward", OPT_NO_FORWARD, NULL, 0, "do not forward any messages "
    "(overrides --hop)", GRP+1},
@@ -343,11 +361,13 @@ static struct argp_option argp_options[] = {
   {"rcfile", 'f', "FILE", 0, "override configuration file (default: "
    PATH_LOGCONF ")",
    GRP+1},
+  {"rcdir", 'D', "DIR", 0, "override configuration directory (default: "
+   PATH_LOGCONFD ")", GRP+1},
   {"socket", 'p', "FILE", 0, "override default unix domain socket " PATH_LOG,
    GRP+1},
   {"sync", 'S', NULL, 0, "force a file sync on every line", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
@@ -399,6 +419,10 @@ parse_opt (int key, char *arg, struct argp_state *state)
       BindAddress = arg;
       break;
 
+    case 'B':
+      BindPort = arg;
+      break;
+
     case 'm':
       v = strtol (arg, &endptr, 10);
       if (*endptr)
@@ -430,6 +454,10 @@ parse_opt (int key, char *arg, struct argp_state *state)
       ConfFile = arg;
       break;
 
+    case 'D':
+      ConfDir = arg;
+      break;
+
     case 'p':
       funix[0].name = arg;
       funix[0].fd = -1;
@@ -446,7 +474,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char *argv[])
@@ -460,15 +489,21 @@ main (int argc, char *argv[])
   pid_t ppid = 0;		/* We run in debug mode and didn't fork.  */
   struct pollfd *fdarray;
   unsigned long nfds = 0;
+#ifdef HAVE_SIGACTION
+  struct sigaction sa;
+#endif
 
   set_program_name (argv[0]);
 
-  /* Initiliaze PATH_LOG as the first element of the unix sockets array.  */
+  /* Initialize PATH_LOG as the first element of the unix sockets array.  */
   add_funix (PATH_LOG);
 
   /* Parse command line */
   iu_argp_init ("syslogd", default_program_authors);
   argp_parse (&argp, argc, argv, 0, NULL, NULL);
+
+  /* Check desired port, if in demand at all.  */
+  find_inet_port (BindPort);
 
   /* Daemonise, if not, set the buffering for line buffer.  */
   if (!NoDetach)
@@ -488,7 +523,8 @@ main (int argc, char *argv[])
     }
   else
     {
-      dbg_output = 1;
+      if (Debug)
+	dbg_output = 1;
       setvbuf (stdout, 0, _IOLBF, 0);
     }
 
@@ -536,10 +572,24 @@ main (int argc, char *argv[])
   consfile.f_un.f_fname = strdup (ctty);
 
   signal (SIGTERM, die);
-  signal (SIGINT, Debug ? die : SIG_IGN);
-  signal (SIGQUIT, Debug ? die : SIG_IGN);
+  signal (SIGINT, NoDetach ? die : SIG_IGN);
+  signal (SIGQUIT, NoDetach ? die : SIG_IGN);
+
+#ifdef HAVE_SIGACTION
+  /* Register repeatable actions portably!  */
+  sa.sa_flags = SA_RESTART;
+  sigemptyset (&sa.sa_mask);
+
+  sa.sa_handler = domark;
+  (void) sigaction (SIGALRM, &sa, NULL);
+
+  sa.sa_handler = NoDetach ? dbg_toggle : SIG_IGN;
+  (void) sigaction (SIGUSR1, &sa, NULL);
+#else /* !HAVE_SIGACTION */
   signal (SIGALRM, domark);
-  signal (SIGUSR1, Debug ? dbg_toggle : SIG_IGN);
+  signal (SIGUSR1, NoDetach ? dbg_toggle : SIG_IGN);
+#endif
+
   alarm (TIMERINTVL);
 
   /* We add  3 = 1(klog) + 2(inet,inet6), even if they may stay unused.  */
@@ -614,17 +664,25 @@ main (int argc, char *argv[])
   fp = fopen (PidFile, "w");
   if (fp != NULL)
     {
-      fprintf (fp, "%d\n", getpid ());
+      fprintf (fp, "%d\n", (int) getpid ());
       fclose (fp);
     }
 
   dbg_printf ("off & running....\n");
 
+#ifdef HAVE_SIGACTION
+  /* `sa' has been cleared already.  */
+  sa.sa_handler = trigger_restart;
+  (void) sigaction (SIGHUP, &sa, NULL);
+#else /* !HAVE_SIGACTION */
   signal (SIGHUP, trigger_restart);
+#endif
 
-  if (Debug)
+  if (NoDetach)
     {
-      dbg_printf ("Debugging disabled, send SIGUSR1 to turn on debugging.\n");
+      dbg_output = 1;
+      dbg_printf ("Debugging is disabled. Send SIGUSR1 to PID=%d "
+		  "to turn on debugging.\n", (int) getpid ());
       dbg_output = 0;
     }
 
@@ -848,6 +906,12 @@ create_inet_socket (int af, int fd46[2])
   /* Invalidate old descriptors.  */
   fd46[IU_FD_IP4] = fd46[IU_FD_IP6] = -1;
 
+  if (!LogPortText)
+    {
+      dbg_printf ("No listen port has been accepted.\n");
+      return;
+    }
+
   memset (&hints, 0, sizeof (hints));
   hints.ai_family = af;
   hints.ai_socktype = SOCK_DGRAM;
@@ -862,15 +926,22 @@ create_inet_socket (int af, int fd46[2])
 
   for (ai = rp; ai; ai = ai->ai_next)
     {
+      int yes = 1;
+
       fd = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol);
       if (fd < 0)
 	continue;
+
+      err = setsockopt (fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof (yes));
+      if (err < 0)
+	logerror ("failed to set SO_REUSEADDR");
+
       if (ai->ai_family == AF_INET6)
 	{
-	  int yes = 1;
 	  /* Avoid dual stacked sockets.  Better to use distinct sockets.  */
 	  (void) setsockopt (fd, IPPROTO_IPV6, IPV6_V6ONLY, &yes, sizeof (yes));
 	}
+
       if (bind (fd, ai->ai_addr, ai->ai_addrlen) < 0)
 	{
 	  close (fd);
@@ -948,7 +1019,7 @@ crunch_list (char **oldlist, char *list)
     }
 
   /* take the last one */
-  oldlist[count] = (char *) malloc ((strlen (p) + 1) * sizeof (char));
+  oldlist[count] = (char *) xmalloc ((strlen (p) + 1) * sizeof (char));
   if (oldlist[count] == NULL)
     error (EXIT_FAILURE, errno, "can't allocate memory");
 
@@ -1013,7 +1084,8 @@ printline (const char *hname, const char *msg)
      sync on every line.  */
   if (force_sync)
     logmsg (pri, line, hname, SYNC_FILE);
-  logmsg (pri, line, hname, 0);
+  else
+    logmsg (pri, line, hname, 0);
 }
 
 /* Take a raw input line from /dev/klog, split and format similar to
@@ -1116,7 +1188,11 @@ logmsg (int pri, const char *msg, const char *from, int flags)
 
   /* Extract facility and priority level.  */
   if (flags & MARK)
+#ifdef INTERNAL_MARK
+    fac = LOG_FAC (INTERNAL_MARK);
+#else
     fac = LOG_NFACILITIES;
+#endif
   else
     fac = LOG_FAC (pri);
   prilev = LOG_PRI (pri);
@@ -1151,6 +1227,25 @@ logmsg (int pri, const char *msg, const char *from, int flags)
       /* Don't output marks to recently written files.  */
       if ((flags & MARK) && (now - f->f_time) < MarkInterval / 2)
 	continue;
+
+      if (f->f_progname)
+	{
+	  /* The usual, and desirable, formattings are:
+	   *
+	   *   prg: message text
+	   *   prg[PIDNO]: message text
+	   */
+
+	  /* Skip on selector mismatch.  */
+	  if (strncmp (msg, f->f_progname, f->f_prognlen))
+	    continue;
+
+	  /* Avoid matching on prefixes.  */
+	  if (isalnum (msg[f->f_prognlen])
+	      || msg[f->f_prognlen] == '-'
+	      || msg[f->f_prognlen] == '_')
+	    continue;
+	}
 
       /* Suppress duplicate lines to this file.  */
       if ((flags & MARK) == 0 && msglen == f->f_prevlen && f->f_prevhost
@@ -1299,9 +1394,11 @@ fprintlog (struct filed *f, const char *from, int flags, const char *msg)
 	  memset (&hints, 0, sizeof (hints));
 	  hints.ai_family = usefamily;
 #ifdef AI_ADDRCONFIG
-	  hints.ai_flags = AI_ADDRCONFIG;
+	  if (usefamily == AF_UNSPEC)
+	    hints.ai_flags |= AI_ADDRCONFIG;
 #endif
-	  err = getaddrinfo (f->f_un.f_forw.f_hname, LogPortText, &hints, &rp);
+	  err = getaddrinfo (f->f_un.f_forw.f_hname, LogForwardPort,
+			     &hints, &rp);
 	  if (err)
 	    {
 	      dbg_printf ("Failure: %s\n", gai_strerror (err));
@@ -1359,7 +1456,7 @@ fprintlog (struct filed *f, const char *from, int flags, const char *msg)
 	      hints.ai_socktype = SOCK_DGRAM;
 	      hints.ai_flags = AI_PASSIVE;
 
-	      err = getaddrinfo (NULL, LogPortText, &hints, &rp);
+	      err = getaddrinfo (NULL, LogForwardPort, &hints, &rp);
 	      if (err)
 		{
 		  dbg_printf ("Not forwarding due to lookup failure: %s.\n",
@@ -1483,14 +1580,17 @@ fprintlog (struct filed *f, const char *from, int flags, const char *msg)
     f->f_prevcount = 0;
 }
 
-/* Write the specified message to either the entire world, or a list
-   of approved users.  */
+/* Write the specified message to either the entire world,
+ * or to a list of approved users.  */
 void
 wallmsg (struct filed *f, struct iovec *iov)
 {
-  static int reenter;		/* avoid calling ourselves */
-  STRUCT_UTMP *utmpbuf, *utp;
+  static int reenter;		/* Avoid calling ourselves.  */
+  STRUCT_UTMP *utp;
+#if defined UTMP_NAME_FUNCTION || !defined HAVE_GETUTXENT
+  STRUCT_UTMP *utmpbuf;
   size_t utmp_count;
+#endif /* UTMP_NAME_FUNCTION || !HAVE_GETUTXENT */
   int i;
   char *p;
   char line[sizeof (utp->ut_line) + 1];
@@ -1498,10 +1598,20 @@ wallmsg (struct filed *f, struct iovec *iov)
   if (reenter++)
     return;
 
-  read_utmp (PATH_UTMP, &utmp_count, &utmpbuf,
-	     READ_UTMP_USER_PROCESS | READ_UTMP_CHECK_PIDS);
+#if !defined UTMP_NAME_FUNCTION && defined HAVE_GETUTXENT
+  setutxent ();
+
+  while ((utp = getutxent ()))
+#else /* UTMP_NAME_FUNCTION || !HAVE_GETUTXENT */
+  if (read_utmp (UTMP_FILE, &utmp_count, &utmpbuf,
+		 READ_UTMP_USER_PROCESS | READ_UTMP_CHECK_PIDS) < 0)
+    {
+      logerror ("opening utmp file");
+      return;
+    }
 
   for (utp = utmpbuf; utp < utmpbuf + utmp_count; utp++)
+#endif /* UTMP_NAME_FUNCTION || !HAVE_GETUTXENT */
     {
       strncpy (line, utp->ut_line, sizeof (utp->ut_line));
       line[sizeof (utp->ut_line)] = '\0';
@@ -1532,7 +1642,11 @@ wallmsg (struct filed *f, struct iovec *iov)
 	    break;
 	  }
     }
+#if defined UTMP_NAME_FUNCTION || !defined HAVE_GETUTXENT
   free (utmpbuf);
+#else /* !UTMP_NAME_FUNCTION && HAVE_GETUTXENT */
+  endutxent ();
+#endif
   reenter = 0;
 }
 
@@ -1629,6 +1743,10 @@ domark (int signo _GL_UNUSED_PARAMETER)
 	  BACKOFF (f);
 	}
     }
+
+#ifndef HAVE_SIGACTION
+  signal (SIGALRM, domark);
+#endif
   alarm (TIMERINTVL);
 }
 
@@ -1650,7 +1768,7 @@ logerror (const char *type)
 void
 doexit (int signo _GL_UNUSED_PARAMETER)
 {
-  _exit (0);
+  _exit (EXIT_SUCCESS);
 }
 
 void
@@ -1697,12 +1815,14 @@ die (int signo)
   exit (EXIT_SUCCESS);
 }
 
-/* INIT -- Initialize syslogd from configuration table.  */
-void
-init (int signo _GL_UNUSED_PARAMETER)
+/*
+ * Return zero on error.
+ */
+static int
+load_conffile (const char *filename, struct filed **nextp)
 {
   FILE *cf;
-  struct filed *f, *next, **nextp;
+  struct filed *f;
   char *p;
 #ifndef LINE_MAX
 # define LINE_MAX 2048
@@ -1712,62 +1832,31 @@ init (int signo _GL_UNUSED_PARAMETER)
   char *cline;
   int cont_line = 0;
 
-  dbg_printf ("init\n");
-
-  /* Close all open log files.  */
-  Initialized = 0;
-  for (f = Files; f != NULL; f = next)
-    {
-      int j;
-
-      /* Flush any pending output.  */
-      if (f->f_prevcount)
-	fprintlog (f, LocalHostName, 0, (char *) NULL);
-
-      switch (f->f_type)
-	{
-	case F_FILE:
-	case F_TTY:
-	case F_CONSOLE:
-	case F_PIPE:
-	  free (f->f_un.f_fname);
-	  close (f->f_file);
-	  break;
-	case F_FORW:
-	case F_FORW_SUSP:
-	case F_FORW_UNKN:
-	  free (f->f_un.f_forw.f_hname);
-	  break;
-	case F_USERS:
-	  for (j = 0; j < f->f_un.f_user.f_nusers; ++j)
-	    free (f->f_un.f_user.f_unames[j]);
-	  free (f->f_un.f_user.f_unames);
-	  break;
-	}
-      free (f->f_prevhost);
-      next = f->f_next;
-      free (f);
-    }
-  Files = NULL;
-  nextp = &Files;
-
-  facilities_seen = 0;
+  /* Beware: Do not assume *nextp to be NULL.  */
 
   /* Open the configuration file.  */
-  cf = fopen (ConfFile, "r");
+  cf = fopen (filename, "r");
   if (cf == NULL)
     {
-      dbg_printf ("cannot open %s\n", ConfFile);
-      *nextp = (struct filed *) calloc (1, sizeof (*f));
-      cfline ("*.ERR\t" PATH_CONSOLE, *nextp);
-      (*nextp)->f_next = (struct filed *) calloc (1, sizeof (*f));
-      cfline ("*.PANIC\t*", (*nextp)->f_next);
-      Initialized = 1;
-      return;
-    }
+      dbg_printf ("cannot open %s\n", filename);
 
-  /* Foreach line in the conf table, open that file.  */
-  f = NULL;
+      /* Add emergency logging if everything else was missing.  */
+      if (*nextp == NULL)
+	{
+	  /* Send LOG_ERR to the system console.  */
+	  f = (struct filed *) calloc (1, sizeof (*f));
+	  cfline ("*.ERR\t" PATH_CONSOLE, f);		/* Erases *f!  */
+
+	  /* Below that, send LOG_EMERG to all users.  */
+	  f->f_next = (struct filed *) calloc (1, sizeof (*f));
+	  cfline ("*.PANIC\t*", f->f_next);	/* Erases *(f->f_next)!  */
+
+	  *nextp = f;	/* Return this minimal table to the caller.  */
+	}
+
+      Initialized = 1;
+      return 1;
+    }
 
   /* Allocate a buffer for line parsing.  */
   cbuf = malloc (line_max);
@@ -1776,9 +1865,13 @@ init (int signo _GL_UNUSED_PARAMETER)
       /* There is no graceful recovery here.  */
       dbg_printf ("cannot allocate space for configuration\n");
       fclose (cf);
-      return;
+      return 0;
     }
   cline = cbuf;
+
+  /* Reset selecting program.  */
+  free (selector);
+  selector = NULL;
 
   /* Line parsing :
      - skip comments,
@@ -1817,7 +1910,7 @@ init (int signo _GL_UNUSED_PARAMETER)
 	      dbg_printf ("cannot allocate space configuration\n");
 	      fclose (cf);
 	      free (cbuf);
-	      return;
+	      return 0;
 	    }
 	  else
 	    cbuf = tmp;
@@ -1831,6 +1924,52 @@ init (int signo _GL_UNUSED_PARAMETER)
       /* Glob the leading spaces.  */
       for (p = cline; isspace (*p); ++p)
 	;
+
+      /* Record program selector.
+       *
+       * Acceptable formats are typically:
+       *
+       *   !name
+       *   #! name
+       *   ! *
+       *
+       * The latter is clearing the previous setting.
+       */
+      if (*p == '!' || (*p == '#' && *(p + 1) == '!'))
+	{
+	  if (*++p == '!')
+	    ++p;
+	  while (isspace (*p))
+	    ++p;
+	  if (*p == '\0')
+	    continue;
+
+	  /* Reset previous setting.  */
+	  free (selector);
+	  selector = NULL;
+
+	  if (*p != '*')
+	    {
+	      char *sep;
+
+	      /* BSD systems allow multiple selectors
+	       * separated by commata.  Strip away any
+	       * additional names since at this time
+	       * we only support a single name.
+	       */
+	      sep = strchr (p, ',');
+	      if (sep)
+		*sep = '\0';
+
+	      /* Remove trailing whitespace.  */
+	      sep = strpbrk (p, " \t\n\r");
+	      if (sep)
+		*sep = '\0';
+
+	      selector = strdup (p);
+	    }
+	  continue;
+	}
 
       /* Skip comments and empty line.  */
       if (*p == '\0' || *p == '#')
@@ -1853,16 +1992,129 @@ init (int signo _GL_UNUSED_PARAMETER)
 
       *++p = '\0';
 
-      /* Send the line for more parsing.  */
+      /* Send the line for more parsing.
+       * Then generate the new entry,
+       * inserting it at the head of
+       * the already existing table.
+       */
       f = (struct filed *) calloc (1, sizeof (*f));
+      cfline (cbuf, f);			/* Erases *f!  */
+      f->f_next = *nextp;
       *nextp = f;
-      nextp = &f->f_next;
-      cfline (cbuf, f);
     }
 
   /* Close the configuration file.  */
   fclose (cf);
   free (cbuf);
+
+  return 1;
+}
+
+/*
+ * Return zero on error.
+ */
+static int
+load_confdir (const char *dirname, struct filed **nextp)
+{
+  int rc = 0, found = 0;
+  struct dirent *dent;
+  DIR *dir;
+
+  dir = opendir (dirname);
+  if (dir == NULL)
+    {
+      dbg_printf ("cannot open %s\n", dirname);
+      return 1;		/* Acceptable deviation.  */
+    }
+
+  while ((dent = readdir (dir)) != NULL)
+    {
+      struct stat st;
+      char *file;
+
+      if (asprintf (&file, "%s/%s", dirname, dent->d_name) < 0)
+	{
+	  dbg_printf ("cannot allocate space for configuration filename\n");
+	  return 0;
+	}
+
+      if (stat (file, &st) != 0)
+	{
+	  dbg_printf ("cannot stat file configuration file\n");
+	  continue;
+	}
+
+
+      if (S_ISREG(st.st_mode))
+	{
+	  found++;
+	  rc += load_conffile (file, nextp);
+	}
+
+      free (file);
+    }
+
+  closedir (dir);
+
+  /* An empty directory is acceptable.
+   */
+  return (found ? rc : 1);
+}
+
+/* INIT -- Initialize syslogd from configuration table.  */
+void
+init (int signo _GL_UNUSED_PARAMETER)
+{
+  int rc, ret;
+  struct filed *f, *next, **nextp;
+
+  dbg_printf ("init\n");
+
+  /* Close all open log files.  */
+  Initialized = 0;
+  for (f = Files; f != NULL; f = next)
+    {
+      int j;
+
+      /* Flush any pending output.  */
+      if (f->f_prevcount)
+	fprintlog (f, LocalHostName, 0, (char *) NULL);
+
+      switch (f->f_type)
+	{
+	case F_FILE:
+	case F_TTY:
+	case F_CONSOLE:
+	case F_PIPE:
+	  free (f->f_un.f_fname);
+	  close (f->f_file);
+	  break;
+	case F_FORW:
+	case F_FORW_SUSP:
+	case F_FORW_UNKN:
+	  free (f->f_un.f_forw.f_hname);
+	  break;
+	case F_USERS:
+	  for (j = 0; j < f->f_un.f_user.f_nusers; ++j)
+	    free (f->f_un.f_user.f_unames[j]);
+	  free (f->f_un.f_user.f_unames);
+	  break;
+	}
+      free (f->f_progname);
+      free (f->f_prevhost);
+      next = f->f_next;
+      free (f);
+    }
+
+  Files = NULL;		/* Empty the table.  */
+  nextp = &Files;
+  facilities_seen = 0;
+
+  rc = load_conffile (ConfFile, nextp);
+
+  ret = load_confdir (ConfDir, nextp);
+  if (!ret)
+    rc = 0;		/* Some allocation errors were found.  */
 
   Initialized = 1;
 
@@ -1908,6 +2160,11 @@ init (int signo _GL_UNUSED_PARAMETER)
   else
     logmsg (LOG_SYSLOG | LOG_INFO, "syslogd (" PACKAGE_NAME
 	    " " PACKAGE_VERSION "): restart", LocalHostName, ADDDATE);
+
+  if (!rc)
+    logmsg (LOG_SYSLOG | LOG_ERR, "syslogd: Incomplete configuration.",
+	    LocalHostName, ADDDATE);
+
   dbg_printf ("syslogd: restarted\n");
 }
 
@@ -1922,9 +2179,11 @@ cfline (const char *line, struct filed *f)
   const char *p, *q;
   char buf[MAXLINE], ebuf[200];
 
-  dbg_printf ("cfline(%s)\n", line);
+  dbg_printf ("cfline(%s)%s%s\n", line,
+	      selector ? " tagged " : "",
+	      selector ? selector : "");
 
-  errno = 0;			/* keep strerror() stuff out of logerror messages */
+  errno = 0;	/* keep strerror() stuff out of logerror messages */
 
   /* Clear out file entry.  */
   memset (f, 0, sizeof (*f));
@@ -2066,13 +2325,14 @@ cfline (const char *line, struct filed *f)
       hints.ai_family = usefamily;
       hints.ai_socktype = SOCK_DGRAM;
 #ifdef AI_ADDRCONFIG
-      hints.ai_flags = AI_ADDRCONFIG;
+      if (usefamily == AF_UNSPEC)
+	hints.ai_flags |= AI_ADDRCONFIG;
 #endif
 
       f->f_un.f_forw.f_addrlen = 0;	/* Invalidate address.  */
       memset (&f->f_un.f_forw.f_addr, 0, sizeof (f->f_un.f_forw.f_addr));
 
-      err = getaddrinfo (p, LogPortText, &hints, &rp);
+      err = getaddrinfo (p, LogForwardPort, &hints, &rp);
       if (err)
 	{
 	  switch (err)
@@ -2107,7 +2367,8 @@ cfline (const char *line, struct filed *f)
 
     case '|':
       f->f_un.f_fname = strdup (p);
-      if ((f->f_file = open (++p, O_RDWR | O_NONBLOCK)) < 0)
+      f->f_file = open (++p, O_RDWR | O_NONBLOCK);
+      if (f->f_file < 0)
 	{
 	  f->f_type = F_UNUSED;
 	  logerror (p);
@@ -2125,7 +2386,8 @@ cfline (const char *line, struct filed *f)
 
     case '/':
       f->f_un.f_fname = strdup (p);
-      if ((f->f_file = open (p, O_WRONLY | O_APPEND | O_CREAT, 0644)) < 0)
+      f->f_file = open (p, O_WRONLY | O_APPEND | O_CREAT, 0644);
+      if (f->f_file < 0)
 	{
 	  f->f_type = F_UNUSED;
 	  logerror (p);
@@ -2169,6 +2431,15 @@ cfline (const char *line, struct filed *f)
       f->f_type = F_USERS;
       break;
     }
+
+    /* Set program selector.  */
+    if (selector)
+      {
+	f->f_progname = strdup (selector);
+	f->f_prognlen = strlen (selector);
+      }
+    else
+      f->f_progname = NULL;
 }
 
 /* Decode a symbolic name to a numeric value.  */
@@ -2196,6 +2467,10 @@ dbg_toggle (int signo _GL_UNUSED_PARAMETER)
   dbg_printf ("Switching dbg_output to %s.\n",
 	      dbg_save == 0 ? "true" : "false");
   dbg_output = (dbg_save == 0) ? 1 : 0;
+
+#ifndef HAVE_SIGACTION
+  signal (SIGUSR1, dbg_toggle);
+#endif
 }
 
 /* Ansi2knr will always change ... to va_list va_dcl */
@@ -2204,7 +2479,7 @@ dbg_printf (const char *fmt, ...)
 {
   va_list ap;
 
-  if (!(Debug && dbg_output))
+  if (!(NoDetach && dbg_output))
     return;
 
   va_start (ap, fmt);
@@ -2223,4 +2498,63 @@ void
 trigger_restart (int signo _GL_UNUSED_PARAMETER)
 {
   restart = 1;
+#ifndef HAVE_SIGACTION
+  signal (SIGHUP, trigger_restart);
+#endif
+}
+
+/* Override default port with a non-NULL argument.
+ * Otherwise identify the default syslog/udp with
+ * proper fallback to avoid resolve issues.  */
+void
+find_inet_port (const char *port)
+{
+  int err;
+  struct addrinfo hints, *ai;
+
+  /* Fall back to numerical description.  */
+#ifdef IPPORT_SYSLOG
+  snprintf (portstr, sizeof (portstr), "%u", IPPORT_SYSLOG);
+  LogForwardPort = portstr;
+#else
+  LogForwardPort = "514";
+#endif
+
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE;
+
+  err = getaddrinfo (NULL, "syslog", &hints, &ai);
+  if (err == 0)
+    {
+      LogForwardPort = "syslog";	/* Symbolic name is usable.  */
+      freeaddrinfo (ai);
+    }
+
+  LogPortText = (char *) port;
+
+  if (!LogPortText)
+    {
+      LogPortText = LogForwardPort;
+      return;
+    }
+
+  /* Is the port specified on command line really usable?  */
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_DGRAM;
+  hints.ai_flags = AI_PASSIVE;
+
+  err = getaddrinfo (NULL, LogPortText, &hints, &ai);
+  if (err != 0)
+    {
+      /* Not usable, disable listener.
+       * It is too early to report failure at this time.  */
+      LogPortText = NULL;
+    }
+  else
+    freeaddrinfo (ai);
+
+  return;
 }

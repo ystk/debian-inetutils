@@ -1,6 +1,6 @@
 /* ifconfig.c -- network interface configuration utility
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -65,10 +65,27 @@ main (int argc, char *argv[])
 
   for (ifp = ifs; ifp < ifs + nifs; ifp++)
     {
+      if (list_mode)
+	{
+	  /* Protect against mistakes in use of `-i'.  */
+	  if (!if_nametoindex (ifp->name))
+	    continue;
+
+	  /* Use ERR as a marker of previous output.
+	   * It will never interfere with a call to configure_if().  */
+	  if (err++)
+	    putchar (' ');
+	  printf ("%s", ifp->name);
+	  continue;
+	}
+
       err = configure_if (sfd, ifp);
       if (err)
 	break;
     }
+
+  if (list_mode && err)
+    putchar ('\n');
 
   close (sfd);
   return err;

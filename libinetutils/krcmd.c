@@ -1,6 +1,7 @@
 /*
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -48,7 +49,7 @@
 
 #include <config.h>
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB4 || defined SHISHI
 # include <sys/types.h>
 # ifdef ENCRYPTION
 #  include <sys/socket.h>
@@ -57,12 +58,21 @@
 # include <netinet/in.h>
 
 # ifdef KERBEROS
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
+#  ifdef HAVE_KERBEROSIV_DES_H
+#   include <kerberosIV/des.h>
+#  endif
+#  ifdef HAVE_KERBEROSIV_KRB_H
+#   include <kerberosIV/krb.h>
+#  endif
 # elif defined(SHISHI)
 #  include <shishi.h>
 #  include "shishi_def.h"
-# endif
+#  ifdef HAVE_GETPWUID_R
+#   include <stdlib.h>
+#   include <unistd.h>
+#   include <pwd.h>
+#  endif /* HAVE_GETPWUID_R */
+# endif /* SHISHI */
 
 # include <stdio.h>
 
@@ -71,7 +81,8 @@
 # if defined SHISHI
 int kcmd (Shishi **, int *, char **, unsigned short, char *, char **,
 	  char *, int *, char *, char *, Shishi_key **,
-	  struct sockaddr_in *, struct sockaddr_in *, long);
+	  struct sockaddr_storage *, struct sockaddr_storage *,
+	  long, int);
 # else
 int kcmd (int *, char **, unsigned short, char *, char *, char *, int *,
 	  KTEXT, char *, char *, CREDENTIALS *, Key_schedule,
@@ -85,22 +96,49 @@ int kcmd (int *, char **, unsigned short, char *, char *, char *, int *,
  */
 
 # if defined SHISHI
+#  ifdef HAVE_GETPWUID_R
+static int pwbuflen;
+static char *pwbuf = NULL;	/* Reused after first allocation.  */
+static struct passwd pwstor, *pwd;
+#  endif /* HAVE_GETPWUID_R */
+
 int
 krcmd (Shishi ** h, char **ahost, unsigned short rport, char **remuser, char *cmd,
-       int *fd2p, char *realm)
+       int *fd2p, char *realm, int af)
 {
   int sock = -1, err = 0;
   long authopts = 0L;
 
-  err = kcmd (h, &sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, SERVICE_NAME, realm, NULL,	/* key schedule not used */
+#  ifdef HAVE_GETPWUID_R
+  if (!pwbuf)
+    {
+      pwbuflen = sysconf (_SC_GETPW_R_SIZE_MAX);
+      if (pwbuflen <= 0)
+	pwbuflen = 1024;	/* Guessing only.  */
+
+      pwbuf = malloc (pwbuflen);
+    }
+
+  if (pwbuf)
+    (void) getpwuid_r (getuid (), &pwstor, pwbuf, pwbuflen, &pwd);
+#  endif /* HAVE_GETPWUID_R */
+
+  err = kcmd (h, &sock, ahost, rport,
+#  ifdef HAVE_GETPWUID_R
+	      pwd ? pwd->pw_name : *remuser,	/* locuser */
+#  else /* !HAVE_GETPWUID_R */
+	      NULL,		/* locuser not used */
+#  endif
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm,
+	      NULL,		/* key schedule not used */
 	      NULL,		/* local addr not used */
 	      NULL,		/* foreign addr not used */
-	      authopts);
+	      authopts, af);
 
   if (err > SHISHI_OK)
     {
-      fprintf (stderr, "krcmd: %s\n", "error");
+      fprintf (stderr, "krcmd: error %d, %s\n", err, shishi_strerror (err));
       return (-1);
     }
   if (err < 0)
@@ -141,21 +179,42 @@ krcmd (char **ahost, unsigned short rport, char *remuser, char *cmd, int *fd2p,
 #  if defined SHISHI
 int
 krcmd_mutual (Shishi ** h, char **ahost, unsigned short rport, char **remuser,
-	      char *cmd, int *fd2p, char *realm, Shishi_key ** key)
+	      char *cmd, int *fd2p, char *realm, Shishi_key ** key, int af)
 {
   int sock = -1, err = 0;
-  struct sockaddr_in laddr, faddr;
+  struct sockaddr_storage laddr, faddr;
   long authopts = SHISHI_APOPTIONS_MUTUAL_REQUIRED;
 
-  err = kcmd (h, &sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, SERVICE_NAME, realm, key,	/* filled in */
+#   ifdef HAVE_GETPWUID_R
+  if (!pwbuf)
+    {
+      pwbuflen = sysconf (_SC_GETPW_R_SIZE_MAX);
+      if (pwbuflen <= 0)
+	pwbuflen = 1024;	/* Guessing only.  */
+
+      pwbuf = malloc (pwbuflen);
+    }
+
+  if (pwbuf)
+    (void) getpwuid_r (getuid (), &pwstor, pwbuf, pwbuflen, &pwd);
+#   endif /* HAVE_GETPWUID_R */
+
+  err = kcmd (h, &sock, ahost, rport,
+#   ifdef HAVE_GETPWUID_R
+	      pwd ? pwd->pw_name : *remuser,	/* locuser */
+#   else /* !HAVE_GETPWUID_R */
+	      NULL,		/* locuser not used */
+#   endif
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm, key,	/* filled in */
 	      &laddr,		/* filled in */
 	      &faddr,		/* filled in */
-	      authopts);
+	      authopts, af);
 
   if (err > SHISHI_OK)
     {
-      fprintf (stderr, "krcmd_mutual: %s\n", "error");
+      fprintf (stderr, "krcmd_mutual: error %d, %s\n",
+	       err, shishi_strerror (err));
       return (-1);
     }
 

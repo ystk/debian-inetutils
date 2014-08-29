@@ -129,13 +129,8 @@ Ability to ping multiple host in one go.
 * ifconfig
 
 ** Implement flags support in changeif.c and options.c
-** Fix and move if_index.c to libinetutils.
-** Port to BSD.
 ** Make sure it is a drop in replacement at least for the most
    common options on Linux and BSD.
-
-** Parse options before taking actions: `ifconfig --down -i gif0'
-   segfaults, but `ifconfig -i gif0 --down' does not.
 
 ** Some systems can provide more interfaces than
   SIOCGIFCONF/if_nameindex, interfaces which are usually not UP but
@@ -154,15 +149,9 @@ Ability to ping multiple host in one go.
   For example, if a system specific option shadows a normal option?
   Allow this?
 
-* ftpd
+* ftp, ftpd
 
-Complete the initiated rewrite for supporting IPv6.
-
-* tftpd
-
-OpenSolaris is only able to transmit a single package of
-size at most PKTSIZE. Debug libinetutils/tftpsubs.c on this.
-No issue with other systems.
+Implement libshishi support?
 
 * whois
 
@@ -174,6 +163,14 @@ I need a procedure for looking up an IPv6 address in a list of
 prefixes.  Will anybody contribute it?
 
 Add Exodus rwhois server (e.g. 216.35.0.0/16).
+
+* rlogind, telnetd
+
+The Kerberized authentication is not passed on to login(1)
+on Solaris correctly, since its command line arguments are
+not understood properly from the manual page alone.  Do an
+analysis of the source code of login(1) from OpenSolaris to
+remedy this shortcoming.
 
 Local Variables:
 mode: outline

@@ -1,6 +1,6 @@
 /*
   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-  2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -42,8 +42,12 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
 
 #include <argp.h>
+#include <unused-parameter.h>
 #include <ping.h>
 #include "ping_impl.h"
 #include "libinetutils.h"
@@ -63,12 +67,16 @@ size_t count = DEFAULT_PING_COUNT;
 size_t interval;
 size_t data_length = PING_DATALEN;
 unsigned options;
+unsigned int suboptions;
 unsigned long preload = 0;
+int tos = -1;		/* Triggers with non-negative values.  */
+int ttl = 0;
 int timeout = -1;
 int linger = MAXWAIT;
 int (*ping_type) (char *hostname) = ping_echo;
 
 int (*decode_type (const char *arg)) (char *hostname);
+static int decode_ip_timestamp (char *arg);
 static int send_echo (PING * ping);
 
 #define MIN_USER_INTERVAL (200000/PING_PRECISION)
@@ -87,7 +95,9 @@ enum {
   ARG_ECHO = 256,
   ARG_ADDRESS,
   ARG_TIMESTAMP,
-  ARG_ROUTERDISCOVERY
+  ARG_ROUTERDISCOVERY,
+  ARG_TTL,
+  ARG_IPTIMESTAMP,
 };
 
 static struct argp_option argp_options[] = {
@@ -96,6 +106,7 @@ static struct argp_option argp_options[] = {
   {"address", ARG_ADDRESS, NULL, 0, "send ICMP_ADDRESS packets (root only)",
    GRP+1},
   {"echo", ARG_ECHO, NULL, 0, "send ICMP_ECHO packets (default)", GRP+1},
+  {"mask", ARG_ADDRESS, NULL, 0, "same as --address", GRP+1},
   {"timestamp", ARG_TIMESTAMP, NULL, 0, "send ICMP_TIMESTAMP packets", GRP+1},
   {"type", 't', "TYPE", 0, "send TYPE packets", GRP+1},
   /* This option is not yet fully implemented, so mark it as hidden. */
@@ -111,6 +122,8 @@ static struct argp_option argp_options[] = {
   {"numeric", 'n', NULL, 0, "do not resolve host addresses", GRP+1},
   {"ignore-routing", 'r', NULL, 0, "send directly to a host on an attached "
    "network", GRP+1},
+  {"tos", 'T', "NUM", 0, "set type of service (TOS) to NUM", GRP+1},
+  {"ttl", ARG_TTL, "N", 0, "specify N as time-to-live", GRP+1},
   {"verbose", 'v', NULL, 0, "verbose output", GRP+1},
   {"timeout", 'w', "N", 0, "stop after N seconds", GRP+1},
   {"linger", 'W', "N", 0, "number of seconds to wait for response", GRP+1},
@@ -124,9 +137,11 @@ static struct argp_option argp_options[] = {
    GRP+1},
   {"quiet", 'q', NULL, 0, "quiet output", GRP+1},
   {"route", 'R', NULL, 0, "record route", GRP+1},
+  {"ip-timestamp", ARG_IPTIMESTAMP, "FLAG", 0, "IP timestamp of type FLAG, "
+   "which is one of \"tsonly\" and \"tsaddr\"", GRP+1},
   {"size", 's', "NUMBER", 0, "send NUMBER data octets", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
@@ -177,16 +192,20 @@ parse_opt (int key, char *arg, struct argp_state *state)
       options |= OPT_QUIET;
       break;
 
+    case 'T':
+      tos = ping_cvt_number (arg, 255, 1);
+      break;
+
     case 'w':
       timeout = ping_cvt_number (arg, INT_MAX, 0);
       break;
 
-    case 'W':
-      linger = ping_cvt_number (arg, INT_MAX, 0);
-      break;
-
     case 'R':
       options |= OPT_RROUTE;
+      break;
+
+    case 'W':
+      linger = ping_cvt_number (arg, INT_MAX, 0);
       break;
 
     case 'v':
@@ -223,6 +242,15 @@ parse_opt (int key, char *arg, struct argp_state *state)
       ping_type = decode_type ("router");
       break;
 
+    case ARG_TTL:
+      ttl = ping_cvt_number (arg, 255, 0);
+      break;
+
+    case ARG_IPTIMESTAMP:
+      options |= OPT_IPTIMESTAMP;
+      suboptions |= decode_ip_timestamp (arg);
+      break;
+
     case ARGP_KEY_NO_ARGS:
       argp_error (state, "missing host operand");
 
@@ -233,7 +261,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char **argv)
@@ -243,6 +272,10 @@ main (int argc, char **argv)
   int status = 0;
 
   set_program_name (argv[0]);
+
+# ifdef HAVE_SETLOCALE
+  setlocale(LC_ALL, "");
+# endif
 
   if (getuid () == 0)
     is_root = true;
@@ -273,6 +306,16 @@ main (int argc, char **argv)
   if (options & OPT_INTERVAL)
     ping_set_interval (ping, interval);
 
+  if (ttl > 0)
+    if (setsockopt (ping->ping_fd, IPPROTO_IP, IP_TTL,
+		    &ttl, sizeof (ttl)) < 0)
+      error (0, errno, "setsockopt(IP_TTL)");
+
+  if (tos >= 0)
+    if (setsockopt (ping->ping_fd, IPPROTO_IP, IP_TOS,
+		    &tos, sizeof (tos)) < 0)
+      error (0, errno, "setsockopt(IP_TOS)");
+
   init_data_buffer (patptr, pattern_len);
 
   while (argc--)
@@ -296,6 +339,8 @@ int (*decode_type (const char *arg)) (char *hostname)
     ping_type = ping_timestamp;
   else if (strcasecmp (arg, "address") == 0)
     ping_type = ping_address;
+  else if (strcasecmp (arg, "mask") == 0)
+    ping_type = ping_address;
 #if 0
   else if (strcasecmp (arg, "router") == 0)
     ping_type = ping_router;
@@ -306,10 +351,29 @@ int (*decode_type (const char *arg)) (char *hostname)
  return ping_type;
 }
 
+int
+decode_ip_timestamp (char *arg)
+{
+  int sopt = 0;
+
+  if (strcasecmp (arg, "tsonly") == 0)
+    sopt = SOPT_TSONLY;
+  else if (strcasecmp (arg, "tsaddr") == 0)
+    sopt = SOPT_TSADDR;
+#if 0	/* Not yet implemented.  */
+  else if (strcasecmp (arg, "prespec") == 0)
+    sopt = SOPT_TSPRESPEC;
+#endif
+  else
+    error (EXIT_FAILURE, 0, "unsupported timestamp type: %s", arg);
+
+  return sopt;
+}
+
 int volatile stop = 0;
 
 void
-sig_int (int signal)
+sig_int (int signal _GL_UNUSED_PARAMETER)
 {
   stop = 1;
 }
@@ -323,12 +387,20 @@ ping_run (PING * ping, int (*finish) ())
   struct timeval last, intvl, now;
   struct timeval *t = NULL;
   int finishing = 0;
-  int nresp = 0;
-  int i;
+  size_t nresp = 0;
+  size_t i;
 
   signal (SIGINT, sig_int);
 
   fdmax = ping->ping_fd + 1;
+
+  /* Some systems use `struct timeval' of size 16.  As these are
+   * not initialising `timeval' properly by assignment alone, let
+   * us play safely here.  gettimeofday() is always sufficient.
+   */
+  memset (&resp_time, 0, sizeof (resp_time));
+  memset (&intvl, 0, sizeof (intvl));
+  memset (&now, 0, sizeof (now));
 
   for (i = 0; i < preload; i++)
     send_echo (ping);
@@ -372,7 +444,7 @@ ping_run (PING * ping, int (*finish) ())
       if (n < 0)
 	{
 	  if (errno != EINTR)
-	    perror ("select");
+	    error (EXIT_FAILURE, errno, "select failed");
 	  continue;
 	}
       else if (n == 1)
@@ -424,7 +496,8 @@ ping_run (PING * ping, int (*finish) ())
 int
 send_echo (PING * ping)
 {
-  int off = 0;
+  size_t off = 0;
+  int rc;
 
   if (PING_TIMING (data_length))
     {
@@ -435,9 +508,14 @@ send_echo (PING * ping)
     }
   if (data_buffer)
     ping_set_data (ping, data_buffer, off,
-		   data_length > PING_HEADER_LEN ?
-		   data_length - PING_HEADER_LEN : data_length, USE_IPV6);
-  return ping_xmit (ping);
+		   data_length > off ? data_length - off : data_length,
+		   USE_IPV6);
+
+  rc = ping_xmit (ping);
+  if (rc < 0)
+    error (EXIT_FAILURE, errno, "sending packet");
+
+  return rc;
 }
 
 int
@@ -445,14 +523,14 @@ ping_finish (void)
 {
   fflush (stdout);
   printf ("--- %s ping statistics ---\n", ping->ping_hostname);
-  printf ("%ld packets transmitted, ", ping->ping_num_xmit);
-  printf ("%ld packets received, ", ping->ping_num_recv);
+  printf ("%zu packets transmitted, ", ping->ping_num_xmit);
+  printf ("%zu packets received, ", ping->ping_num_recv);
   if (ping->ping_num_rept)
-    printf ("+%ld duplicates, ", ping->ping_num_rept);
+    printf ("+%zu duplicates, ", ping->ping_num_rept);
   if (ping->ping_num_xmit)
     {
       if (ping->ping_num_recv > ping->ping_num_xmit)
-	printf ("-- somebody's printing up packets!");
+	printf ("-- somebody is printing forged packets!");
       else
 	printf ("%d%% packet loss",
 		(int) (((ping->ping_num_xmit - ping->ping_num_recv) * 100) /

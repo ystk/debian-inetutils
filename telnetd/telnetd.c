@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -26,21 +26,38 @@
 #include <argp.h>
 #include <progname.h>
 #include <error.h>
+#include <unused-parameter.h>
 #include <libinetutils.h>
 
+#if defined AUTHENTICATION || defined ENCRYPTION
+# include <libtelnet/misc.h>
+#endif
+
+#ifdef  AUTHENTICATION
 static void parse_authmode (char *str);
+#endif
+
 static void parse_linemode (char *str);
 static void parse_debug_level (char *str);
 static void telnetd_setup (int fd);
 static int telnetd_run (void);
 static void print_hostinfo (void);
 
-/* Template command line for invoking login program */
+/* Template command line for invoking login program.  */
 
 char *login_invocation =
-#ifdef SOLARIS
-  PATH_LOGIN " -h %h %?T{-t %T} %?u{-u %u}"
-#else
+#ifdef SOLARIS10
+  /* TODO: `-s telnet' or `-s ktelnet'.
+   *       `-u' takes the Kerberos principal name
+   *       of the authenticating, remote user.
+   */
+  PATH_LOGIN " -p -h %h %?T{-t %T} %?u{-u %u}"
+
+#elif defined SOLARIS
+  /* At least for SunOS 5.8.  */
+  PATH_LOGIN " -h %h %?T{%T} %?u{-- %u}"
+
+#else /* !SOLARIS */
   PATH_LOGIN " -p -h %h %?u{-f %u}"
 #endif
   ;
@@ -53,13 +70,14 @@ int lmodetype;			/* Type of linemode (2) */
 int hostinfo = 1;		/* Print the host-specific information before
 				   login */
 
-int auth_level = 0;		/* Authentication level */
-
 int debug_level[debug_max_mode];	/* Debugging levels */
 int debug_tcp = 0;		/* Should the SO_DEBUG be set? */
 
 int net;			/* Network connection socket */
 int pty;			/* PTY master descriptor */
+#if defined AUTHENTICATION || defined ENCRYPTION
+char *principal = NULL;
+#endif
 char *remote_hostname;
 char *local_hostname;
 char *user_name;
@@ -78,7 +96,7 @@ int flowmode;			/* current flow control state */
 int restartany;			/* restart output on any character state */
 int diagnostic;			/* telnet diagnostic capabilities */
 #if defined AUTHENTICATION
-int auth_level;
+int auth_level = 0;		/* Authentication level */
 int autologin;
 #endif
 
@@ -91,36 +109,47 @@ struct telnetd_clocks clocks;
 
 
 static struct argp_option argp_options[] = {
-  { "authmode", 'a', "MODE", 0,
-    "specify what mode to use for authentication" },
+#define GRID 10
   { "debug", 'D', "LEVEL", OPTION_ARG_OPTIONAL,
-    "set debugging level" },
+    "set debugging level", GRID },
   { "exec-login", 'E', "STRING", 0,
-    "set program to be executed instead of " PATH_LOGIN },
+    "set program to be executed instead of " PATH_LOGIN, GRID },
   { "no-hostinfo", 'h', NULL, 0,
-    "do not print host information before login has been completed" },
+    "do not print host information before login has been completed", GRID },
   { "linemode", 'l', "MODE", OPTION_ARG_OPTIONAL,
-    "set line mode" },
+    "set line mode", GRID },
   { "no-keepalive", 'n', NULL, 0,
-    "disable TCP keep-alives" },
+    "disable TCP keep-alives", GRID },
   { "reverse-lookup", 'U', NULL, 0,
     "refuse connections from addresses that "
-    "cannot be mapped back into a symbolic name" },
-#ifdef  AUTHENTICATION
+    "cannot be mapped back into a symbolic name", GRID },
+#undef GRID
+
+#ifdef AUTHENTICATION
+# define GRID 20
+  { NULL, 0, NULL, 0, "Authentication control:", GRID },
+  { "authmode", 'a', "MODE", 0,
+    "specify what mode to use for authentication", GRID },
+  { "server-principal", 'S', "NAME", 0,
+    "set Kerberos principal name for this server instance, "
+    "with or without explicit realm", GRID },
   { "disable-auth-type", 'X', "TYPE", 0,
-    "disable the use of given authentication option" },
-#endif
-  { NULL }
+    "disable the use of given authentication option", GRID },
+# undef GRID
+#endif /* AUTHENTICATION */
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
+#ifdef  AUTHENTICATION
     case 'a':
       parse_authmode (arg);
       break;
+#endif
 
     case 'D':
       parse_debug_level (arg);
@@ -141,6 +170,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'n':
       keepalive = 0;
       break;
+
+#if defined AUTHENTICATION || defined ENCRYPTION
+    case 'S':
+      principal = arg;
+      break;
+#endif
 
     case 'U':
       reverse_lookup = 1;
@@ -164,7 +199,8 @@ static struct argp argp =
     argp_options,
     parse_opt,
     NULL,
-    "DARPA telnet protocol server"
+    "DARPA telnet protocol server",
+    NULL, NULL, NULL
   };
 
 
@@ -176,14 +212,16 @@ main (int argc, char **argv)
 
   set_program_name (argv[0]);
   iu_argp_init ("telnetd", default_program_authors);
+
+  openlog ("telnetd", LOG_PID | LOG_ODELAY, LOG_DAEMON);
+
   argp_parse (&argp, argc, argv, 0, &index, NULL);
 
   if (argc != index)
     error (EXIT_FAILURE, 0, "junk arguments in the command line");
 
-  openlog ("telnetd", LOG_PID | LOG_ODELAY, LOG_DAEMON);
   telnetd_setup (0);
-  return telnetd_run ();
+  return telnetd_run ();	/* Never returning.  */
 }
 
 void
@@ -194,9 +232,10 @@ parse_linemode (char *str)
   else if (strcmp (str, "nokludge") == 0)
     lmodetype = NO_AUTOKLUDGE;
   else
-    fprintf (stderr, "telnetd: invalid argument to --linemode\n");
+    syslog (LOG_NOTICE, "invalid argument to --linemode: %s", str);
 }
 
+#ifdef  AUTHENTICATION
 void
 parse_authmode (char *str)
 {
@@ -211,8 +250,9 @@ parse_authmode (char *str)
   else if (strcasecmp (str, "off") == 0)
     auth_level = -1;
   else
-    fprintf (stderr, "telnetd: unknown authorization level for -a\n");
+    syslog (LOG_NOTICE, "unknown authorization level for -a: %s", str);
 }
+#endif /* AUTHENTICATION */
 
 static struct
 {
@@ -224,7 +264,9 @@ static struct
   {"report", debug_report},
   {"netdata", debug_net_data},
   {"ptydata", debug_pty_data},
-  {"auth", debug_auth},};
+  {"auth", debug_auth},
+  {"encr", debug_encr},
+};
 
 void
 parse_debug_level (char *str)
@@ -270,7 +312,7 @@ parse_debug_level (char *str)
 	  }
 
       if (i == debug_max_mode)
-	fprintf (stderr, "telnetd: unknown debug mode: %s", tok);
+	syslog (LOG_NOTICE, "unknown debug mode: %s", tok);
     }
 }
 
@@ -355,14 +397,30 @@ telnetd_setup (int fd)
 	}
 
       for (aip = result; aip; aip = aip->ai_next)
-	if (!memcmp (aip->ai_addr, &saddr, aip->ai_addrlen))
-	  break;
+	{
+	  if (aip->ai_family != saddr.ss_family)
+	    continue;
+
+	  /* Must compare the address part only.
+	   * The ports are almost surely different!
+	   */
+	  if (aip->ai_family == AF_INET
+	      && !memcmp (&((struct sockaddr_in *) aip->ai_addr)->sin_addr,
+			  &((struct sockaddr_in *) &saddr)->sin_addr,
+			  sizeof (struct in_addr)))
+	    break;
+	  if (aip->ai_family == AF_INET6
+	      && !memcmp (&((struct sockaddr_in6 *) aip->ai_addr)->sin6_addr,
+			  &((struct sockaddr_in6 *) &saddr)->sin6_addr,
+			  sizeof (struct in6_addr)))
+	    break;
+	}
 
       if (aip == NULL)
 	{
 	  syslog (LOG_AUTH | LOG_NOTICE,
-		  "None of addresses of %s matched %s", remote_hostname, buf);
-	  exit (EXIT_SUCCESS);
+		  "No address of %s matched %s", remote_hostname, buf);
+	  fatal (fd, "Cannot resolve address.");
 	}
 
       freeaddrinfo (result);
@@ -407,9 +465,9 @@ telnetd_setup (int fd)
       if (ap == NULL)
 	{
 	  syslog (LOG_AUTH | LOG_NOTICE,
-		  "None of addresses of %s matched %s",
+		  "No address of %s matched %s",
 		  remote_hostname, inet_ntoa (saddr.sin_addr));
-	  exit (EXIT_SUCCESS);
+	  fatal (fd, "Cannot resolve address.");
 	}
     }
   else
@@ -437,14 +495,15 @@ telnetd_setup (int fd)
 
   local_hostname = localhost ();
 #if defined AUTHENTICATION || defined ENCRYPTION
-  auth_encrypt_init (remote_hostname, local_hostname, "TELNETD", 1);
+  auth_encrypt_init (local_hostname, remote_hostname, principal,
+		     "TELNETD", 1);
 #endif
 
   io_setup ();
 
   /* get terminal type. */
   uname[0] = 0;
-  level = getterminaltype (uname);
+  level = getterminaltype (uname, sizeof (uname));
   setenv ("TERM", terminaltype ? terminaltype : "network", 1);
   if (uname[0])
     user_name = xstrdup (uname);
@@ -660,7 +719,9 @@ telnetd_run (void)
       if (FD_ISSET (pty, &obits) && pty_output_level () > 0)
 	ptyflush ();
     }
+
   cleanup (0);
+  /* NOT REACHED */
 
   return 0;
 }
@@ -673,7 +734,7 @@ print_hostinfo (void)
 #ifdef HAVE_UNAME
   struct utsname u;
 
-  if (uname (&u) == 0)
+  if (uname (&u) >= 0)
     {
       im = malloc (strlen (UNAME_IM_PREFIX)
 		   + strlen (u.sysname)
@@ -684,7 +745,7 @@ print_hostinfo (void)
     }
 #endif /* HAVE_UNAME */
   if (!im)
-    im = xstrdup ("\r\n\nUNIX (%l) (%t)\r\n\n");
+    im = xstrdup ("\r\n\r\nUNIX (%l) (%t)\r\n\r\n");
 
   str = expand_line (im);
   free (im);

@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -24,14 +24,19 @@
 # include <stdlib.h>
 # include <stdio.h>
 # include <arpa/telnet.h>
-# include <krb5.h>
+# ifdef HAVE_KRB5_H
+#  include <krb5.h>
+# endif
 # include <assert.h>
 
-# include <com_err.h>
+# ifdef HAVE_COM_ERR_H
+#  include <com_err.h>
+# endif
 # include <netdb.h>
 # include <ctype.h>
 # include <syslog.h>
 # include <string.h>
+# include <unused-parameter.h>
 
 # include "auth.h"
 # include "misc.h"
@@ -72,9 +77,12 @@ static krb5_ticket *ticket = NULL;	/* telnet matches the AP_REQ and
 
 krb5_keyblock *session_key = 0;
 char *telnet_srvtab = NULL;
-char *telnet_krb5_realm = NULL;
+char *dest_realm = NULL;
 
 # define DEBUG(c) if (auth_debug_mode) printf c
+
+/* Callback from consumer.  */
+extern void printsub (char, unsigned char *, int);
 
 static int
 Data (TN_Authenticator * ap, int type, krb5_pointer d, int c)
@@ -83,7 +91,7 @@ Data (TN_Authenticator * ap, int type, krb5_pointer d, int c)
   unsigned char *cd = (unsigned char *) d;
 
   if (c == -1)
-    c = strlen (cd);
+    c = strlen ((char *) cd);
 
   if (auth_debug_mode)
     {
@@ -112,7 +120,7 @@ Data (TN_Authenticator * ap, int type, krb5_pointer d, int c)
 
 /* FIXME: Reverse return code! */
 int
-kerberos5_init (TN_Authenticator * ap, int server)
+kerberos5_init (TN_Authenticator * ap _GL_UNUSED_PARAMETER, int server)
 {
   str_data[3] = server ? TELQUAL_REPLY : TELQUAL_IS;
   if (telnet_context == 0 && krb5_init_context (&telnet_context))
@@ -147,7 +155,7 @@ encryption_init (krb5_creds * creds)
 {
   krb5_keyblock *newkey = 0;
 
-  krb5_auth_con_getlocalsubkey (telnet_context, auth_context, &newkey);
+  krb5_auth_con_getsendsubkey (telnet_context, auth_context, &newkey);
   if (session_key)
     {
       krb5_free_keyblock (telnet_context, session_key);
@@ -217,14 +225,18 @@ kerberos5_send (TN_Authenticator * ap)
       return 0;
     }
 
-  if (telnet_krb5_realm)
+  if (dest_realm)
     {
       krb5_data rdata;
 
-      rdata.length = strlen (telnet_krb5_realm);
+      rdata.length = strlen (dest_realm);
       rdata.data = malloc (rdata.length + 1);
-      assert (rdata.data);
-      strcpy (rdata.data, telnet_krb5_realm);
+      if (rdata.data == NULL)
+	{
+	  DEBUG (("telnet: Kerberos V5: could not allocate memory\r\n"));
+	  return 0;
+	}
+      strcpy (rdata.data, dest_realm);
       krb5_princ_set_realm (telnet_context, creds.server, &rdata);
     }
 
@@ -415,7 +427,8 @@ kerberos5_reply (TN_Authenticator * ap, unsigned char *data, int cnt)
 }
 
 int
-kerberos5_status (TN_Authenticator * ap, char *name, int level)
+kerberos5_status (TN_Authenticator * ap _GL_UNUSED_PARAMETER,
+		  char *name, size_t len, int level)
 {
   if (level < AUTH_USER)
     return level;
@@ -425,13 +438,13 @@ kerberos5_status (TN_Authenticator * ap, char *name, int level)
 		       UserNameRequested))
     {
       /* FIXME: Check buffer length */
-      strcpy (name, UserNameRequested);
+      strncpy (name, UserNameRequested, len);
       return AUTH_VALID;
     }
   return AUTH_USER;
 }
 
-int
+static int
 kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
 		   char *errbuf, int errbuflen)
 {
@@ -536,6 +549,7 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
       char type_check[2];
       krb5_checksum *cksum = authenticator->checksum;
       krb5_keyblock *key;
+      krb5_boolean valid;
 
       type_check[0] = ap->type;
       type_check[1] = ap->way;
@@ -548,9 +562,12 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
 	  return 1;
 	}
 
+#  if 1
+      /* XXX: Obsolete interface.  Remove after investigation.  */
       r = krb5_verify_checksum (telnet_context,
 				cksum->checksum_type, cksum,
 				&type_check, 2, key->contents, key->length);
+      krb5_free_keyblock (telnet_context, key);
 
       if (r)
 	{
@@ -558,7 +575,24 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
 		    "checksum verification failed: %s", error_message (r));
 	  return 1;
 	}
+#else
+      /* Incomplete call!
+       *
+       * XXX: Establish replacement for the preceding call.
+       *      It is no longer present in all implementations.
+       */
+      r = krb5_c_verify_checksum (telnet_context, key,
+				  /* usage */, /* data */,
+				  cksum, &valid);
       krb5_free_keyblock (telnet_context, key);
+
+      if (r || !valid)
+	{
+	  snprintf (errbuf, errbuflen,
+		    "checksum verification failed: %s", error_message (r));
+	  return 1;
+	}
+#endif
     }
 
   krb5_free_authenticator (telnet_context, authenticator);
@@ -583,7 +617,7 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
   auth_finished (ap, AUTH_USER);
 
   free (name);
-  krb5_auth_con_getremotesubkey (telnet_context, auth_context, &newkey);
+  krb5_auth_con_getrecvsubkey (telnet_context, auth_context, &newkey);
 
   if (session_key)
     {
@@ -606,7 +640,7 @@ kerberos5_is_auth (TN_Authenticator * ap, unsigned char *data, int cnt,
 }
 
 # ifdef FORWARD
-int
+static int
 kerberos5_is_forward (TN_Authenticator * ap, unsigned char *data, int cnt,
 		      char *errbuf, int errbuflen)
 {
@@ -712,7 +746,7 @@ req_type_str (int type)
 
 void
 kerberos5_printsub (unsigned char *data, int cnt,
-		    unsigned char *buf, int buflen)
+		    char *buf, int buflen)
 {
   char *p;
   int i;

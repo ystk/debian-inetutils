@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -84,6 +84,7 @@ char ipanyhelp[] = "allow all address families";
 char ipv4help[] = "select only IPv4 addresses";
 char ipv6help[] = "select only IPv6 addresses";
 char lcdhelp[] = "change local working directory";
+char lpwdhelp[] = "print local working directory";
 char lshelp[] = "list contents of remote directory";
 char macdefhelp[] = "define a macro";
 char mdeletehelp[] = "delete multiple files";
@@ -161,6 +162,7 @@ static struct cmd cmdtab[] = {
   {"ipv4", ipv4help, 0, 0, 0, setipv4},
   {"ipv6", ipv6help, 0, 0, 0, setipv6},
   {"lcd", lcdhelp, 0, 0, 0, lcd},
+  {"lpwd", lpwdhelp, 0, 0, 0, lpwd},
   {"ls", lshelp, 1, 1, 1, ls},
   {"macdef", macdefhelp, 0, 0, 0, macdef},
   {"mdelete", mdeletehelp, 1, 1, 1, mdelete},
@@ -207,7 +209,7 @@ static struct cmd cmdtab[] = {
   {"umask", umaskhelp, 0, 1, 1, do_umask},
   {"verbose", verbosehelp, 0, 0, 0, setverbose},
   {"?", helphelp, 0, 0, 1, help},
-  {0},
+  {NULL, NULL, 0, 0, 0, NULL},
 };
 
 #define NCMDS (sizeof (cmdtab) / sizeof (cmdtab[0]) - 1)
@@ -284,7 +286,7 @@ help (int argc, char *argv[])
 		}
 	      else if (c->c_name)
 		{
-		  for (k = 0; k < strlen (c->c_name); k++)
+		  for (k = 0; k < (int) strlen (c->c_name); k++)
 		    putchar (' ');
 		}
 	      if (c + lines >= &cmdtab[NCMDS])

@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -39,7 +39,12 @@
 
 #define USER_ACL_NAME ".talkrc"
 
+#define ACL_ALLOW  0
+#define ACL_DENY   1
+
 extern int debug;
+extern int logging;
+extern int strict_policy;
 extern unsigned int timeout;
 extern time_t max_idle_time;
 extern time_t max_request_ttl;
@@ -58,6 +63,6 @@ extern int print_response (const char *cp, CTL_RESPONSE * rp);
 extern int insert_table (CTL_MSG * request, CTL_RESPONSE * response);
 extern int delete_invite (unsigned long id_num);
 extern int new_id (void);
-extern void read_acl (char *config_file);
+extern void read_acl (char *config_file, int system);
 extern int acl_match (CTL_MSG * msg, struct sockaddr_in *sa_in);
 extern int announce (CTL_MSG * request, char *remote_machine);

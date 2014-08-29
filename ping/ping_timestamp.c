@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <unused-parameter.h>
 
 #include <ping.h>
 #include <ping_impl.h>
@@ -57,7 +58,7 @@ ping_timestamp (char *hostname)
 {
   ping_set_type (ping, ICMP_TIMESTAMP);
   ping_set_event_handler (ping, recv_timestamp, NULL);
-  ping_set_packetsize (ping, 20);
+  ping_set_packetsize (ping, ICMP_TSLEN);
 
   if (ping_set_dest (ping, hostname))
     error (EXIT_FAILURE, 0, "unknown host");
@@ -89,19 +90,36 @@ recv_timestamp (int code, void *closure,
 
 
 void
-print_timestamp (int dupflag, void *closure,
-		 struct sockaddr_in *dest, struct sockaddr_in *from,
-		 struct ip *ip, icmphdr_t * icmp, int datalen)
+print_timestamp (int dupflag, void *closure _GL_UNUSED_PARAMETER,
+		 struct sockaddr_in *dest _GL_UNUSED_PARAMETER,
+		 struct sockaddr_in *from,
+		 struct ip *ip _GL_UNUSED_PARAMETER,
+		 icmphdr_t * icmp, int datalen)
 {
+  char timestr[16];
+
   printf ("%d bytes from %s: icmp_seq=%u", datalen,
 	  inet_ntoa (*(struct in_addr *) &from->sin_addr.s_addr),
-	  icmp->icmp_seq);
+	  ntohs (icmp->icmp_seq));
   if (dupflag)
     printf (" (DUP!)");
   printf ("\n");
-  printf ("icmp_otime = %u\n", ntohl (icmp->icmp_otime));
-  printf ("icmp_rtime = %u\n", ntohl (icmp->icmp_rtime));
-  printf ("icmp_ttime = %u\n", ntohl (icmp->icmp_ttime));
+  printf ("icmp_otime = %s\n",
+	  ping_cvt_time (timestr, sizeof (timestr),
+			 ntohl (icmp->icmp_otime)));
+  printf ("icmp_rtime = %s\n",
+	  ping_cvt_time (timestr, sizeof (timestr),
+			 ntohl (icmp->icmp_rtime)));
+  printf ("icmp_ttime = %s\n",
+	  ping_cvt_time (timestr, sizeof (timestr),
+			 ntohl (icmp->icmp_ttime)));
+
+  if ((options & OPT_VERBOSE)
+      && is_normed_time (ntohl (icmp->icmp_otime))
+      && is_normed_time (ntohl (icmp->icmp_otime)))
+    printf ("difference = %d ms\n",
+	    ntohl (icmp->icmp_ttime) - ntohl (icmp->icmp_otime));
+
   return;
 }
 

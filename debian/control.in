@@ -2,11 +2,12 @@ Source: inetutils
 Section: net
 Priority: extra
 Maintainer: Guillem Jover <guillem@debian.org>
-Standards-Version: 3.9.2
+Standards-Version: 3.9.5
 Vcs-Browser: http://git.hadrons.org/?p=debian/pkgs/inetutils.git
 Vcs-Git: git://git.hadrons.org/git/debian/pkgs/inetutils.git
 Homepage: http://www.gnu.org/software/inetutils/
-Build-Depends: debhelper (>= 7), autoconf, automake, bison, texinfo,
+Build-Depends: debhelper (>= 9),
+ autotools-dev, autoconf, automake, bison, texinfo,
  libreadline-dev | libreadline6-dev | libreadline5-dev, libncurses-dev,
  libpam0g-dev, libwrap0-dev, libshishi-dev
 Build-Conflicts: autoconf2.13, automake1.4
@@ -135,4 +136,3 @@ Description: base networking utilities (experimental package)
  .
  WARNING: The current ifconfig implementation provided is not fully
  compatible with the net-tool's ifconfig version.
-

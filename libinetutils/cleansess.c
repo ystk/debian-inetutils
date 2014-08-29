@@ -1,7 +1,7 @@
 /* cleansess.c - Clean up the pty and frob utmp/wtmp accordingly after logout
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -27,8 +27,11 @@
 #include <sys/time.h>
 #include <time.h>
 #ifdef HAVE_UTMP_H
-# if HAVE_UTIL_H
+# ifdef HAVE_UTIL_H
 #  include <util.h>
+# endif
+# ifdef HAVE_LIBUTIL_H
+#  include <libutil.h>
 # endif
 # include <utmp.h>
 #else
@@ -41,6 +44,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#if defined HAVE_LOGOUT && HAVE_LOGWTMP
+
 /* Update umtp & wtmp as necessary, and change tty & pty permissions back to
    what they should be.  */
 void
@@ -48,11 +53,11 @@ cleanup_session (char *tty, int pty_fd)
 {
   char *line;
 
-#ifdef PATH_TTY_PFX
+# ifdef PATH_TTY_PFX
   if (strncmp (tty, PATH_TTY_PFX, sizeof PATH_TTY_PFX - 1) == 0)
     line = tty + sizeof PATH_TTY_PFX - 1;
   else
-#endif
+# endif /* PATH_TTY_PFX */
     line = tty;
 
   if (logout (line))
@@ -63,3 +68,4 @@ cleanup_session (char *tty, int pty_fd)
   fchmod (pty_fd, 0666);
   fchown (pty_fd, 0, 0);
 }
+#endif /* HAVE_LOGOUT && HAVE_LOGWTMP */

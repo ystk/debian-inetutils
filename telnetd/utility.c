@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -274,6 +274,7 @@ net_read (void)
     {
       syslog (LOG_INFO, "telnetd:  peer died");
       cleanup (0);
+      /* NOT REACHED */
     }
   else if (ncc > 0)
     {
@@ -302,7 +303,7 @@ pty_output_byte (int c)
 void
 pty_output_datalen (const void *data, size_t len)
 {
-  if ((&ptyobuf[BUFSIZ] - pfrontp) > len)
+  if ((size_t) (&ptyobuf[BUFSIZ] - pfrontp) > len)
     ptyflush ();
   memcpy (pfrontp, data, len);
   pfrontp += len;
@@ -338,6 +339,7 @@ ptyflush (void)
       if (errno == EWOULDBLOCK || errno == EINTR)
 	return;
       cleanup (0);
+      /* NOT REACHED */
     }
 
   pbackp += n;
@@ -362,7 +364,7 @@ pty_get_char (int peek)
 int
 pty_input_putback (const char *str, size_t len)
 {
-  if (len > &ptyibuf[BUFSIZ] - ptyip)
+  if (len > (size_t) (&ptyibuf[BUFSIZ] - ptyip))
     len = &ptyibuf[BUFSIZ] - ptyip;
   strncpy (ptyip, str, len);
   pcc += len;
@@ -402,19 +404,23 @@ pty_read (void)
 void
 io_drain (void)
 {
+  fd_set rfds;
+
   DEBUG (debug_report, 1, debug_output_data ("td: ttloop\r\n"));
   if (nfrontp - nbackp > 0)
     netflush ();
 
-again:
+  FD_ZERO(&rfds);
+  FD_SET(net, &rfds);
+  if (1 != select(net + 1, &rfds, NULL, NULL, NULL))
+    {
+      syslog (LOG_INFO, "ttloop:  select: %m\n");
+      exit (EXIT_FAILURE);
+    }
+
   ncc = read (net, netibuf, sizeof netibuf);
   if (ncc < 0)
     {
-      if (errno == EAGAIN)
-	{
-	  syslog (LOG_INFO, "ttloop: retrying");
-	  goto again;
-	}
       syslog (LOG_INFO, "ttloop:  read: %m\n");
       exit (EXIT_FAILURE);
     }
@@ -441,7 +447,7 @@ again:
 int
 stilloob (int s)
 {
-  static struct timeval timeout = { 0 };
+  static struct timeval timeout = { 0, 0 };
   fd_set excepts;
   int value;
 
@@ -611,6 +617,7 @@ netflush (void)
       if (errno == EWOULDBLOCK || errno == EINTR)
 	return;
       cleanup (0);
+      /* NOT REACHED */
     }
 
   nbackp += n;
@@ -684,11 +691,11 @@ _gettermname (void)
   ttloop (sequenceIs (ttypesubopt, baseline));
 }
 
-/* FIXME: should be getterminaltype (char *user_name, size_t size)
-   Changes terminaltype.
+/*
+ * Changes terminaltype.
  */
 int
-getterminaltype (char *user_name)
+getterminaltype (char *user_name, size_t len)
 {
   int retval = -1;
 
@@ -696,12 +703,28 @@ getterminaltype (char *user_name)
 #if defined AUTHENTICATION
   /*
    * Handle the Authentication option before we do anything else.
+   * Distinguish the available modes by level:
+   *
+   *   off:			Authentication is forbidden.
+   *   none:			Volontary authentication.
+   *   user, valid, other:	Mandatory authentication only.
    */
-  send_do (TELOPT_AUTHENTICATION, 1);
-  ttloop (his_will_wont_is_changing (TELOPT_AUTHENTICATION));
+  if (auth_level < 0)
+    send_wont (TELOPT_AUTHENTICATION, 1);
+  else
+    {
+      if (auth_level > 0)
+	send_do (TELOPT_AUTHENTICATION, 1);
+      else
+	send_will (TELOPT_AUTHENTICATION, 1);
 
-  if (his_state_is_will (TELOPT_AUTHENTICATION))
-    retval = auth_wait (user_name);
+      ttloop (his_will_wont_is_changing (TELOPT_AUTHENTICATION));
+
+      if (his_state_is_will (TELOPT_AUTHENTICATION))
+	retval = auth_wait (user_name, len);
+    }
+#else /* !AUTHENTICATION */
+  (void) user_name;	/* Silence warning.  */
 #endif
 
 #ifdef	ENCRYPTION
@@ -824,18 +847,24 @@ getterminaltype (char *user_name)
   return retval;
 }
 
+/*
+ * Exit status:
+ *
+ *  1   Accepted terminal type, or inconclusive,
+ *  0   Explicitly unsupported type.
+ */
 int
 terminaltypeok (char *s)
 {
-  char buf[1024];
+#ifdef HAVE_TGETENT
+  char buf[2048];
 
   if (terminaltype == NULL)
     return 1;
 
-#ifdef HAVE_TGETENT
   if (tgetent (buf, s) == 0)
-#endif
     return 0;
+#endif /* HAVE_TGETENT */
 
   return 1;
 }
@@ -908,11 +937,19 @@ printoption (register char *fmt, register int option)
 void
 printsub (int direction, unsigned char *pointer, int length)
 {
-  register int i;
+  register int i = 0;
 
-#if defined AUTHENTICATION && defined ENCRYPTION
+#if defined AUTHENTICATION || defined ENCRYPTION
   char buf[512];
 #endif
+
+  /* Silence unwanted debugging to '/tmp/telnet.debug'.
+   *
+   * XXX: Better location?
+   */
+  if ((pointer[0] == TELOPT_AUTHENTICATION && debug_level[debug_auth] < 1)
+      || (pointer[0] == TELOPT_ENCRYPT && debug_level[debug_encr] < 1))
+    return;
 
   if (direction)
     {
@@ -1384,7 +1421,7 @@ printsub (int direction, unsigned char *pointer, int length)
 	case TELQUAL_IS:
 	  debug_output_data (" %s ", (pointer[1] == TELQUAL_IS) ?
 			     "IS" : "REPLY");
-	  if (AUTHTYPE_NAME_OK (pointer[2]))
+	  if (AUTHTYPE_NAME_OK (pointer[2]) && AUTHTYPE_NAME (pointer[2]))
 	    debug_output_data ("%s ", AUTHTYPE_NAME (pointer[2]));
 	  else
 	    debug_output_data ("%d ", pointer[2]);
@@ -1408,7 +1445,8 @@ printsub (int direction, unsigned char *pointer, int length)
 	  debug_output_data (" SEND ");
 	  while (i < length)
 	    {
-	      if (AUTHTYPE_NAME_OK (pointer[i]))
+	      if (AUTHTYPE_NAME_OK (pointer[i])
+		  && AUTHTYPE_NAME (pointer[i]))
 		debug_output_data ("%s ", AUTHTYPE_NAME (pointer[i]));
 	      else
 		debug_output_data ("%d ", pointer[i]);
@@ -1429,7 +1467,7 @@ printsub (int direction, unsigned char *pointer, int length)
 	case TELQUAL_NAME:
 	  i = 2;
 	  debug_output_data (" NAME \"");
-	  debug_output_datalen (&pointer[i], length);
+	  debug_output_datalen ((char *) &pointer[i], length);
 	  i += length;
 	  debug_output_data ("\"");
 	  break;
@@ -1477,7 +1515,7 @@ printsub (int direction, unsigned char *pointer, int length)
 	      debug_output_data (" (partial suboption??\?)");
 	      break;
 	    }
-	  if (ENCTYPE_NAME_OK (pointer[2]))
+	  if (ENCTYPE_NAME_OK (pointer[2]) && ENCTYPE_NAME (pointer[2]))
 	    debug_output_data ("%s ", ENCTYPE_NAME (pointer[2]));
 	  else
 	    debug_output_data (" %d (unknown)", pointer[2]);
@@ -1491,7 +1529,7 @@ printsub (int direction, unsigned char *pointer, int length)
 	  debug_output_data (" SUPPORT ");
 	  while (i < length)
 	    {
-	      if (ENCTYPE_NAME_OK (pointer[i]))
+	      if (ENCTYPE_NAME_OK (pointer[i]) && ENCTYPE_NAME (pointer[i]))
 		debug_output_data ("%s ", ENCTYPE_NAME (pointer[i]));
 	      else
 		debug_output_data ("%d ", pointer[i]);
@@ -1545,7 +1583,7 @@ printdata (register char *tag, register char *ptr, register int cnt)
       for (i = 0; i < 20 && cnt; i++)
 	{
 	  debug_output_data ("%02x", *ptr);
-	  xbuf[i] = isprint (*ptr) ? *ptr : '.';
+	  xbuf[i] = isprint ((int) *ptr) ? *ptr : '.';
 
 	  if (i % 2)
 	    debug_output_data (" ");
@@ -1668,6 +1706,8 @@ _var_short_name (struct line_expander *exp)
 char *
 _var_long_name (struct line_expander *exp, char *start, int length)
 {
+  (void) start;		/* Silence warnings until implemented.  */
+  (void) length;
   exp->state = EXP_STATE_ERROR;
   return NULL;
 }

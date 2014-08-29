@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -51,6 +51,8 @@
 #include <setjmp.h>
 #include <getopt.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 extern void cwd (const char *);
 extern int checkuser (const char *filename, const char *name);
@@ -64,10 +66,11 @@ extern FILE *ftpd_popen (char *, const char *);
 extern char *getusershell (void);
 #endif
 extern void lreply (int, const char *, ...);
+extern void lreply_multiline (int n, const char *text);
 extern void makedir (const char *);
 extern void nack (const char *);
 extern void pass (const char *);
-extern void passive (void);
+extern void passive (int, int);
 extern void perror_reply (int, const char *);
 extern void pwd (void);
 extern void removedir (const char *);
@@ -88,15 +91,18 @@ extern char *sgetsave (const char *);
 
 /* Exported from ftpd.c.  */
 jmp_buf errcatch;
-extern struct sockaddr_in data_dest;
-extern struct sockaddr_in his_addr;
-extern int logged_in;
+extern struct sockaddr_storage data_dest;
+extern socklen_t data_dest_len;
+extern struct sockaddr_storage his_addr;
+extern socklen_t his_addrlen;
 extern struct passwd *pw;
 extern int guest;
 extern int logging;
+extern int no_version;
 extern int type;
 extern int form;
 extern int debug;
+extern int rfc2577;
 extern int timeout;
 extern int maxtimeout;
 extern int pdata;
@@ -109,9 +115,15 @@ extern char tmpline[];
 /* Exported from ftpcmd.y.  */
 extern off_t restart_point;
 
+/* Distinguish passive address modes.  */
+#define PASSIVE_PASV 0
+#define PASSIVE_EPSV 1
+#define PASSIVE_LPSV 2
+
 /* Exported from server_mode.c.  */
-extern int server_mode (const char *pidfile, struct sockaddr_in *phis_addr,
-			char *argv[]);
+extern int usefamily;
+extern int server_mode (const char *pidfile, struct sockaddr *phis_addr,
+			socklen_t *phis_addrlen, char *argv[]);
 
 /* Credential for the request.  */
 struct credentials
@@ -129,6 +141,11 @@ struct credentials
   int guest;
   int dochroot;
   int logged_in;
+  int delayed_reject;
+#define AUTH_EXPIRED_NOT    0
+#define AUTH_EXPIRED_ACCT   1
+#define AUTH_EXPIRED_PASS   2
+  int expired;
 #define AUTH_TYPE_PASSWD    0
 #define AUTH_TYPE_PAM       1
 #define AUTH_TYPE_KERBEROS  2
@@ -137,7 +154,10 @@ struct credentials
   int auth_type;
 };
 
+/* Exported from ftpd.c */
 extern struct credentials cred;
+
+/* Exported from auth.c */
 extern int sgetcred (const char *, struct credentials *);
 extern int auth_user (const char *, struct credentials *);
 extern int auth_pass (const char *, struct credentials *);
@@ -146,4 +166,5 @@ extern int auth_pass (const char *, struct credentials *);
 #ifdef WITH_PAM
 extern int pam_user (const char *, struct credentials *);
 extern int pam_pass (const char *, struct credentials *);
-#endif
+extern void pam_end_login (struct credentials *);
+#endif /* WITH_PAM */

@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -35,6 +35,8 @@ void talkd_run (int fd);
 
 /* Configurable parameters: */
 int debug;
+int logging;
+int strict_policy;
 unsigned int timeout = 30;
 time_t max_idle_time = 120;
 time_t max_request_ttl = MAX_LIFE;
@@ -43,7 +45,7 @@ char *acl_file;
 char *hostname;
 
 const char args_doc[] = "";
-const char doc[] = "Talk daemon.";
+const char doc[] = "Talk daemon, using service `ntalk'.";
 const char *program_authors[] = {
 	"Sergey Poznyakoff",
 	NULL
@@ -54,15 +56,18 @@ static struct argp_option argp_options[] = {
   {"debug", 'd', NULL, 0, "enable debugging", GRP+1},
   {"idle-timeout", 'i', "SECONDS", 0, "set idle timeout value to SECONDS",
    GRP+1},
+  {"logging", 'l', NULL, 0, "enable more syslog reporting", GRP+1},
   {"request-ttl", 'r', "SECONDS", 0, "set request time-to-live value to "
    "SECONDS", GRP+1},
+  {"strict-policy", 'S', NULL, 0, "apply strict ACL policy", GRP+1},
   {"timeout", 't', "SECONDS", 0, "set timeout value to SECONDS", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg,
+	   struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
@@ -74,16 +79,24 @@ parse_opt (int key, char *arg, struct argp_state *state)
       debug++;
       break;
 
-    case 't':
-      timeout = strtoul (arg, NULL, 0);
-      break;
-
     case 'i':
       max_idle_time = strtoul (arg, NULL, 0);
       break;
 
+    case 'l':
+      logging++;
+      break;
+
     case 'r':
       max_request_ttl = strtoul (arg, NULL, 0);
+      break;
+
+    case 'S':
+      strict_policy++;
+      break;
+
+    case 't':
+      timeout = strtoul (arg, NULL, 0);
       break;
 
     default:
@@ -93,7 +106,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char *argv[])
@@ -103,20 +117,20 @@ main (int argc, char *argv[])
   iu_argp_init ("talkd", program_authors);
   argp_parse (&argp, argc, argv, 0, NULL, NULL);
 
-  read_acl (acl_file);
+  openlog ("talkd", LOG_PID, LOG_FACILITY);
+  read_acl (acl_file, 1);	/* System wide ACL.  Can abort.  */
   talkd_init ();
-  talkd_run (0);
+  talkd_run (STDIN_FILENO);
   return 0;
 }
 
 void
 talkd_init (void)
 {
-  openlog ("talkd", LOG_PID, LOG_FACILITY);
   hostname = localhost ();
   if (!hostname)
     {
-      syslog (LOG_ERR, "can't determine my hostname: %m");
+      syslog (LOG_ERR, "Cannot determine my hostname: %m");
       exit (EXIT_FAILURE);
     }
 }
@@ -126,14 +140,19 @@ time_t last_msg_time;
 static void
 alarm_handler (int err _GL_UNUSED_PARAMETER)
 {
+  int oerrno = errno;
+
   if ((time (NULL) - last_msg_time) >= max_idle_time)
     exit (EXIT_SUCCESS);
   alarm (timeout);
+  errno = oerrno;
 }
 
 void
 talkd_run (int fd)
 {
+  struct sockaddr ctl_addr;
+
   signal (SIGALRM, alarm_handler);
   alarm (timeout);
   while (1)
@@ -149,18 +168,23 @@ talkd_run (int fd)
 	recvfrom (fd, &msg, sizeof msg, 0, (struct sockaddr *) &sa_in, &len);
       if (rc != sizeof msg)
 	{
-	  if (rc < 0 && errno != EINTR)
-	    syslog (LOG_WARNING, "recvfrom: %m");
+	  if (rc < 0 && errno != EINTR && (logging || debug))
+	    syslog (LOG_NOTICE, "recvfrom: %m");
 	  continue;
 	}
       last_msg_time = time (NULL);
       if (process_request (&msg, &sa_in, &resp) == 0)
 	{
+	  ctl_addr.sa_family = msg.ctl_addr.sa_family;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+	  ctl_addr.sa_len = sizeof (struct sockaddr_in);
+#endif
+	  memcpy (&ctl_addr.sa_data, &msg.ctl_addr.sa_data,
+		  sizeof (ctl_addr.sa_data));
 	  rc = sendto (fd, &resp, sizeof resp, 0,
-		       (struct sockaddr *) &msg.ctl_addr,
-		       sizeof (msg.ctl_addr));
-	  if (rc != sizeof resp)
-	    syslog (LOG_WARNING, "sendto: %m");
+		       &ctl_addr, sizeof (ctl_addr));
+	  if (rc != sizeof resp && (logging || debug))
+	    syslog (LOG_NOTICE, "sendto: %m");
 	}
     }
 }

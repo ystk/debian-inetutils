@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -31,45 +31,64 @@ process_request (CTL_MSG * msg, struct sockaddr_in *sa_in, CTL_RESPONSE * rp)
 {
   CTL_MSG *ptr;
 
-  if (debug)
-    {
-      print_request ("process_request", msg);
-    }
-
-  if (acl_match (msg, sa_in))
-    {
-      syslog (LOG_NOTICE, "dropping request: %s@%s",
-	      msg->l_name, inet_ntoa (sa_in->sin_addr));
-      return 1;
-    }
-
   rp->vers = TALK_VERSION;
   rp->type = msg->type;
   rp->id_num = htonl (0);
   if (msg->vers != TALK_VERSION)
     {
-      syslog (LOG_ERR, "Bad protocol version %d", msg->vers);
+      if (logging || debug)
+	syslog (LOG_NOTICE, "Bad protocol version %d", msg->vers);
       rp->answer = BADVERSION;
       return 0;
     }
 
+  /* Convert the machine independent represention
+   * of the talk protocol to the present architecture.
+   * In particular, `msg->addr.sa_family' will be
+   * valid for socket initialization.
+   */
   msg->id_num = ntohl (msg->id_num);
   msg->addr.sa_family = ntohs (msg->addr.sa_family);
   if (msg->addr.sa_family != AF_INET)
     {
-      syslog (LOG_ERR, "Bad address, family %d", msg->addr.sa_family);
+      if (logging || debug)
+	syslog (LOG_NOTICE, "Bad address, family %d", msg->addr.sa_family);
       rp->answer = BADADDR;
       return 0;
     }
+  /* Convert to valid socket address for this architecture.  */
   msg->ctl_addr.sa_family = ntohs (msg->ctl_addr.sa_family);
   if (msg->ctl_addr.sa_family != AF_INET)
     {
-      syslog (LOG_WARNING, "Bad control address, family %d",
-	      msg->ctl_addr.sa_family);
+      if (logging || debug)
+	syslog (LOG_NOTICE, "Bad control address, family %d",
+		msg->ctl_addr.sa_family);
       rp->answer = BADCTLADDR;
       return 0;
     }
   /* FIXME: compare address and sa_in? */
+
+  if (acl_match (msg, sa_in) == ACL_DENY)
+    {
+      /* This denial happens for each of LOOK_UP,
+       * ANNOUNCE, and DELETE, in this order.
+       * Make a syslog note only for the first of them.
+       */
+      if ((logging || debug) && msg->type == LOOK_UP)
+	syslog (LOG_NOTICE, "dropping request: %s@%s",
+		msg->l_name, inet_ntoa (sa_in->sin_addr));
+
+      /* The answer FAILED is returned to minimize the amount
+       * of information disclosure, since ACL has denied access.
+       */
+      rp->answer = FAILED;
+      return 0;
+    }
+
+  if (debug)
+    {
+      print_request ("process_request", msg);
+    }
 
   msg->pid = ntohl (msg->pid);
 
@@ -77,6 +96,14 @@ process_request (CTL_MSG * msg, struct sockaddr_in *sa_in, CTL_RESPONSE * rp)
     {
     case ANNOUNCE:
       do_announce (msg, rp);
+      if (logging && rp->answer == SUCCESS)
+	syslog (LOG_INFO, "%s@%s called by %s@%s",
+		msg->r_name,
+		(msg->r_tty[0]
+		  ? msg->r_tty
+		  : inet_ntoa (sa_in->sin_addr)),
+		msg->l_name,
+		inet_ntoa (os2sin_addr (msg->addr)));
       break;
 
     case LEAVE_INVITE:
@@ -98,6 +125,9 @@ process_request (CTL_MSG * msg, struct sockaddr_in *sa_in, CTL_RESPONSE * rp)
 	  rp->addr = ptr->addr;
 	  rp->addr.sa_family = htons (ptr->addr.sa_family);
 	  rp->answer = SUCCESS;
+	  if (logging)
+	    syslog (LOG_INFO, "%s talks to %s@%s",
+		msg->r_name, msg->l_name, inet_ntoa (sa_in->sin_addr));
 	}
       else
 	rp->answer = NOT_HERE;
@@ -162,35 +192,46 @@ do_announce (CTL_MSG * mp, CTL_RESPONSE * rp)
     }
 }
 
-/* Search utmp for the local user */
+/* Search utmp for the local user.  */
 int
 find_user (char *name, char *tty)
 {
-  STRUCT_UTMP *utmpbuf, *uptr;
+  STRUCT_UTMP *uptr;
+#ifndef HAVE_GETUTXUSER
+  STRUCT_UTMP *utmpbuf;
   size_t utmp_count;
+#endif /* HAVE_GETUTXUSER */
   int status;
   struct stat statb;
-  char ftty[sizeof (PATH_DEV) + sizeof (uptr->ut_line)];
+  char ftty[sizeof (PATH_TTY_PFX) + sizeof (uptr->ut_line)];
   time_t last_time = 0;
   int notty;
 
   notty = (*tty == '\0');
 
   status = NOT_HERE;
-  strcpy (ftty, PATH_DEV);
+  strcpy (ftty, PATH_TTY_PFX);
 
-  read_utmp (PATH_UTMP, &utmp_count, &utmpbuf,
-	     READ_UTMP_USER_PROCESS | READ_UTMP_CHECK_PIDS);
+#ifdef HAVE_GETUTXUSER
+  setutxent ();
+
+  while ((uptr = getutxuser (name)))
+#else /* !HAVE_GETUTXUSER */
+  if (read_utmp (UTMP_FILE, &utmp_count, &utmpbuf,
+		 READ_UTMP_USER_PROCESS | READ_UTMP_CHECK_PIDS) < 0)
+    return FAILED;
 
   for (uptr = utmpbuf; uptr < utmpbuf + utmp_count; uptr++)
     {
       if (!strncmp (UT_USER (uptr), name, sizeof (UT_USER (uptr))))
+#endif /* !HAVE_GETUTXUSER */
 	{
 	  if (notty)
 	    {
 	      /* no particular tty was requested */
-	      strncpy (ftty + sizeof (PATH_DEV) - 1,
-		       uptr->ut_line, sizeof (ftty) - sizeof (PATH_DEV) - 1);
+	      strncpy (ftty + sizeof (PATH_TTY_PFX) - 1,
+		       uptr->ut_line,
+		       sizeof (ftty) - sizeof (PATH_TTY_PFX) - 1);
 	      ftty[sizeof (ftty) - 1] = 0;
 
 	      if (stat (ftty, &statb) == 0)
@@ -216,8 +257,12 @@ find_user (char *name, char *tty)
 	      break;
 	    }
 	}
+#ifndef HAVE_GETUTXUSER
     }
-
   free (utmpbuf);
+#else /* HAVE_GETUTXUSER */
+  endutxent ();
+#endif
+
   return status;
 }

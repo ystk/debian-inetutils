@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -39,7 +39,7 @@ icmp_timestamp_encode (unsigned char * buffer, size_t bufsize, int ident, int se
   struct timeval tv;
   unsigned long v;
 
-  if (bufsize < 20)
+  if (bufsize < ICMP_TSLEN)
     return -1;
 
   gettimeofday (&tv, NULL);

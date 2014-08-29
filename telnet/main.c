@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -52,6 +52,9 @@
 #include <sys/types.h>
 
 #include <stdlib.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
 
 #include "ring.h"
 #include "defines.h"
@@ -60,7 +63,17 @@
 #include <progname.h>
 #include <error.h>
 #include <argp.h>
+#include <unused-parameter.h>
 #include <libinetutils.h>
+
+#include <arpa/telnet.h>
+
+#ifdef	AUTHENTICATION
+# include <libtelnet/auth.h>
+#endif
+#ifdef	ENCRYPTION
+# include <libtelnet/encrypt.h>
+#endif
 
 /* These values need to be the same as defined in libtelnet/kerberos5.c */
 /* Either define them in both places, or put in some common header file. */
@@ -101,6 +114,10 @@ enum {
   OPTION_NOASYNCTTY,
   OPTION_NOASYNCNET
 };
+
+#if defined KERBEROS || defined SHISHI
+extern char *dest_realm;
+#endif
 
 static struct argp_option argp_options[] = {
 #define GRID 10
@@ -151,7 +168,7 @@ static struct argp_option argp_options[] = {
     "Authentication and Kerberos options:", GRID },
   { "disable-auth", 'X', "ATYPE", 0,
     "disable type ATYPE authentication", GRID+1 },
-# if defined KRB4
+# if defined KERBEROS || defined SHISHI
   { "realm", 'k', "REALM", 0,
     "obtain tickets for the remote host in REALM "
     "instead of the remote host's realm", GRID+1 },
@@ -166,7 +183,7 @@ static struct argp_option argp_options[] = {
 # undef GRID
 #endif
 
-#if defined TN3270 && defined unix
+#if defined TN3270 && (defined unix || defined __unix || defined __unix__)
 # define GRID 40
   { NULL, 0, NULL, 0,
     "TN3270 support:", GRID },
@@ -176,12 +193,12 @@ static struct argp_option argp_options[] = {
   { "noasynctty", OPTION_NOASYNCTTY, NULL, 0, "", GRID+1 },
   { "noasyncnet", OPTION_NOASYNCNET, NULL, 0, "", GRID+1 },
 # undef GRID
-#endif
-  { NULL }
+#endif /* TN3270 && (unix || __unix || __unix__) */
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
@@ -248,7 +265,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
 #endif
 
-#if defined AUTHENTICATION && defined KRB4
+#if defined AUTHENTICATION && \
+      ( defined KERBEROS || defined SHISHI )
     case 'k':
       dest_realm = arg;
       break;
@@ -267,7 +285,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
       rlogin = '~';
       break;
 
-#if defined TN3270 && defined unix
+#if defined TN3270 && (defined unix || defined __unix || defined __unix__)
     case 't':
       /* FIXME: Buffer!!! */
       transcom = tline;
@@ -285,7 +303,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case OPTION_NOASYNCNET:
       noasynchnet = 1;
       break;
-#endif
+#endif /* TN3270 && (unix || __unix || __unix__) */
 
 #ifdef	ENCRYPTION
     case 'x':
@@ -305,7 +323,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
 const char args_doc[] = "[HOST [PORT]]";
 const char doc[] = "Login to remote system HOST "
                    "(optionally, on service port PORT)";
-static struct argp argp = { argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  { argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL };
 
 
 
@@ -318,6 +337,10 @@ main (int argc, char *argv[])
   int index;
 
   set_program_name (argv[0]);
+
+#ifdef HAVE_SETLOCALE
+  setlocale (LC_ALL, "");
+#endif
 
   tninit ();			/* Clear out things */
 #if defined CRAY && !defined __STDC__
@@ -348,6 +371,8 @@ main (int argc, char *argv[])
 
   if (argc)
     {
+      /* The command line contains at least one argument.
+       */
       char *args[8], **argp = args;
 
       if (argc > 2)
@@ -370,11 +395,14 @@ main (int argc, char *argv[])
 
       if (setjmp (toplevel) != 0)
 	Exit (0);
-      if (tn (argp - args, args) == 1)
+      if (tn (argp - args, args) == 1)	/* Returns only on error.  */
 	return (0);
       else
 	return (1);
+      /* NOT REACHED */
     }
+
+  /* Built-in parser loop; sub-commands jump to `toplevel' mark.  */
   setjmp (toplevel);
   for (;;)
     {
@@ -385,4 +413,5 @@ main (int argc, char *argv[])
 #endif
 	command (1, 0, 0);
     }
+  /* NOT REACHED */
 }

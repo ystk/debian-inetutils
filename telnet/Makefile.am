@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,7 +18,21 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-bin_PROGRAMS = @telnet_BUILD@
+@PATHDEFS_MAKE@
+
+AM_CPPFLAGS = \
+	-DTERMCAP -DLINEMODE -DKLUDGELINEMODE -DENV_HACK \
+	$(PATHDEF_BSHELL) \
+	$(iu_INCLUDES) \
+	-I$(top_srcdir) \
+	$(NCURSES_INCLUDE) $(INCIDN)
+
+LDADD = \
+	$(top_builddir)/libtelnet/libtelnet.a \
+	$(iu_LIBRARIES) \
+	$(LIBTERMCAP) $(LIBCRYPT) $(LIBAUTH) $(LIBIDN)
+
+bin_PROGRAMS = $(telnet_BUILD)
 
 EXTRA_PROGRAMS = telnet
 
@@ -25,8 +40,3 @@ telnet_SOURCES = authenc.c commands.c main.c network.c ring.c sys_bsd.c \
 	telnet.c terminal.c tn3270.c utilities.c
 
 noinst_HEADERS = defines.h externs.h general.h ring.h types.h
-
-INCLUDES = $(iu_INCLUDES) $(NCURSES_INCLUDE)
-AM_CPPFLAGS = -DTERMCAP -DLINEMODE -DKLUDGELINEMODE -DENV_HACK
-
-LDADD = $(iu_LIBRARIES) $(top_builddir)/libtelnet/libtelnet.a $(LIBTERMCAP) $(LIBCRYPT) $(LIBAUTH) $(LIBREADLINE)

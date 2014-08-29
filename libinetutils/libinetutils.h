@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -22,14 +22,28 @@
 #endif
 
 #include "argp-version-etc.h"
+#include <signal.h>
 
-void utmp_init (char *line, char *user, char *id);
+sighandler_t setsig (int sig, sighandler_t handler);
+void utmp_init (char *line, char *user, char *id, char *host);
 char *utmp_ptsid (char *line, char *tag);
 void utmp_logout (char *line);
 char *localhost (void);
 void logwtmp (const char *, const char *, const char *);
 void cleanup_session (char *tty, int pty_fd);
 void logwtmp_keep_open (char *line, char *name, char *host);
+
+#ifndef HAVE_STRUCT_IF_NAMEINDEX
+struct if_nameindex
+{
+  char *if_name;
+  int if_index;
+};
+
+unsigned int if_nametoindex (const char *ifname);
+struct if_nameindex *if_nameindex (void);
+void if_freenameindex (struct if_nameindex *ptr);
+#endif
 
 extern const char *default_program_authors[];
 

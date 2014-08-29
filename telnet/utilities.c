@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -66,6 +66,13 @@
 #include "defines.h"
 #include "externs.h"
 
+#ifdef AUTHENTICATION
+# include <libtelnet/auth.h>
+#endif
+#ifdef ENCRYPTION
+# include <libtelnet/encrypt.h>
+#endif
+
 FILE *NetTrace = 0;		/* Not in bss, since needs to stay */
 int prettydump;
 
@@ -128,7 +135,8 @@ SetNetTrace (register char *file)
       NetTrace = fopen (file, "w");
       if (NetTrace)
 	{
-	  strcpy ((char *) NetTraceFile, file);
+	  strncpy ((char *) NetTraceFile, file, sizeof (NetTraceFile));
+	  NetTraceFile[sizeof (NetTraceFile) - 1] = 0;
 	  return;
 	}
       fprintf (stderr, "Cannot open %s.\n", file);
@@ -210,8 +218,10 @@ printoption (char *direction, int cmd, int option)
   else
     {
       register char *fmt;
-      fmt = (cmd == WILL) ? "WILL" : (cmd == WONT) ? "WONT" :
-	(cmd == DO) ? "DO" : (cmd == DONT) ? "DONT" : 0;
+      fmt = (cmd == WILL)
+	    ? "WILL" : (cmd == WONT)
+		       ? "WONT" : (cmd == DO)
+				  ? "DO" : (cmd == DONT) ? "DONT" : 0;
       if (fmt)
 	{
 	  fprintf (NetTrace, "%s %s ", direction, fmt);
@@ -336,7 +346,7 @@ printsub (char direction, unsigned char *pointer, int length)
   register int i;
   extern int want_status_response;
 
-#if defined AUTHENTICATION && defined ENCRYPTION
+#if defined AUTHENTICATION || defined ENCRYPTION
   char buf[512];
 #endif
 
@@ -395,8 +405,7 @@ printsub (char direction, unsigned char *pointer, int length)
 	      fprintf (NetTrace, "SEND");
 	      break;
 	    default:
-	      fprintf (NetTrace,
-		       "- unknown qualifier %d (0x%x).",
+	      fprintf (NetTrace, "- unknown qualifier %d (0x%x).",
 		       pointer[1], pointer[1]);
 	    }
 	  break;
@@ -493,9 +502,9 @@ printsub (char direction, unsigned char *pointer, int length)
 	    {
 	    case TELQUAL_REPLY:
 	    case TELQUAL_IS:
-	      fprintf (NetTrace, " %s ", (pointer[1] == TELQUAL_IS) ?
-		       "IS" : "REPLY");
-	      if (AUTHTYPE_NAME_OK (pointer[2]))
+	      fprintf (NetTrace, " %s ",
+		       (pointer[1] == TELQUAL_IS) ? "IS" : "REPLY");
+	      if (AUTHTYPE_NAME_OK (pointer[2]) && AUTHTYPE_NAME (pointer[2]))
 		fprintf (NetTrace, "%s ", AUTHTYPE_NAME (pointer[2]));
 	      else
 		fprintf (NetTrace, "%d ", pointer[2]);
@@ -505,10 +514,10 @@ printsub (char direction, unsigned char *pointer, int length)
 		  break;
 		}
 	      fprintf (NetTrace, "%s|%s",
-		       ((pointer[3] & AUTH_WHO_MASK) == AUTH_WHO_CLIENT) ?
-		       "CLIENT" : "SERVER",
-		       ((pointer[3] & AUTH_HOW_MASK) == AUTH_HOW_MUTUAL) ?
-		       "MUTUAL" : "ONE-WAY");
+		       ((pointer[3] & AUTH_WHO_MASK) == AUTH_WHO_CLIENT)
+		       ? "CLIENT" : "SERVER",
+		       ((pointer[3] & AUTH_HOW_MASK) == AUTH_HOW_MUTUAL)
+		       ? "MUTUAL" : "ONE-WAY");
 
 	      auth_printsub (&pointer[1], length - 1, buf, sizeof (buf));
 	      fprintf (NetTrace, "%s", buf);
@@ -519,7 +528,8 @@ printsub (char direction, unsigned char *pointer, int length)
 	      fprintf (NetTrace, " SEND ");
 	      while (i < length)
 		{
-		  if (AUTHTYPE_NAME_OK (pointer[i]))
+		  if (AUTHTYPE_NAME_OK (pointer[i])
+		      && AUTHTYPE_NAME (pointer[i]))
 		    fprintf (NetTrace, "%s ", AUTHTYPE_NAME (pointer[i]));
 		  else
 		    fprintf (NetTrace, "%d ", pointer[i]);
@@ -529,10 +539,10 @@ printsub (char direction, unsigned char *pointer, int length)
 		      break;
 		    }
 		  fprintf (NetTrace, "%s|%s ",
-			   ((pointer[i] & AUTH_WHO_MASK) == AUTH_WHO_CLIENT) ?
-			   "CLIENT" : "SERVER",
-			   ((pointer[i] & AUTH_HOW_MASK) == AUTH_HOW_MUTUAL) ?
-			   "MUTUAL" : "ONE-WAY");
+			   ((pointer[i] & AUTH_WHO_MASK) == AUTH_WHO_CLIENT)
+			   ? "CLIENT" : "SERVER",
+			   ((pointer[i] & AUTH_HOW_MASK) == AUTH_HOW_MUTUAL)
+			   ? "MUTUAL" : "ONE-WAY");
 		  ++i;
 		}
 	      break;
@@ -581,14 +591,14 @@ printsub (char direction, unsigned char *pointer, int length)
 
 	    case ENCRYPT_IS:
 	    case ENCRYPT_REPLY:
-	      fprintf (NetTrace, " %s ", (pointer[1] == ENCRYPT_IS) ?
-		       "IS" : "REPLY");
+	      fprintf (NetTrace, " %s ",
+		       (pointer[1] == ENCRYPT_IS) ? "IS" : "REPLY");
 	      if (length < 3)
 		{
 		  fprintf (NetTrace, " (partial suboption??\?)");
 		  break;
 		}
-	      if (ENCTYPE_NAME_OK (pointer[2]))
+	      if (ENCTYPE_NAME_OK (pointer[2]) && ENCTYPE_NAME (pointer[2]))
 		fprintf (NetTrace, "%s ", ENCTYPE_NAME (pointer[2]));
 	      else
 		fprintf (NetTrace, " %d (unknown)", pointer[2]);
@@ -602,7 +612,7 @@ printsub (char direction, unsigned char *pointer, int length)
 	      fprintf (NetTrace, " SUPPORT ");
 	      while (i < length)
 		{
-		  if (ENCTYPE_NAME_OK (pointer[i]))
+		  if (ENCTYPE_NAME_OK (pointer[i]) && ENCTYPE_NAME (pointer[i]))
 		    fprintf (NetTrace, "%s ", ENCTYPE_NAME (pointer[i]));
 		  else
 		    fprintf (NetTrace, "%d ", pointer[i]);
@@ -694,12 +704,12 @@ printsub (char direction, unsigned char *pointer, int length)
 		      break;
 		    }
 		  fprintf (NetTrace, "%s%s%s",
-			   pointer[i + SLC_FLAGS] & SLC_ACK ? "|ACK" : "",
-			   pointer[i +
-				   SLC_FLAGS] & SLC_FLUSHIN ? "|FLUSHIN" : "",
-			   pointer[i +
-				   SLC_FLAGS] & SLC_FLUSHOUT ? "|FLUSHOUT" :
-			   "");
+			   (pointer[i + SLC_FLAGS] & SLC_ACK)
+			   ? "|ACK" : "",
+			   (pointer[i + SLC_FLAGS] & SLC_FLUSHIN)
+			   ? "|FLUSHIN" : "",
+			   (pointer[i + SLC_FLAGS] & SLC_FLUSHOUT)
+			   ?  "|FLUSHOUT" : "");
 		  if (pointer[i + SLC_FLAGS] &
 		      ~(SLC_ACK | SLC_FLUSHIN | SLC_FLUSHOUT | SLC_LEVELBITS))
 		    fprintf (NetTrace, "(0x%x)", pointer[i + SLC_FLAGS]);
@@ -876,7 +886,7 @@ printsub (char direction, unsigned char *pointer, int length)
 	      fprintf (NetTrace, "INFO ");
 	    env_common:
 	      {
-		register int noquote = 2;
+		const char *quote = "";
 #if defined ENV_HACK && defined OLD_ENVIRON
 		extern int old_env_var, old_env_value;
 #endif
@@ -891,15 +901,15 @@ printsub (char direction, unsigned char *pointer, int length)
 			  {
 # ifdef	ENV_HACK
 			    if (old_env_var == OLD_ENV_VALUE)
-			      fprintf (NetTrace, "\" (VALUE) " + noquote);
+			      fprintf (NetTrace, "%s(VALUE) ", quote);
 			    else
 # endif
-			      fprintf (NetTrace, "\" VAR " + noquote);
+			      fprintf (NetTrace, "%sVAR ", quote);
 			  }
 			else
 #endif /* OLD_ENVIRON */
-			  fprintf (NetTrace, "\" VALUE " + noquote);
-			noquote = 2;
+			  fprintf (NetTrace, "%sVALUE ", quote);
+			quote = "";
 			break;
 
 		      case NEW_ENV_VAR:
@@ -909,47 +919,46 @@ printsub (char direction, unsigned char *pointer, int length)
 			  {
 # ifdef	ENV_HACK
 			    if (old_env_value == OLD_ENV_VAR)
-			      fprintf (NetTrace, "\" (VAR) " + noquote);
+			      fprintf (NetTrace, "%s(VAR) ", quote);
 			    else
 # endif
-			      fprintf (NetTrace, "\" VALUE " + noquote);
+			      fprintf (NetTrace, "%sVALUE ", quote);
 			  }
 			else
 #endif /* OLD_ENVIRON */
-			  fprintf (NetTrace, "\" VAR " + noquote);
-			noquote = 2;
+			  fprintf (NetTrace, "%sVAR ", quote);
+			quote = "";
 			break;
 
 		      case ENV_ESC:
-			fprintf (NetTrace, "\" ESC " + noquote);
-			noquote = 2;
+			fprintf (NetTrace, "%sESC ", quote);
+			quote = "";
 			break;
 
 		      case ENV_USERVAR:
-			fprintf (NetTrace, "\" USERVAR " + noquote);
-			noquote = 2;
+			fprintf (NetTrace, "%sUSERVAR ", quote);
+			quote = "";
 			break;
 
 		      default:
 			if (isprint (pointer[i]) && pointer[i] != '"')
 			  {
-			    if (noquote)
+			    if (quote[0] == '\0')
 			      {
 				putc ('"', NetTrace);
-				noquote = 0;
+				quote = "\" ";
 			      }
 			    putc (pointer[i], NetTrace);
 			  }
 			else
 			  {
-			    fprintf (NetTrace, "\" %03o " + noquote,
-				     pointer[i]);
-			    noquote = 2;
+			    fprintf (NetTrace, "%s%03o ", quote, pointer[i]);
+			    quote = "";
 			  }
 			break;
 		      }
 		  }
-		if (!noquote)
+		if (quote[0] != '\0')
 		  putc ('"', NetTrace);
 		break;
 	      }
@@ -985,28 +994,28 @@ printsub (char direction, unsigned char *pointer, int length)
 void
 EmptyTerminal (void)
 {
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
   fd_set o;
 
   FD_ZERO (&o);
-#endif /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
 
   if (TTYBYTES () == 0)
     {
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
       FD_SET (tout, &o);
       select (tout + 1, (fd_set *) 0, &o, (fd_set *) 0, (struct timeval *) 0);	/* wait for TTLOWAT */
-#endif /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
     }
   else
     {
       while (TTYBYTES ())
 	{
 	  ttyflush (0);
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
 	  FD_SET (tout, &o);
 	  select (tout + 1, (fd_set *) 0, &o, (fd_set *) 0, (struct timeval *) 0);	/* wait for TTLOWAT */
-#endif /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
 	}
     }
 }

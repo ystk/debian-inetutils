@@ -1,6 +1,7 @@
 #!/bin/sh
 
-# Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+# Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,18 +18,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
+# Prerequisites:
+#
+#  * Shell: SVR3 Bourne shell, or newer.
+#
+#  * id(1).
+
+. ./tools.sh
+
 PING=${PING:-../ping/ping$EXEEXT}
 TARGET=${TARGET:-127.0.0.1}
 
 PING6=${PING6:-../ping/ping6$EXEEXT}
 TARGET6=${TARGET6:-::1}
 
+if [ ! -x $PING ]; then
+    echo 'No executable "'$PING'" available.  Skipping test.' >&2
+    exit 77
+fi
+
 if [ $VERBOSE ]; then
     set -x
     $PING --version
 fi
 
-if [ `id -u` != 0 ]; then
+if [ `func_id_uid` != 0 ]; then
     echo "ping needs to run as root"
     exit 77
 fi
@@ -36,11 +50,11 @@ fi
 errno=0
 errno2=0
 
-$PING -c 1 $TARGET || errno=$?
+$PING -n -c 1 $TARGET || errno=$?
 test $errno -eq 0 || echo "Failed at pinging $TARGET." >&2
 
 # Host might not have been built with IPv6 support..
-test -x $PING6 && $PING6 -c 1 $TARGET6 || errno2=$?
+test -x $PING6 && $PING6 -n -c 1 $TARGET6 || errno2=$?
 test $errno2 -eq 0 || echo "Failed at pinging $TARGET6." >&2
 
 test $errno -eq 0 || exit $errno

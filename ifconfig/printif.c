@@ -1,6 +1,6 @@
 /* printif.c -- print an interface configuration
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -46,6 +46,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "ifconfig.h"
+#include "xalloc.h"
+#include <unused-parameter.h>
 
 FILE *ostream;			/* Either stdout or stderror.  */
 int column_stdout;		/* The column position of the cursor on stdout.  */
@@ -94,6 +96,10 @@ struct format_handle format_handles[] = {
   {"mtu", fh_mtu},
   {"metric?", fh_metric_query},
   {"metric", fh_metric},
+  {"media?", fh_media_query},
+  {"media", fh_media},
+  {"status?", fh_status_query},
+  {"status", fh_status},
 #ifdef HAVE_STRUCT_IFREQ_IFR_MAP
   {"map?", fh_map_query},
   {"irq?", fh_irq_query},
@@ -106,14 +112,14 @@ struct format_handle format_handles[] = {
   {"memend", fh_memend},
   {"dma?", fh_dma_query},
   {"dma", fh_dma},
-#endif
+#endif /* HAVE_STRUCT_IFREQ_IFR_MAP */
   {NULL, NULL}
 };
 
 /* Various helper functions to get the job done.  */
 
 void
-put_char (format_data_t form, char c)
+put_char (format_data_t form _GL_UNUSED_PARAMETER, char c)
 {
   switch (c)
     {
@@ -141,7 +147,8 @@ put_string (format_data_t form, const char *s)
 }
 
 void
-put_int (format_data_t form, int argc, char *argv[], int nr)
+put_int (format_data_t form _GL_UNUSED_PARAMETER,
+	 int argc, char *argv[], int nr)
 {
   char *fmt;
   if (argc > 0)
@@ -197,7 +204,8 @@ put_int (format_data_t form, int argc, char *argv[], int nr)
 }
 
 void
-put_ulong (format_data_t form, int argc, char *argv[], unsigned long value)
+put_ulong (format_data_t form _GL_UNUSED_PARAMETER,
+	   int argc, char *argv[], unsigned long value)
 {
   char *fmt;
   if (argc > 0)
@@ -336,7 +344,8 @@ put_flags (format_data_t form, int argc, char *argv[], short flags)
 }
 
 void
-put_flags_short (format_data_t form, int argc, char *argv[], short flags)
+put_flags_short (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+		 char *argv[] _GL_UNUSED_PARAMETER, short flags)
 {
   char buf[IF_FORMAT_FLAGS_BUFSIZE];
   if_format_flags (flags, buf, sizeof buf);
@@ -367,7 +376,9 @@ format_handler (const char *name, format_data_t form, int argc, char *argv[])
 }
 
 void
-fh_nothing (format_data_t form, int argc, char *argv[])
+fh_nothing (format_data_t form _GL_UNUSED_PARAMETER,
+	    int argc _GL_UNUSED_PARAMETER,
+	    char *argv[] _GL_UNUSED_PARAMETER)
 {
 }
 
@@ -426,13 +437,15 @@ fh_foreachformat (format_data_t form, int argc, char *argv[])
 }
 
 void
-fh_newline (format_data_t form, int argc, char *argv[])
+fh_newline (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	    char *argv[] _GL_UNUSED_PARAMETER)
 {
   put_char (form, '\n');
 }
 
 void
-fh_tabulator (format_data_t form, int argc, char *argv[])
+fh_tabulator (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	      char *argv[] _GL_UNUSED_PARAMETER)
 {
   put_char (form, '\t');
 }
@@ -587,13 +600,15 @@ fh_error (format_data_t form, int argc, char *argv[])
 }
 
 void
-fh_progname (format_data_t form, int argc, char *argv[])
+fh_progname (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	     char *argv[] _GL_UNUSED_PARAMETER)
 {
   put_string (form, program_name);
 }
 
 void
-fh_exit (format_data_t form, int argc, char *argv[])
+fh_exit (format_data_t form _GL_UNUSED_PARAMETER,
+	 int argc, char *argv[])
 {
   int err = 0;
 
@@ -604,7 +619,8 @@ fh_exit (format_data_t form, int argc, char *argv[])
 }
 
 void
-fh_name (format_data_t form, int argc, char *argv[])
+fh_name (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	 char *argv[] _GL_UNUSED_PARAMETER)
 {
   put_string (form, form->name);
 }
@@ -616,7 +632,8 @@ fh_index_query (format_data_t form, int argc, char *argv[])
 }
 
 void
-fh_index (format_data_t form, int argc, char *argv[])
+fh_index (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	  char *argv[] _GL_UNUSED_PARAMETER)
 {
   int indx = if_nametoindex (form->name);
 
@@ -787,11 +804,15 @@ fh_mtu (format_data_t form, int argc, char *argv[])
 #endif
 }
 
+/* The portable behaviour is to display strictly positive
+ * metrics, but to supress the default value naught.
+ */
 void
 fh_metric_query (format_data_t form, int argc, char *argv[])
 {
 #ifdef SIOCGIFMETRIC
-  if (ioctl (form->sfd, SIOCGIFMETRIC, form->ifr) >= 0)
+  if (ioctl (form->sfd, SIOCGIFMETRIC, form->ifr) >= 0
+      && form->ifr->ifr_metric > 0)
     select_arg (form, argc, argv, 0);
   else
 #endif
@@ -807,8 +828,7 @@ fh_metric (format_data_t form, int argc, char *argv[])
 	   "SIOCGIFMETRIC failed for interface `%s'",
 	   form->ifr->ifr_name);
   else
-    put_int (form, argc, argv,
-	     form->ifr->ifr_metric ? form->ifr->ifr_metric : 1);
+    put_int (form, argc, argv, form->ifr->ifr_metric);
 #else
   *column += printf ("(not available)");
   had_output = 1;
@@ -852,6 +872,40 @@ fh_flags (format_data_t form, int argc, char *argv[])
   *column += printf ("(not available)");
   had_output = 1;
 #endif
+}
+
+void
+fh_media_query (format_data_t form, int argc, char *argv[])
+{
+  /* Must be overridden by a system dependent implementation.  */
+
+  /* Claim it to be absent.  */
+  select_arg (form, argc, argv, 1);
+}
+
+void
+fh_media (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	  char *argv[] _GL_UNUSED_PARAMETER)
+{
+  /* Must be overridden by a system dependent implementation.  */
+  put_string (form, "(not known)");
+}
+
+void
+fh_status_query (format_data_t form, int argc, char *argv[])
+{
+  /* Must be overridden by a system dependent implementation.  */
+
+  /* Claim it to be absent.  */
+  select_arg (form, argc, argv, 1);
+}
+
+void
+fh_status (format_data_t form, int argc _GL_UNUSED_PARAMETER,
+	   char *argv[] _GL_UNUSED_PARAMETER)
+{
+  /* Must be overridden by a system dependent implementation.  */
+  put_string (form, "(not known)");
 }
 
 #ifdef HAVE_STRUCT_IFREQ_IFR_MAP
@@ -953,7 +1007,8 @@ fh_dma (format_data_t form, int argc, char *argv[])
   else
     put_string (form, "(not available)");
 }
-#endif
+
+#endif /* HAVE_STRUCT_IFREQ_IFR_MAP */
 
 void
 print_interfaceX (format_data_t form, int quiet)
@@ -1044,7 +1099,7 @@ print_interfaceX (format_data_t form, int quiet)
 		  form->format = p;
 		  print_interfaceX (form, 1);
 		  q = form->format;
-		  argv[argc] = malloc (q - p + 1);
+		  argv[argc] = xmalloc (q - p + 1);
 		  memcpy (argv[argc], p, q - p);
 		  argv[argc][q - p] = '\0';
 		  if (*q == '}')

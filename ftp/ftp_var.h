@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -89,6 +89,7 @@ FTP_EXTERN char pasv[64];	/* passive port for proxy data connection */
 FTP_EXTERN int passivemode;	/* passive mode enabled */
 FTP_EXTERN int doepsv4;		/* EPSV/EPRT for IPv4 enabled */
 FTP_EXTERN int usefamily;	/* Precondition on an adress family */
+FTP_EXTERN int usereadline;	/* Use readline support, given a TTY.  */
 FTP_EXTERN char *altarg;	/* argv[1] with no shell-like preprocessing  */
 FTP_EXTERN char ntin[17];	/* input translation table */
 FTP_EXTERN char ntout[17];	/* output translation table */
@@ -110,17 +111,17 @@ FTP_EXTERN char *hostname;	/* name of host connected to */
 FTP_EXTERN int unix_server;	/* server is unix, can use binary for ascii */
 FTP_EXTERN int unix_proxy;	/* proxy is unix, can use binary for ascii */
 
-FTP_EXTERN struct servent *sp;	/* service spec for tcp/ftp */
-
 FTP_EXTERN jmp_buf toplevel;	/* non-local goto stuff for cmd scanner */
 
-FTP_EXTERN char *line;
+FTP_EXTERN char *line;		/* input produced by readline or getline */
+FTP_EXTERN size_t linelen;	/* allocated length of the same, if known */
 
-FTP_EXTERN char *stringbase;	/* current scan point in line buffer */
-FTP_EXTERN char argbuf[MAXLINE];	/* argument storage buffer */
-FTP_EXTERN char *argbase;	/* current storage point in arg buffer */
+#ifndef MAXMARGV
+# define MAXMARGV 20
+#endif
+
 FTP_EXTERN int margc;		/* count of arguments on input line */
-FTP_EXTERN char *margv[20];	/* args parsed from input line */
+FTP_EXTERN char *margv[MAXMARGV]; /* args parsed from input line */
 FTP_EXTERN int cpend;		/* flag: if != 0, then pending server reply */
 FTP_EXTERN int mflag;		/* flag: if != 0, then active multi command */
 

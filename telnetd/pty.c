@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-  2011 Free Software Foundation, Inc.
+  2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -29,10 +29,10 @@
 #include <libinetutils.h>
 
 void
-setup_utmp (char *line)
+setup_utmp (char *line, char *host)
 {
   char *ut_id = utmp_ptsid (line, "tn");
-  utmp_init (line + sizeof ("/dev/") - 1, ".telnet", ut_id);
+  utmp_init (line + sizeof (PATH_TTY_PFX) - 1, ".telnet", ut_id, host);
 }
 
 
@@ -51,7 +51,10 @@ startslave (char *host, int autologin, char *autoname)
       fatal (net, "Authorization failed");
       exit (EXIT_FAILURE);
     }
+#else /* !AUTHENTICATION */
+  (void) autoname;	/* Silence warnings.  */
 #endif
+
   pid = forkpty (&master, line, NULL, NULL);
   if (pid < 0)
     {
@@ -73,9 +76,7 @@ startslave (char *host, int autologin, char *autoname)
       if (net > 2)
 	close (net);
 
-#ifdef UTMPX
-      setup_utmp (line);
-#endif
+      setup_utmp (line, host);
       start_login (host, autologin, line);
     }
 
@@ -114,6 +115,10 @@ start_login (char *host, int autologin, char *name)
   int argc;
   char **argv;
 
+  (void) host;		/* Silence warnings.  Diagnostic use?  */
+  (void) autologin;
+  (void) name;
+
   scrub_env ();
 
   /* Set the environment variable "LINEMODE" to indicate our linemode */
@@ -131,23 +136,35 @@ start_login (char *host, int autologin, char *name)
   fatalperror (net, cmd);
 }
 
+/* SIG is generally naught every time the server itself
+ * decides to close the connection out of an error condition.
+ * In response to TELOPT_LOGOUT from the client, SIG is set
+ * to SIGHUP, so we consider the exit as a success.  In other
+ * cases, when the forked client process is caught exiting,
+ * then SIG will be SIGCHLD.  Then we deliver the clients's
+ * reported exit code.
+ */
 void
 cleanup (int sig)
 {
+  int status = EXIT_FAILURE;
   char *p;
 
-  if (sig)
+  if (sig == SIGCHLD)
     {
-      int status;
       pid_t pid = waitpid ((pid_t) - 1, &status, WNOHANG);
       syslog (LOG_INFO, "child process %ld exited: %d",
 	      (long) pid, WEXITSTATUS (status));
-    }
 
-  p = line + sizeof (PATH_DEV) - 1;
+      status = WEXITSTATUS (status);
+    }
+  else if (sig == SIGHUP)
+    status = EXIT_SUCCESS;	/* Response to TELOPT_LOGOUT.  */
+
+  p = line + sizeof (PATH_TTY_PFX) - 1;
   utmp_logout (p);
   chmod (line, 0644);
   chown (line, 0, 0);
   shutdown (net, 2);
-  exit (EXIT_FAILURE);
+  exit (status);
 }

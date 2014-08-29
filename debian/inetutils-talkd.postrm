@@ -3,12 +3,11 @@
 set -e
 
 if [ "$1" = "remove" ]; then
-  if [ -x /usr/sbin/update-inetd ]; then
-    update-inetd --group BSD --remove '^(#<off># |)talk'
+  if [ -x "$(which update-inetd)" ]; then
+    update-inetd --group BSD --remove ntalk
   fi
 fi
 
 #DEBHELPER#
 
 exit 0
-

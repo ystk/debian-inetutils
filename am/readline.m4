@@ -1,5 +1,6 @@
 # readline.m4 serial 9
-dnl Copyright (C) 2005-2006, 2009-2011 Free Software Foundation, Inc.
+dnl Copyright (C) 2005, 2006, 2009, 2010, 2011, 2012 Free Software
+dnl Foundation, Inc.
 dnl This file is free software; the Free Software Foundation
 dnl gives unlimited permission to copy and/or distribute it,
 dnl with or without modifications, as long as this notice is preserved.
@@ -13,9 +14,21 @@ AC_DEFUN([gl_FUNC_READLINE],
   AC_REQUIRE([AC_LIB_PREPARE_PREFIX])
   AC_REQUIRE([AC_LIB_RPATH])
 
+  dnl Allow disabling the use of libreadline.
+  AC_ARG_ENABLE([readline],
+    AS_HELP_STRING([--disable-readline],
+		   [do not build against libreadline or libedit]), ,
+    [enable_readline=yes])
+
+  dnl Readline libraries come in a handful flavours.
+  dnl Detect the ones we do offer support for.
+  AC_CHECK_HEADERS([readline/readline.h readline/history.h \
+		    editline/readline.h editline/history.h])
+
   dnl Search for libreadline and define LIBREADLINE, LTLIBREADLINE and
   dnl INCREADLINE accordingly.
   AC_LIB_LINKFLAGS_BODY([readline])
+  AC_LIB_LINKFLAGS_BODY([edit])
 
   dnl Add $INCREADLINE to CPPFLAGS before performing the following checks,
   dnl because if the user has installed libreadline and not disabled its use
@@ -24,7 +37,7 @@ AC_DEFUN([gl_FUNC_READLINE],
   am_save_CPPFLAGS="$CPPFLAGS"
   AC_LIB_APPENDTOVAR([CPPFLAGS], [$INCREADLINE])
 
-  AC_CACHE_CHECK([for readline], [gl_cv_lib_readline], [
+  AC_CACHE_CHECK([for libreadline], [gl_cv_lib_readline], [
     gl_cv_lib_readline=no
     am_save_LIBS="$LIBS"
     dnl On some systems, -lreadline doesn't link without an additional
@@ -38,7 +51,9 @@ AC_DEFUN([gl_FUNC_READLINE],
         LIBS="$LIBS -l$extra_lib"
       fi
       AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <stdio.h>
-#include <readline/readline.h>]],
+#ifdef HAVE_READLINE_READLINE_H
+# include <readline/readline.h>
+#endif]],
           [[readline((char*)0);]])],
         [if test -n "$extra_lib"; then
            gl_cv_lib_readline="yes, requires -l$extra_lib"
@@ -56,19 +71,34 @@ AC_DEFUN([gl_FUNC_READLINE],
   dnl In case of failure, examine whether libedit can act
   dnl as replacement. Small NetBSD systems use editline
   dnl as wrapper for readline.
-  if test "$gl_cv_lib_readline" = no; then
+  CPPFLAGS="$am_save_CPPFLAGS"
+  AC_LIB_APPENDTOVAR([CPPFLAGS], [$INCEDIT])
+
+  AC_CACHE_CHECK([for libedit], [gl_cv_lib_edit], [
+    gl_cv_lib_edit=no
     am_save_LIBS="$LIBS"
     LIBS="$am_save_LIBS -ledit"
     AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <stdio.h>
-#include <readline/readline.h>]],
+#ifdef HAVE_EDITLINE_READLINE_H
+# include <editline/readline.h>
+#elif defined HAVE_READLINE_READLINE_H
+# include <readline/readline.h>
+#endif]],
         [[readline((char*)0);]])],
-      [gl_cv_lib_readline="yes"])
+      [gl_cv_lib_edit="yes"])
     LIBS="$am_save_LIBS"
-    LIBREADLINE=-ledit
+  ])
+
+  dnl Is the function readline() available?
+  if ( test "$gl_cv_lib_readline" != no || test "$gl_cv_lib_edit" != no ) \
+     && test "$enable_readline" = yes; then
+    AC_DEFINE([HAVE_READLINE], [1], [Define if you have a readline function.])
   fi
 
-  if test "$gl_cv_lib_readline" != no; then
-    AC_DEFINE([HAVE_READLINE], [1], [Define if you have the readline library.])
+  dnl Identify the available implementation.
+  if test "$enable_readline" = "yes" \
+     && test "$gl_cv_lib_readline" != no; then
+    AC_DEFINE([HAVE_LIBREADLINE], [1], [Define if you have the readline library.])
     extra_lib=`echo "$gl_cv_lib_readline" | sed -n -e 's/yes, requires //p'`
     if test -n "$extra_lib"; then
       LIBREADLINE="$LIBREADLINE $extra_lib"
@@ -76,17 +106,26 @@ AC_DEFUN([gl_FUNC_READLINE],
     fi
     AC_MSG_CHECKING([how to link with libreadline])
     AC_MSG_RESULT([$LIBREADLINE])
+  elif test "$enable_readline" = "yes" \
+     && test "$gl_cv_lib_edit" != no; then
+    AC_DEFINE([HAVE_LIBEDIT], [1], [Define if you have the edit library.])
+
+    dnl We have a working replacement for libreadline, so use it.
+    LIBREADLINE="$LIBEDIT"
+    LTLIBREADLINE="$LTLIBEDIT"
+    AC_MSG_CHECKING([how to link with libedit])
+    AC_MSG_RESULT([$LIBEDIT])
   else
     dnl If $LIBREADLINE didn't lead to a usable library, we don't
     dnl need $INCREADLINE either.
     CPPFLAGS="$am_save_CPPFLAGS"
     LIBREADLINE=
     LTLIBREADLINE=
+    LIBEDIT=
+    LTLIBEDIT=
   fi
   AC_SUBST([LIBREADLINE])
   AC_SUBST([LTLIBREADLINE])
-
-  AC_CHECK_HEADERS([readline/readline.h readline/history.h])
 ])
 
 # Prerequisites of lib/readline.c.

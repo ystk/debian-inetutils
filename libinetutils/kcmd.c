@@ -1,6 +1,7 @@
 /*
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -54,13 +55,18 @@
 # include <sys/file.h>
 # include <sys/socket.h>
 # include <sys/stat.h>
+# include <fcntl.h>
 
 # include <netinet/in.h>
 # include <arpa/inet.h>
 
 # if defined KERBEROS
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
+#  ifdef HAVE_KERBEROSIV_DES_H
+#   include <kerberosIV/des.h>
+#  endif
+#  ifdef HAVE_KERBEROSIV_KRB_H
+#   include <kerberosIV/krb.h>
+#  endif
 # elif defined(SHISHI)
 #  include <shishi.h>
 #  include "shishi_def.h"
@@ -82,7 +88,7 @@
 
 # define START_PORT	5120	/* arbitrary */
 
-int getport (int *);
+int getport (int *, int);
 
 # if defined KERBEROS
 int
@@ -95,13 +101,18 @@ kcmd (int *sock, char **ahost, unsigned short rport, char *locuser,
 int
 kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
       char **remuser, char *cmd, int *fd2p, char *service, char *realm,
-      Shishi_key ** key,
-      struct sockaddr_in *laddr, struct sockaddr_in *faddr, long authopts)
+      Shishi_key ** key, struct sockaddr_storage *laddr,
+      struct sockaddr_storage *faddr, long authopts, int af)
 # endif
 {
   int s, timo = 1, pid;
+# ifdef HAVE_SIGACTION
+  sigset_t sigs, osigs;
+# else
   long oldmask;
-  struct sockaddr_in sin, from;
+# endif /* !HAVE_SIGACTION */
+  struct sockaddr_storage sin, from;
+  socklen_t len;
   char c;
 
 # ifdef ATHENA_COMPAT
@@ -109,9 +120,14 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 # else
   int lport = START_PORT;
 # endif
+# if HAVE_DECL_GETADDRINFO
+  struct addrinfo hints, *ai, *res;
+  char portstr[8], fqdn[NI_MAXHOST];
+# else /* !HAVE_DECL_GETADDRINFO */
   struct hostent *hp;
+# endif
   int rc;
-  char *host_save;
+  char *host_save, *host;
   int status;
 
 # if defined SHISHI
@@ -119,16 +135,82 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 # endif
 
   pid = getpid ();
-  hp = gethostbyname (*ahost);
+
+  /* Extract Kerberos instance name.  */
+  host = strchr (*ahost, '/');
+  if (host)
+    ++host;
+  else
+    host = *ahost;
+
+# if HAVE_DECL_GETADDRINFO
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = af;
+  hints.ai_socktype = SOCK_STREAM;
+  hints.ai_flags = AI_CANONNAME;
+  snprintf (portstr, sizeof (portstr), "%hu", ntohs (rport));
+
+  rc = getaddrinfo (host, portstr, &hints, &res);
+  if (rc)
+    {
+      fprintf (stderr, "kcmd: host %s: %s\n", host, gai_strerror (rc));
+      return (-1);
+    }
+
+  ai = res;
+
+  /* Attempt back resolving into the official host name.  */
+  rc = getnameinfo (ai->ai_addr, ai->ai_addrlen, fqdn, sizeof (fqdn),
+		    NULL, 0, NI_NAMEREQD);
+  if (!rc)
+    {
+      host_save = malloc (strlen (fqdn) + 1);
+      if (host_save == NULL)
+	return (-1);
+      strcpy (host_save, fqdn);
+    }
+  else
+    {
+      host_save = malloc (strlen (ai->ai_canonname) + 1);
+      if (host_save == NULL)
+	return (-1);
+      strcpy (host_save, ai->ai_canonname);
+    }
+
+# else /* !HAVE_DECL_GETADDRINFO */
+  /* Often the following rejects non-IPv4.
+   * This is dependent on system implementation.  */
+  hp = gethostbyname (host);
   if (hp == NULL)
     {
-      /* fprintf(stderr, "%s: unknown host\n", *ahost); */
+      /* fprintf(stderr, "%s: unknown host\n", host); */
       return (-1);
     }
 
   host_save = malloc (strlen (hp->h_name) + 1);
+  if (host_save == NULL)
+    return -1;
   strcpy (host_save, hp->h_name);
-  *ahost = host_save;
+# endif /* !HAVE_DECL_GETADDRINFO */
+
+  if (host == *ahost)
+    *ahost = host_save;		/* Simple host name string.  */
+  else
+    {
+      /* Server name `*ahost' is a Kerberized name.  */
+      char *p;
+
+      p = malloc ((host - *ahost) + strlen (host_save) + 1);
+      if (p == NULL)
+	return (-1);
+
+      /* Extract prefix from `*ahost', excluding slash,
+       * and concatenate the host's canonical name, but
+       * preceeded by a slash.
+       */
+      sprintf (p, "%.*s/%s", (int) (host - *ahost - 1), *ahost, host_save);
+      *ahost = p;
+    }
 
 # ifdef KERBEROS
   /* If realm is null, look up from table */
@@ -136,26 +218,64 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
     realm = krb_realmofhost (host_save);
 # endif	/* KERBEROS */
 
+# ifdef HAVE_SIGACTION
+  sigemptyset (&sigs);
+  sigaddset (&sigs, SIGURG);
+  sigprocmask (SIG_BLOCK, &sigs, &osigs);
+# else
   oldmask = sigblock (sigmask (SIGURG));
+# endif /* !HAVE_SIGACTION */
   for (;;)
     {
-      s = getport (&lport);
+# if HAVE_DECL_GETADDRINFO
+      s = getport (&lport, ai->ai_family);
+# else /* !HAVE_DECL_GETADDRINFO */
+      s = getport (&lport, hp->h_addrtype);
+# endif
       if (s < 0)
 	{
 	  if (errno == EAGAIN)
 	    fprintf (stderr, "kcmd(socket): All ports in use\n");
 	  else
 	    perror ("kcmd: socket");
+# if HAVE_SIGACTION
+	  sigprocmask (SIG_SETMASK, &osigs, NULL);
+# else
 	  sigsetmask (oldmask);
+# endif /* !HAVE_SIGACTION */
 	  return (-1);
 	}
       fcntl (s, F_SETOWN, pid);
-      sin.sin_family = hp->h_addrtype;
 
-      memcpy (&sin.sin_addr, hp->h_addr, hp->h_length);
-      sin.sin_port = rport;
+# if HAVE_DECL_GETADDRINFO
+      len = ai->ai_addrlen;
+      memcpy (&sin, ai->ai_addr, ai->ai_addrlen);
+# else /* !HAVE_DECL_GETADDRINFO */
+      sin.ss_family = hp->h_addrtype;
+      switch (hp->h_addrtype)
+	{
+	case AF_INET6:
+	  len = sizeof (struct sockaddr_in6);
+#  ifdef HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
+	  sin.ss_len = len;
+#  endif
+	  memcpy (&((struct sockaddr_in6 *) &sin)->sin6_addr,
+		  hp->h_addr, hp->h_length);
+	  ((struct sockaddr_in6 *) &sin)->sin6_port = rport;
+	  break;
+	case AF_INET:
+	default:
+	  len = sizeof (struct sockaddr_in);
+#  ifdef HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
+	  sin.ss_len = len;
+#  endif
+	  memcpy (&((struct sockaddr_in *) &sin)->sin_addr,
+		  hp->h_addr, hp->h_length);
+	  ((struct sockaddr_in *) &sin)->sin_port = rport;
+	}
+# endif /* !HAVE_DECL_GETADDRINFO */
 
-      if (connect (s, (struct sockaddr *) &sin, sizeof (sin)) >= 0)
+      if (connect (s, (struct sockaddr *) &sin, len) >= 0)
 	break;
       close (s);
       if (errno == EADDRINUSE)
@@ -173,26 +293,65 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 	  continue;
 	}
 # if ! defined ultrix || defined sun
+#  if HAVE_DECL_GETADDRINFO
+      if (ai->ai_next)
+#  else /* !HAVE_DECL_GETADDRINFO */
       if (hp->h_addr_list[1] != NULL)
+#  endif
 	{
 	  int oerrno = errno;
+	  char addrstr[INET6_ADDRSTRLEN];
 
-	  fprintf (stderr,
-		   "kcmd: connect to address %s: ", inet_ntoa (sin.sin_addr));
+#  if HAVE_DECL_GETADDRINFO
+	  getnameinfo (ai->ai_addr, ai->ai_addrlen,
+		       addrstr, sizeof (addrstr), NULL, 0,
+		       NI_NUMERICHOST);
+	  fprintf (stderr, "kcmd: connect to address %s: ", addrstr);
+	  errno = oerrno;
+	  perror (NULL);
+	  ai = ai->ai_next;
+	  getnameinfo (ai->ai_addr, ai->ai_addrlen,
+		       addrstr, sizeof (addrstr), NULL, 0,
+		       NI_NUMERICHOST);
+	  fprintf (stderr, "Trying %s...\n", addrstr);
+#  else /* !HAVE_DECL_GETADDRINFO */
+	  fprintf (stderr, "kcmd: connect to address %s: ",
+		   inet_ntop (hp->h_addrtype, hp->h_addr_list[0],
+			      addrstr, sizeof (addrstr)));
 	  errno = oerrno;
 	  perror (NULL);
 	  hp->h_addr_list++;
-	  memcpy (& sin.sin_addr, hp->h_addr_list, hp->h_length);
-	  fprintf (stderr, "Trying %s...\n", inet_ntoa (sin.sin_addr));
+	  fprintf (stderr, "Trying %s...\n",
+		   inet_ntop (hp->h_addrtype, hp->h_addr_list[0],
+			      addrstr, sizeof (addrstr)));
+#  endif /* !HAVE_DECL_GETADDRINFO */
 	  continue;
 	}
 # endif	/* !(defined(ultrix) || defined(sun)) */
+# if HAVE_DECL_GETADDRINFO
+      if (errno != ECONNREFUSED)
+	perror (res->ai_canonname);
+
+      if (res)
+	freeaddrinfo (res);
+# else /* !HAVE_DECL_GETADDRINFO */
       if (errno != ECONNREFUSED)
 	perror (hp->h_name);
+# endif
+
+# if HAVE_SIGACTION
+      sigprocmask (SIG_SETMASK, &osigs, NULL);
+# else
       sigsetmask (oldmask);
+# endif /* !HAVE_SIGACTION */
 
       return (-1);
     }
+# if HAVE_DECL_GETADDRINFO
+  if (res)
+    freeaddrinfo (res);
+#endif
+
   lport--;
   if (fd2p == 0)
     {
@@ -202,8 +361,10 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
   else
     {
       char num[8];
-      int s2 = getport (&lport), s3;
-      int len = sizeof (from);
+      int port, s2, s3;
+
+      s2 = getport (&lport, sin.ss_family);
+      len = sizeof (from);
 
       if (s2 < 0)
 	{
@@ -212,7 +373,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 	}
       listen (s2, 1);
       sprintf (num, "%d", lport);
-      if (write (s, num, strlen (num) + 1) != strlen (num) + 1)
+      if (write (s, num, strlen (num) + 1) != (ssize_t) strlen (num) + 1)
 	{
 	  perror ("kcmd(write): setting up stderr");
 	  close (s2);
@@ -229,8 +390,12 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 	  goto bad;
 	}
       *fd2p = s3;
-      from.sin_port = ntohs ((unsigned short) from.sin_port);
-      if (from.sin_family != AF_INET || from.sin_port >= IPPORT_RESERVED)
+      port = (from.ss_family == AF_INET6)
+	     ? ntohs (((struct sockaddr_in6 *) &from)->sin6_port)
+	     : ntohs (((struct sockaddr_in *) &from)->sin_port);
+
+      if (port >= IPPORT_RESERVED
+          || (from.ss_family != AF_INET && from.ss_family != AF_INET6))
 	{
 	  fprintf (stderr,
 		   "kcmd(socket): protocol failure in circuit setup.\n");
@@ -253,7 +418,7 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 
       *faddr = sin;
 
-      sin_len = sizeof (struct sockaddr_in);
+      sin_len = sizeof (*laddr);
       if (getsockname (s, (struct sockaddr *) laddr, &sin_len) < 0)
 	{
 	  perror ("kcmd(getsockname)");
@@ -272,11 +437,11 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 # elif defined(SHISHI)
   if (authopts & SHISHI_APOPTIONS_MUTUAL_REQUIRED)
     {
-      int sin_len;
+      socklen_t sin_len;
 
       *faddr = sin;
 
-      sin_len = sizeof (struct sockaddr_in);
+      sin_len = sizeof (*laddr);
       if (getsockname (s, (struct sockaddr *) laddr, &sin_len) < 0)
 	{
 	  perror ("kcmd(getsockname)");
@@ -284,6 +449,8 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 	  goto bad2;
 	}
     }
+
+  (void) service;	/* Silence warning.  XXX: Implicit use?  */
 
   if ((status =
        shishi_auth (h, 0, remuser, *ahost, s, cmd, rport, key,
@@ -296,8 +463,11 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
   write (s, cmd, strlen (cmd) + 1);
 
 # ifdef SHISHI
-  write (s, *remuser, strlen (*remuser) + 1);
-  write (s, &zero, sizeof (int));
+  if (locuser && locuser[0])
+    write (s, locuser, strlen (locuser) + 1);
+  else
+    write (s, *remuser, strlen (*remuser) + 1);
+  write (s, &zero, sizeof (int));	/* XXX: not protocol */
 # endif
 
   if ((rc = read (s, &c, 1)) != 1)
@@ -318,9 +488,14 @@ kcmd (Shishi ** h, int *sock, char **ahost, unsigned short rport, char *locuser,
 	    break;
 	}
       status = -1;
+      errno = ENOENT;
       goto bad2;
     }
+# if HAVE_SIGACTION
+  sigprocmask (SIG_SETMASK, &osigs, NULL);
+# else
   sigsetmask (oldmask);
+# endif /* !HAVE_SIGACTION */
   *sock = s;
 # if defined KERBEROS
   return (KSUCCESS);
@@ -332,25 +507,47 @@ bad2:
     close (*fd2p);
 bad:
   close (s);
+# if HAVE_SIGACTION
+  sigprocmask (SIG_SETMASK, &osigs, NULL);
+# else
   sigsetmask (oldmask);
+# endif /* !HAVE_SIGACTION */
   return (status);
 }
 
 int
-getport (int *alport)
+getport (int *alport, int af)
 {
-  struct sockaddr_in sin;
+  struct sockaddr_storage sin;
+  socklen_t len;
   int s;
 
-  sin.sin_family = AF_INET;
-  sin.sin_addr.s_addr = INADDR_ANY;
-  s = socket (AF_INET, SOCK_STREAM, 0);
+  memset (&sin, 0, sizeof (sin));
+  sin.ss_family = af;
+  len = (af == AF_INET6) ? sizeof (struct sockaddr_in6)
+	: sizeof (struct sockaddr_in);
+# ifdef HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
+  sin.ss_len = len;
+# endif
+
+  s = socket (sin.ss_family, SOCK_STREAM, 0);
   if (s < 0)
     return (-1);
   for (;;)
     {
-      sin.sin_port = htons ((unsigned short) * alport);
-      if (bind (s, (struct sockaddr *) &sin, sizeof (sin)) >= 0)
+      switch (af)
+	{
+	case AF_INET6:
+	  ((struct sockaddr_in6 *) &sin)->sin6_port =
+		htons ((unsigned short) * alport);
+	  break;
+	case AF_INET:
+	default:
+	  ((struct sockaddr_in *) &sin)->sin_port =
+		htons ((unsigned short) * alport);
+	}
+
+      if (bind (s, (struct sockaddr *) &sin, len) >= 0)
 	return (s);
       if (errno != EADDRINUSE)
 	{
@@ -372,4 +569,4 @@ getport (int *alport)
     }
 }
 
-#endif /* KERBEROS */
+#endif /* KERBEROS || SHISHI */

@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -107,6 +107,7 @@ init_display (void)
   noecho ();
   crmode ();
 
+  signal (SIGQUIT, sig_sent);
   signal (SIGINT, sig_sent);
   signal (SIGPIPE, sig_sent);
 
@@ -127,8 +128,6 @@ init_display (void)
   line_win = newwin (1, COLS, my_win.x_nlines, 0);
   box (line_win, '-', '-');
   wrefresh (line_win);
-  /* let them know we are working on it */
-  current_state = "No connection yet";
 
   return 0;
 }

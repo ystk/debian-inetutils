@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -30,12 +30,9 @@ typedef struct netdef netdef_t;
 struct netdef
 {
   netdef_t *next;
-  unsigned int ipaddr;
-  unsigned int netmask;
+  in_addr_t ipaddr;
+  in_addr_t netmask;
 };
-
-#define ACT_ALLOW  0
-#define ACT_DENY   1
 
 typedef struct acl acl_t;
 
@@ -44,6 +41,7 @@ struct acl
   acl_t *next;
   regex_t re;
   netdef_t *netlist;
+  int system;
   int action;
 };
 
@@ -78,7 +76,7 @@ read_address (char **line_ptr, char *ptr)
 static netdef_t *
 netdef_parse (char *str)
 {
-  unsigned int ipaddr, netmask;
+  in_addr_t ipaddr, netmask;
   netdef_t *netdef;
   char ipbuf[DOTTED_QUAD_LEN + 1];
 
@@ -119,7 +117,7 @@ netdef_parse (char *str)
   netdef = malloc (sizeof *netdef);
   if (!netdef)
     {
-      syslog (LOG_ERR, "out of memory");
+      syslog (LOG_ERR, "Out of memory");
       exit (EXIT_FAILURE);
     }
 
@@ -131,20 +129,74 @@ netdef_parse (char *str)
 }
 
 void
-read_acl (char *config_file)
+read_acl (char *config_file, int system)
 {
   FILE *fp;
   int line;
   char buf[128];
   char *ptr;
 
-  if (!config_file)
+  if (!config_file || !config_file[0])
     return;
 
   fp = fopen (config_file, "r");
   if (!fp)
     {
-      syslog (LOG_ERR, "can't open config file %s: %m", config_file);
+      if (system > 0)
+	{
+	  /* A missing, yet specified, site-wide ACL is a serious error.
+	   * Abort execution whenever this happens.
+	   */
+	  syslog (LOG_ERR, "Cannot open config file %s: %m", config_file);
+	  exit (EXIT_FAILURE);
+	}
+      return;	/* User setting may fail to exist.  Just ignore.  */
+    }
+
+  if (system < 0)
+    {
+      /* Alarmed state, violating file access policy.
+       * Insert a single, general denial equivalent to
+       * a rule reading `deny .* any'.
+       */
+      const char any_user[] = "^.*$";
+      char any_host[] = "any";
+      acl_t *acl;
+      regex_t re;
+      netdef_t *cur;
+
+      fclose (fp);
+      acl = malloc (sizeof *acl);
+
+      if (!acl)
+	{
+	  syslog (LOG_ERR, "Out of memory");
+	  exit (EXIT_FAILURE);
+	}
+      if (regcomp (&re, any_user, 0) != 0)
+	{
+	  syslog (LOG_ERR, "Bad regexp '%s'.", any_user);
+	  exit (EXIT_FAILURE);
+	}
+      cur = netdef_parse (any_host);
+      if (!cur)
+	{
+	  syslog (LOG_ERR, "Cannot parse netdef '%s'.", any_host);
+	  exit (EXIT_FAILURE);
+	}
+
+      acl->next = NULL;
+      acl->action = ACL_DENY;
+      acl->system = 0;
+      acl->re = re;
+      acl->netlist = cur;
+
+      if (!acl_tail)
+	acl_head = acl;
+      else
+	acl_tail->next = acl;
+      acl_tail = acl;
+
       return;
     }
 
@@ -178,19 +230,19 @@ read_acl (char *config_file)
 	}
 
       if (strcmp (argv[0], "allow") == 0)
-	action = ACT_ALLOW;
+	action = ACL_ALLOW;
       else if (strcmp (argv[0], "deny") == 0)
-	action = ACT_DENY;
+	action = ACL_DENY;
       else
 	{
-	  syslog (LOG_ERR, "%s:%d: unknown keyword", config_file, line);
+	  syslog (LOG_WARNING, "%s:%d: unknown keyword", config_file, line);
 	  argcv_free (argc, argv);
 	  continue;
 	}
 
       if (regcomp (&re, argv[1], 0) != 0)
 	{
-	  syslog (LOG_ERR, "%s:%d: bad regexp", config_file, line);
+	  syslog (LOG_WARNING, "%s:%d: bad regexp", config_file, line);
 	  argcv_free (argc, argv);
 	  continue;
 	}
@@ -217,11 +269,12 @@ read_acl (char *config_file)
       acl = malloc (sizeof *acl);
       if (!acl)
 	{
-	  syslog (LOG_CRIT, "out of memory");
+	  syslog (LOG_ERR, "Out of memory");
 	  exit (EXIT_FAILURE);
 	}
       acl->next = NULL;
       acl->action = action;
+      acl->system = system;
       acl->netlist = head;
       acl->re = re;
 
@@ -238,8 +291,11 @@ read_acl (char *config_file)
 static acl_t *
 open_users_acl (char *name)
 {
+  int level = 0;	/* Private file, not mandatory.  */
+  int rc;
   char *filename;
   struct passwd *pw;
+  struct stat st;
   acl_t *mark;
 
   pw = getpwnam (name);
@@ -251,15 +307,35 @@ open_users_acl (char *name)
 	    2 /* Null and separator.  */ );
   if (!filename)
     {
-      syslog (LOG_ERR, "out of memory");
+      syslog (LOG_ERR, "Out of memory");
       return NULL;
     }
 
   sprintf (filename, "%s/%s", pw->pw_dir, USER_ACL_NAME);
 
+  /* The location must be a file, and must be owned by the
+   * indicated user and his corresponding group.  No write
+   * access by group or world.  Record a syslog warning,
+   * should either of these not be true.
+   */
+  rc = stat (filename, &st);
+  if (rc < 0)
+    return NULL;
+  if (!S_ISREG(st.st_mode)
+      || st.st_uid != pw->pw_uid
+      || st.st_gid != pw->pw_gid
+      || st.st_mode & S_IWGRP
+      || st.st_mode & S_IWOTH)
+    {
+      if (logging || debug)
+	syslog (LOG_WARNING, "Discarding '%s': insecure access.", filename);
+      level = -1;	/* Enforce a deny rule.  */
+    }
+
   mark = acl_tail;
-  read_acl (filename);
+  read_acl (filename, level);
   free (filename);
+
   return mark;
 }
 
@@ -308,26 +384,63 @@ int
 acl_match (CTL_MSG * msg, struct sockaddr_in *sa_in)
 {
   acl_t *acl, *mark;
-  unsigned int ip;
+  in_addr_t ip;
+  int system_action = ACL_ALLOW, user_action = ACL_ALLOW;
+  int found_user_acl = 0;
+
+  if (strict_policy)
+    system_action = ACL_DENY;
 
   mark = open_users_acl (msg->r_name);
   ip = sa_in->sin_addr.s_addr;
+  if (mark && (mark != acl_tail))
+    found_user_acl = 1;
+
   for (acl = acl_head; acl; acl = acl->next)
     {
       netdef_t *net;
 
       for (net = acl->netlist; net; net = net->next)
 	{
-	  if (net->ipaddr == (ip & net->netmask))
+	  /* Help the administrator and his users
+	   * to simplify net list syntax:
+	   *
+	   *   mask the address `net->ipaddr' with
+	   *   `net->netmask' for less computations
+	   *   within the ACL specification.
+	   */
+	  if ((net->ipaddr & net->netmask) == (ip & net->netmask))
 	    {
-	      if (regexec (&acl->re, msg->l_name, 0, NULL, 0) == 0)
-		{
-		  discard_acl (mark);
-		  return acl->action;
-		}
+	      /*
+	       * Site-wide ACLs concern user's name on this machine,
+	       * whereas user's rules concern the incoming client name.
+	       */
+	      if (acl->system &&
+		  regexec (&acl->re, msg->r_name, 0, NULL, 0) == 0)
+		system_action = acl->action;
+	      else if (regexec (&acl->re, msg->l_name, 0, NULL, 0) == 0)
+		user_action = acl->action;
 	    }
 	}
     }
   discard_acl (mark);
-  return ACT_ALLOW;
+
+  if (system_action == ACL_ALLOW)
+    return user_action;
+
+  if (strict_policy)
+    return ACL_DENY;	/* Equal to `system_action'.  */
+
+  /* At this point it is known that last activated site-wide
+   * ACL rule has set SYSTEM_ACTION to ACL_DENY.  Do we
+   * always want it to be overridable?
+   */
+
+  /* Override ACL_DENY only if there was a user specific file
+   * ~/.talkrc containing some active rules at all.  In other
+   * words, a site-policy claiming `deny' will need an act of
+   * will by the user in order that it be overridden.
+   */
+
+  return found_user_acl ? user_action : ACL_DENY;
 }

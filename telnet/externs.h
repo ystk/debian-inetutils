@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -78,9 +78,7 @@
 #ifdef HAVE_SYS_FILIO_H
 # include <sys/filio.h>
 #endif
-#ifdef CRAY
-# include <errno.h>
-#endif /* CRAY */
+#include <errno.h>
 #ifdef	USE_TERMIO
 # ifndef VINTR
 #  ifdef SYSV_TERMIO
@@ -120,12 +118,6 @@ typedef unsigned char cc_t;
 #endif
 
 #define SUBBUFSIZE	256
-
-#ifndef CRAY
-# ifndef errno
-extern int errno;		/* outside this world */
-# endif
-#endif /* !CRAY */
 
 extern int autologin,		/* Autologin enabled */
   skiprc,			/* Don't process the ~/.telnetrc file */

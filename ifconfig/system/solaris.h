@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -28,9 +28,12 @@
 
 
 /* XXX: Gross. Have autoconf check and put in system.h or so.
-   The correctness is documented in Solaris 2.7, if_tcp(7p).  */
+   The correctness is documented in Solaris 2.7, if_tcp(7p).
+   At least OpenSolaris and later systems do provide ifr_mtu.  */
 
-# define ifr_mtu ifr_metric
+# ifndef HAVE_STRUCT_IFREQ_IFR_MTU
+#  define ifr_mtu ifr_metric
+# endif /* !HAVE_STRUCT_IFREQ_IFR_MTU */
 
 
 /* Option support.  */

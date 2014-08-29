@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-  2009, 2010, 2011 Free Software Foundation, Inc.
+  2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -63,7 +63,6 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <utmp.h>
 #include <filemode.h>
 
 #ifdef HAVE_SYS_MKDEV_H
@@ -133,8 +132,9 @@ printlong (DISPLAY *dp)
 		dp->s_block, (long long) howmany (sp->st_blocks, blocksize));
       strmode (sp->st_mode, buf);
       np = p->fts_pointer;
-      printf ("%s %*u %-*s  %-*s  ", buf, dp->s_nlink,
-	      sp->st_nlink, dp->s_user, np->user, dp->s_group, np->group);
+      printf ("%s %*d %-*s  %-*s  ",
+	      buf, dp->s_nlink, (int) sp->st_nlink,
+	      dp->s_user, np->user, dp->s_group, np->group);
       if (f_flags)
 	printf ("%-*s ", dp->s_flags, np->flags);
       if (S_ISCHR (sp->st_mode) || S_ISBLK (sp->st_mode))

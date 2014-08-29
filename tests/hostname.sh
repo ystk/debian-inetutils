@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Copyright (C) 2011 Free Software Foundation, Inc.
+# Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -16,6 +16,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
+
+# Prerequisites:
+#
+#  * Shell: SVR3 Bourne shell, or newer.
+#
+#  * id(1), uname(1).
+
+. ./tools.sh
 
 hostname=${hostname:-../src/hostname$EXEEXT}
 
@@ -34,7 +42,7 @@ test `$hostname` = `uname -n` || errno=$?
 test $errno -eq 0 || echo "Failed to get hostname." >&2
 test $errno -eq 0 || exit $errno
 
-if [ `id -u` != 0 ]; then
+if [ `func_id_uid` != 0 ]; then
     echo "hostname: skipping tests to set host name"
 else
     # Only run this if hostname succeeded...

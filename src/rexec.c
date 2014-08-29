@@ -1,5 +1,6 @@
 /*
-  Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+  Copyright (C) 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -37,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <termios.h>
 
 #include <sys/select.h>
 
@@ -59,13 +61,18 @@ const char *program_authors[] =
   };
 
 static struct argp_option options[] = {
-  {"user",  'u', "user", 0, "Specify the user"},
-  {"host",  'h', "host", 0, "Specify the host"},
-  {"password",  'p', "password", 0, "Specify the password"},
-  {"port",  'P', "port", 0, "Specify the port to connect to"},
-  {"noerr", 'n', NULL, 0, "Disable the stderr stream"},
-  {"error",  'e', "error", 0, "Specify a TCP port to use for stderr"},
-  { 0 }
+#define GRP 10
+  {"user",  'u', "user", 0, "Specify the user", GRP},
+  {"host",  'h', "host", 0, "Specify the host", GRP},
+  {"password",  'p', "password", 0, "Specify the password", GRP},
+  {"port",  'P', "port", 0, "Specify the port to connect to", GRP},
+  {"noerr", 'n', NULL, 0, "Disable the stderr stream", GRP},
+  {"error",  'e', "error", 0, "Specify a TCP port to use for stderr", GRP},
+  {"ipv4",  '4', NULL, 0, "Use IPv4 address space.", GRP},
+  {"ipv6",  '6', NULL, 0, "Use IPv6 address space.", GRP},
+  {"ipany",  'a', NULL, 0, "Allow any address family. (default)", GRP},
+#undef GRP
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 struct arguments
@@ -74,6 +81,7 @@ struct arguments
   const char *user;
   const char *password;
   const char *command;
+  int af;
   int port;
   int use_err;
   int err_port;
@@ -104,6 +112,15 @@ parse_opt (int key, char *arg, struct argp_state *state)
     case 'n':
       arguments->use_err = 0;
       break;
+    case '4':
+      arguments->af = AF_INET;
+      break;
+    case '6':
+      arguments->af = AF_INET6;
+      break;
+    case 'a':
+      arguments->af = AF_UNSPEC;
+      break;
     case ARGP_KEY_ARG:
       arguments->command = arg;
       state->next = state->argc;
@@ -112,15 +129,19 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 static void do_rexec (struct arguments *arguments);
+
+static int remote_err = EXIT_SUCCESS;
 
 int
 main (int argc, char **argv)
 {
   struct arguments arguments;
-  int failed = 0;
+  char password[64];
+  int n, failed = 0;
   set_program_name (argv[0]);
 
   iu_argp_init ("rexec", program_authors);
@@ -129,6 +150,7 @@ main (int argc, char **argv)
   arguments.password = NULL;
   arguments.host = NULL;
   arguments.command = NULL;
+  arguments.af = AF_UNSPEC;
   arguments.err_port = 0;
   arguments.use_err = 1;
   arguments.port = 512;
@@ -162,9 +184,54 @@ main (int argc, char **argv)
   if (failed > 0)
     exit (EXIT_FAILURE);
 
+  if (strcmp ("-", arguments.password) == 0)
+    {
+      password[0] = '\0';
+
+      alarm (15);
+
+      if (isatty (STDIN_FILENO))
+	{
+	  int changed = 0;
+	  struct termios tt, newtt;
+
+	  if (tcgetattr (STDIN_FILENO, &tt) >= 0)
+	    {
+	      memcpy (&newtt, &tt, sizeof (newtt));
+	      newtt.c_lflag &= ~ECHO;
+	      newtt.c_lflag |= ECHONL;
+	      if (tcsetattr (STDIN_FILENO, TCSANOW, &newtt))
+		error (0, errno, "failed to turn off echo");
+	      changed = 1;
+	    }
+
+	  printf ("Password: ");
+	  if (fgets (password, sizeof (password), stdin) == NULL)
+	    password[0] = '\0';
+
+	  if (changed && (tcsetattr (STDIN_FILENO, TCSANOW, &tt) < 0))
+	    error (0, errno, "failed to restore terminal");
+	}
+      else if (fgets (password, sizeof (password), stdin) == NULL)
+	password[0] = '\0';
+      alarm (0);
+
+      n = strlen (password);
+      if ((n > 0) && (password[n - 1] == '\n'))
+	{
+	  password[n - 1] = '\0';
+	  --n;
+	}
+
+      if (n == 0)
+	error (EXIT_FAILURE, 0, "empty password");
+      else
+	arguments.password = password;
+    }
+
   do_rexec (&arguments);
 
-  exit (EXIT_SUCCESS);
+  exit (remote_err);
 }
 
 static void
@@ -179,35 +246,49 @@ do_rexec (struct arguments *arguments)
 {
   int err;
   char buffer[1024];
-  int sock;
-  char port_str[6];
-  struct sockaddr_in addr;
-  struct hostent *host;
+  int sock, ret;
+  char port_str[12];
+  socklen_t addrlen;
+  struct sockaddr_storage addr;
+  struct addrinfo hints, *ai, *res;
   int stdin_fd = STDIN_FILENO;
   int err_sock = -1;
 
-  sock = socket (AF_INET, SOCK_STREAM, 0);
-  if (sock < 0)
-    error (EXIT_FAILURE, errno, "cannot open socket");
+  snprintf (port_str, sizeof (port_str), "%d", arguments->port);
 
-  host = gethostbyname (arguments->host);
-  if (host == NULL)
-    error (EXIT_FAILURE, errno, "cannot find host %s", arguments->host);
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = arguments->af;
+  hints.ai_socktype = SOCK_STREAM;
 
-  memset (&addr, 0, sizeof (addr));
-  addr.sin_family = AF_INET;
-  memmove ((caddr_t) &addr.sin_addr,
-#ifdef HAVE_STRUCT_HOSTENT_H_ADDR_LIST
-	       host->h_addr_list[0],
-#else
-	       host->h_addr,
-#endif
-	       host->h_length);
+  ret = getaddrinfo (arguments->host, port_str, &hints, &res);
+  if (ret)
+    error (EXIT_FAILURE, errno, "getaddrinfo: %s", gai_strerror (ret));
 
-  addr.sin_port = htons ((short)arguments->port);
+  for (ai = res; ai != NULL; ai = ai->ai_next)
+    {
+      sock = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+      if (sock < 0)
+	continue;
 
-  if (connect (sock, &addr, sizeof (addr)) < 0)
-    error (EXIT_FAILURE, errno, "cannot connect to the specified host");
+      if (connect (sock, ai->ai_addr, ai->ai_addrlen) < 0)
+	{
+	  close (sock);
+	  sock = -1;
+	  continue;
+	}
+
+      break;	/* Acceptable.  */
+    }
+
+  if (ai == NULL)
+    {
+      freeaddrinfo (res);
+      error (EXIT_FAILURE, errno, "cannot find host %s", arguments->host);
+    }
+
+  addrlen = ai->ai_addrlen;
+  memcpy (&addr, ai->ai_addr, ai->ai_addrlen);
+  freeaddrinfo (res);
 
   if (!arguments->use_err)
     {
@@ -218,33 +299,76 @@ do_rexec (struct arguments *arguments)
     }
   else
     {
-      struct sockaddr_in serv_addr;
+      struct sockaddr_storage serv_addr;
       socklen_t len;
-      int serv_sock = socket (AF_INET, SOCK_STREAM, 0);
+      int on = 1;
+      int serv_sock = socket (addr.ss_family, SOCK_STREAM, 0);
 
       if (serv_sock < 0)
         error (EXIT_FAILURE, errno, "cannot open socket");
 
+      setsockopt (serv_sock, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on));
+
       memset (&serv_addr, 0, sizeof (serv_addr));
 
-      serv_addr.sin_port = arguments->err_port;
-      if (bind (serv_sock, &serv_addr, sizeof (serv_addr)) < 0)
+      /* Need to bind to explicit port, when err_port is non-zero,
+       * or to be assigned a free port, should err_port be naught.
+       */
+      switch (addr.ss_family)
+	{
+	case AF_INET:
+#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+	  ((struct sockaddr_in *) &serv_addr)->sin_len = addrlen;
+#endif
+	  ((struct sockaddr_in *) &serv_addr)->sin_family = addr.ss_family;
+	  ((struct sockaddr_in *) &serv_addr)->sin_port = arguments->err_port;
+	  break;
+	case AF_INET6:
+#ifdef HAVE_STRUCT_SOCKADDR_IN6_SIN6_LEN
+	  ((struct sockaddr_in6 *) &serv_addr)->sin6_len = addrlen;
+#endif
+	  ((struct sockaddr_in6 *) &serv_addr)->sin6_family = addr.ss_family;
+	  ((struct sockaddr_in6 *) &serv_addr)->sin6_port = arguments->err_port;
+	  break;
+	default:
+	  error (EXIT_FAILURE, EAFNOSUPPORT, "unknown address family");
+	}
+
+      if (bind (serv_sock, (struct sockaddr *) &serv_addr, addrlen) < 0)
         error (EXIT_FAILURE, errno, "cannot bind socket");
 
       len = sizeof (serv_addr);
-      if (getsockname (serv_sock, &serv_addr, &len))
+      if (getsockname (serv_sock, (struct sockaddr *) &serv_addr, &len))
         error (EXIT_FAILURE, errno, "error reading socket port");
 
       if (listen (serv_sock, 1))
         error (EXIT_FAILURE, errno, "error listening on socket");
 
-      arguments->err_port = ntohs (serv_addr.sin_port);
-      sprintf (port_str, "%i", arguments->err_port);
+      switch (serv_addr.ss_family)
+	{
+	case AF_INET:
+	  arguments->err_port = ntohs (((struct sockaddr_in *) &serv_addr)->sin_port);
+	  break;
+	case AF_INET6:
+	  arguments->err_port = ntohs (((struct sockaddr_in6 *) &serv_addr)->sin6_port);
+	  break;
+	default:
+	  error (EXIT_FAILURE, EAFNOSUPPORT, "unknown address family");
+	}
+      snprintf (port_str, sizeof (port_str), "%u", arguments->err_port);
       safe_write (sock, port_str, strlen (port_str) + 1);
 
-      err_sock = accept (serv_sock, &serv_addr, &len);
+      /* Limit waiting time in case the server fails to call back:
+       * if it aborts prematurely, or if a firewall is blocking
+       * the intended STDERR connection to reach us.
+       */
+      alarm (5);
+
+      err_sock = accept (serv_sock, (struct sockaddr *) &serv_addr, &len);
       if (err_sock < 0)
         error (EXIT_FAILURE, errno, "error accepting connection");
+
+      alarm (0);
 
       shutdown (err_sock, SHUT_WR);
 
@@ -257,7 +381,8 @@ do_rexec (struct arguments *arguments)
 
   while (1)
     {
-      int ret;
+      int consumed = 0;		/* Signals remote return status.  */
+      int ret, offset;
       fd_set rsocks;
 
       /* No other data to read.  */
@@ -291,7 +416,7 @@ do_rexec (struct arguments *arguments)
               continue;
             }
 
-          if (write (STDOUT_FILENO, buffer, err) < 0)
+          if (write (sock, buffer, err) < 0)
             error (EXIT_FAILURE, errno, "error writing");
         }
 
@@ -309,8 +434,17 @@ do_rexec (struct arguments *arguments)
               continue;
             }
 
-          if (write (STDOUT_FILENO, buffer, err) < 0)
+	  offset = 0;
+
+	  if ((err > 0) && (consumed < 2))	/* Status can be two chars.  */
+	    while ((err > offset) && (offset < 2)
+		   && (buffer[offset] == 0 || buffer[offset] == 1))
+	      remote_err = buffer[offset++];
+
+          if (write (STDOUT_FILENO, buffer + offset, err - offset) < 0)
             error (EXIT_FAILURE, errno, "error writing");
+
+	  consumed += err;
         }
 
      if (0 <= err_sock && FD_ISSET (err_sock, &rsocks))
@@ -327,8 +461,17 @@ do_rexec (struct arguments *arguments)
               continue;
             }
 
-          if (write (STDERR_FILENO, buffer, err) < 0)
+	  offset = 0;
+
+	  if ((err > 0) && (consumed < 2))	/* Status can be two chars.  */
+	    while ((err > offset) && (offset < 2)
+		   && (buffer[offset] == 0 || buffer[offset] == 1))
+	      remote_err = buffer[offset++];
+
+          if (write (STDERR_FILENO, buffer + offset, err - offset) < 0)
             error (EXIT_FAILURE, errno, "error writing to stderr");
+
+	  consumed += err;
         }
     }
 }

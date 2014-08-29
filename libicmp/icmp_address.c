@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -35,7 +35,7 @@ icmp_address_encode (unsigned char * buffer, size_t bufsize, int ident, int seqn
 {
   icmphdr_t *icmp;
 
-  if (bufsize < 12)
+  if (bufsize < ICMP_MASKLEN)
     return -1;
 
   icmp = (icmphdr_t *) buffer;

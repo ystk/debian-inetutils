@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -69,20 +69,39 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
 
-/* Define macro to nothing so declarations in ftp_var.h become definitions. */
+/* Define macro to nothing so declarations
+ * in "ftp_var.h" become definitions.
+ */
 #define FTP_EXTERN
 #include "ftp_var.h"
 
 #include "libinetutils.h"
 #include "unused-parameter.h"
 
-#include <readline/readline.h>
-#include <readline/history.h>
+#ifdef HAVE_READLINE_READLINE_H
+# include <readline/readline.h>
+#elif defined HAVE_EDITLINE_READLINE_H
+# include <editline/readline.h>
+#endif
+#ifdef HAVE_READLINE_HISTORY_H
+# include <readline/history.h>
+#elif defined HAVE_EDITLINE_HISTORY_H
+# include <editline/history.h>
+#endif
 
 
+static char *slurpstring (void);
+
+static char *argbase;		/* current pointer into arg buffer */
+static char *argbuf;		/* allocated argument storage buffer */
+static char *stringbase;	/* current scan point in line buffer */
+
 #define DEFAULT_PROMPT "ftp> "
-static char *prompt = 0;
+static char *prompt = NULL;
 
 const char args_doc[] = "[HOST [PORT]]";
 const char doc[] = "Remote file transfer.";
@@ -93,14 +112,22 @@ enum {
 
 static struct argp_option argp_options[] = {
 #define GRP 0
-  {"debug", 'd', NULL, 0, "set the SO_DEBUG option", GRP+1},
+  {"debug", 'd', NULL, 0, "enable debugging output", GRP+1},
+  {"no-edit", 'e', NULL, 0,
+#if HAVE_READLINE
+	  "disable command line editing",
+#else /* !HAVE_READLINE */
+	  "(ignored)",
+#endif /* !HAVE_READLINE */
+	  GRP+1},
   {"no-glob", 'g', NULL, 0, "turn off file name globbing", GRP+1},
   {"no-prompt", 'i', NULL, 0, "do not prompt during multiple file transfers",
    GRP+1},
   {"no-login", 'n', NULL, 0, "do not automatically login to the remote system",
    GRP+1},
   {"trace", 't', NULL, 0, "enable packet tracing", GRP+1},
-  {"passive", 'p', NULL, 0, "enable passive mode transfer", GRP+1},
+  {"passive", 'p', NULL, 0,
+   "enable passive mode transfer, default for `pftp'", GRP+1},
   {"active", 'A', NULL, 0, "enable active mode transfer", GRP+1},
   {"prompt", OPT_PROMPT, "PROMPT", OPTION_ARG_OPTIONAL, "print a command line PROMPT "
    "(optionally), even if not on a tty", GRP+1},
@@ -108,17 +135,21 @@ static struct argp_option argp_options[] = {
   {"ipv4", '4', NULL, 0, "contact IPv4 hosts", GRP+1},
   {"ipv6", '6', NULL, 0, "contact IPv6 hosts", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
     case 'd':		/* Enable debug mode.  */
       options |= SO_DEBUG;
       debug++;
+      break;
+
+    case 'e':
+      usereadline = 0;	/* No editing.  */
       break;
 
     case 'g':		/* No glob.  */
@@ -168,7 +199,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 
 int
@@ -181,12 +213,30 @@ main (int argc, char *argv[])
 
   set_program_name (argv[0]);
 
+#ifdef HAVE_SETLOCALE
+  setlocale (LC_ALL, "");
+#endif
+
   doglob = 1;
   interactive = 1;
   autologin = 1;
   passivemode = 0;		/* passive mode not active */
   doepsv4 = 0;			/* use EPRT/EPSV for IPv4 */
   usefamily = AF_UNSPEC;	/* allow any address family */
+  usereadline = 1;		/* normally using readline */
+
+  line = NULL;			/* reset global input */
+  linelen = 0;
+  argbuf = NULL;
+
+  /* Invoked as `pftp'?  Then set passive mode.  */
+  cp = strrchr (argv[0], '/');
+  if (cp)
+    cp++;
+  else
+    cp = argv[0];
+  if (!strcmp ("pftp", cp))
+    passivemode = 1;
 
   /* Parse command line */
   iu_argp_init ("ftp", default_program_authors);
@@ -195,10 +245,6 @@ main (int argc, char *argv[])
   argc -= index;
   argv += index;
 
-  sp = getservbyname ("ftp", "tcp");
-  if (sp == 0)
-    error (EXIT_FAILURE, 0, "ftp/tcp: unknown service");
-
   fromatty = isatty (fileno (stdin));
   if (fromatty)
     {
@@ -206,6 +252,8 @@ main (int argc, char *argv[])
       if (!prompt)
 	prompt = DEFAULT_PROMPT;
     }
+  else
+    usereadline = 0;
 
   cpend = 0;			/* no pending replies */
   proxy = 0;			/* proxy not active */
@@ -322,7 +370,7 @@ void
 cmdscanner (int top)
 {
   struct cmd *c;
-  int l;
+  ssize_t l;
 
   if (!top)
     putchar ('\n');
@@ -333,21 +381,52 @@ cmdscanner (int top)
 	  free (line);
 	  line = NULL;
 	}
-      line = readline (prompt);
+      linelen = 0;
+
+#if HAVE_READLINE
+      if (usereadline)
+	line = readline (prompt);	/* malloc'd, no NL */
+      else
+#endif /* HAVE_READLINE */
+	{
+	  if (prompt)
+	    {
+	      fprintf (stdout, "%s", prompt);
+	      fflush (stdout);
+	    }
+
+	  /* `linelen' is updated to allocated amount.  */
+	  l = getline (&line, &linelen, stdin);	/* includes NL */
+	  if ((l > 0) && line)
+	    {
+	      char *nl = strchr (line, '\n');
+
+	      if (nl)
+		*nl = '\0';
+	    }
+	  else
+	    {
+	      /* Allocation takes place even without input.  */
+	      free (line);	/* EOF, et cetera */
+	      line = NULL;
+	      linelen = 0;
+	    }
+
+	  if (!fromatty && prompt)
+	    fprintf (stdout, "%s\n", line ? line : "");
+	} /* !usereadline ends */
+
       if (!line)
 	quit (0, 0);
+
       l = strlen (line);
-      if (l >= MAXLINE)
-	{
-	  printf ("Line too long.\n");
-	  break;
-	}
-
-      if (line && *line)
-	add_history (line);
-
       if (l == 0)
 	break;
+
+#if HAVE_READLINE
+      if (usereadline && line && *line)
+	add_history (line);
+#endif /* HAVE_READLINE */
 
       makeargv ();
       if (margc == 0)
@@ -369,7 +448,10 @@ cmdscanner (int top)
 	  printf ("Not connected.\n");
 	  continue;
 	}
+
+      /* Perform the requested action.  */
       (*c->c_handler) (margc, margv);
+
       if (bell && c->c_bell)
 	putchar ('\007');
       if (c->c_handler != help)
@@ -383,19 +465,33 @@ cmdscanner (int top)
  * Slice a string up into argc/argv.
  */
 
-int slrflag;
+static int slrflag;
 
 void
 makeargv (void)
 {
   char **argp;
 
-  margc = 0;
+  margc = 0;			/* No content as of yet.  */
+
+  /* Make sure that `argbuf' is large enough
+   * to contain `line'.  As soon as `line' is
+   * invalidated, so will `argbuf' be.
+   **/
+  free (argbuf);		/* Get rid of previous content.  */
+  argbuf = malloc (strlen (line) + 4);
+  if (!argbuf)
+    {
+      /* `margc' is naught, which hopefully will cover our back.  */
+      printf ("Allocation failure.  Serious error.\n");
+      return;
+    }
+
   argp = margv;
-  stringbase = line;		/* scan from first of buffer */
-  argbase = argbuf;		/* store from first of buffer */
+  stringbase = line;		/* scan from beginning of buffer */
+  argbase = argbuf;		/* store at beginning of buffer */
   slrflag = 0;
-  while ((*argp++ = slurpstring ()))
+  while ((margc < MAXMARGV) && (*argp++ = slurpstring ()))
     margc++;
 }
 
@@ -404,7 +500,7 @@ makeargv (void)
  * implemented with FSM to
  * handle quoting and strings
  */
-char *
+static char *
 slurpstring (void)
 {
   int got_one = 0;

@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -84,7 +84,7 @@ static FILE *cfile;
 #undef	MACHINE
 #define MACHINE	11
 
-static char tokval[100];
+static char tokval[BUFSIZ];
 
 static struct toktab
 {
@@ -114,8 +114,9 @@ int
 remote_userpass (char *host, char **aname, char **apass, char **aacct)
 {
   char *hdir, buf[BUFSIZ], *tmp;
-  char *myname = 0, *mydomain;
-  int t, i, c, usedefault = 0;
+  char *myname, *mydomain;
+  int t, c, usedefault = 0;
+  size_t i;
   struct stat stb;
 
   hdir = getenv ("HOME");
@@ -136,7 +137,8 @@ remote_userpass (char *host, char **aname, char **apass, char **aacct)
 
   mydomain = strchr (myname, '.');
   if (mydomain == NULL)
-    mydomain = xstrdup ("");
+    mydomain = "";
+
  next:
   while ((t = token ()))
     switch (t)
@@ -158,12 +160,14 @@ remote_userpass (char *host, char **aname, char **apass, char **aacct)
 	      goto match;
 	    if (strcasecmp (hostname, tokval) == 0)
 	      goto match;
-	    if ((tmp = strchr (hostname, '.')) != NULL
+	    tmp = strchr (hostname, '.');
+	    if (tmp != NULL
 		&& strcasecmp (tmp, mydomain) == 0
 		&& strncasecmp (hostname, tokval, tmp - hostname) == 0
 		&& tokval[tmp - hostname] == '\0')
 	      goto match;
-	    if ((tmp = strchr (host, '.')) != NULL
+	    tmp = strchr (host, '.');
+	    if (tmp != NULL
 		&& strcasecmp (tmp, mydomain) == 0
 		&& strncasecmp (host, tokval, tmp - host) == 0
 		&& tokval[tmp - host] == '\0')
@@ -238,7 +242,8 @@ remote_userpass (char *host, char **aname, char **apass, char **aacct)
 		}
 	      tmp = macros[macnum].mac_name;
 	      *tmp++ = c;
-	      for (i = 0; i < 8 && (c = getc (cfile)) != EOF && !isspace (c);
+	      for (i = 0; i < (sizeof (macros[macnum].mac_name) - 1)
+			  && (c = getc (cfile)) != EOF && !isspace (c);
 		   ++i)
 		{
 		  *tmp++ = c;
@@ -267,7 +272,7 @@ remote_userpass (char *host, char **aname, char **apass, char **aacct)
 		  macros[macnum].mac_start = macros[macnum - 1].mac_end + 1;
 		}
 	      tmp = macros[macnum].mac_start;
-	      while (tmp != macbuf + 4096)
+	      while (tmp < macbuf + sizeof (macbuf))
 		{
 		  if ((c = getc (cfile)) == EOF)
 		    {
@@ -287,7 +292,7 @@ remote_userpass (char *host, char **aname, char **apass, char **aacct)
 		    }
 		  tmp++;
 		}
-	      if (tmp == macbuf + 4096)
+	      if (tmp == macbuf + sizeof (macbuf))
 		{
 		  printf ("4K macro buffer exceeded\n");
 		  goto bad;

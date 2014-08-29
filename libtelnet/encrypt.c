@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -71,7 +71,7 @@
 
 #ifdef	ENCRYPTION
 
-# define ENCRYPT_NAMES
+# undef ENCRYPT_NAMES		/* Ignore enctype_names[].  */
 # include <arpa/telnet.h>
 
 # include "encrypt.h"
@@ -81,7 +81,23 @@
 # include <string.h>
 
 # include <stdio.h>
+# include <unused-parameter.h>
 # include "genget.h"
+
+/* String representation of our capabilities.
+ * Solaris will gain DES_OFB64!
+ */
+# ifdef HAVE_CONST_CHAR_ENCTYPE_NAMES
+const char *enctype_names[] =
+# else
+char *enctype_names[] =
+# endif
+{
+  "ANY", "DES_CFB64", "DES_OFB64", 0,
+};
+
+/* Callback from consumer.  */
+extern void printsub (char, unsigned char *, int);
 
 /*
  * These functions pointers point to the current routines
@@ -102,8 +118,15 @@ static char *Name = "Noname";
 
 # define typemask(x)	((x) > 0 ? 1 << ((x)-1) : 0)
 
+/* Only the type ENCTYPE_DES_CFB64 seems universal.  */
+# ifdef ENCTYPE_DES_OFB64
 static long i_support_encrypt = typemask (ENCTYPE_DES_CFB64) | typemask (ENCTYPE_DES_OFB64);
 static long i_support_decrypt = typemask (ENCTYPE_DES_CFB64) | typemask (ENCTYPE_DES_OFB64);
+# else /* !ENCTYPE_DES_OFB64 */
+static long i_support_encrypt = typemask (ENCTYPE_DES_CFB64);
+static long i_support_decrypt = typemask (ENCTYPE_DES_CFB64);
+# endif /* !ENCTYPE_DES_OFB64 */
+
 static long i_wont_support_encrypt = 0;
 static long i_wont_support_decrypt = 0;
 # define I_SUPPORT_ENCRYPT	(i_support_encrypt & ~i_wont_support_encrypt)
@@ -124,6 +147,7 @@ static Encryptions encryptions[] = {
    cfb64_session,
    cfb64_keyid,
    cfb64_printsub},
+#  ifdef ENCTYPE_DES_OFB64
   {"DES_OFB64", ENCTYPE_DES_OFB64,
    ofb64_encrypt,
    ofb64_decrypt,
@@ -134,6 +158,7 @@ static Encryptions encryptions[] = {
    ofb64_session,
    ofb64_keyid,
    ofb64_printsub},
+#  endif /* ENCTYPE_DES_OFB64 */
 # endif	/* DES_ENCRYPTION */
   {0,},
 };
@@ -253,10 +278,10 @@ EncryptDisable (char *type, char *mode)
       printf ("Usage: encrypt disable <type> [input|output]\n");
       encrypt_list_types ();
     }
-  else if ((ep = (Encryptions *) genget (type, encryptions,
+  else if ((ep = (Encryptions *) genget (type, (char **) encryptions,
 					 sizeof (Encryptions))) == 0)
     printf ("%s: invalid encryption type\n", type);
-  else if (Ambiguous (ep))
+  else if (Ambiguous ((char *) ep))
     printf ("Ambiguous type '%s'\n", type);
   else
     {
@@ -291,10 +316,10 @@ EncryptType (char *type, char *mode)
       printf ("Usage: encrypt type <type> [input|output]\n");
       encrypt_list_types ();
     }
-  else if ((ep = (Encryptions *) genget (type, encryptions,
+  else if ((ep = (Encryptions *) genget (type, (char **) encryptions,
 					 sizeof (Encryptions))) == 0)
     printf ("%s: invalid encryption type\n", type);
-  else if (Ambiguous (ep))
+  else if (Ambiguous ((char *) ep))
     printf ("Ambiguous type '%s'\n", type);
   else
     {
@@ -548,12 +573,14 @@ encrypt_is (unsigned char *data, int cnt)
   type = *data++;
   if (type < ENCTYPE_CNT)
     remote_supports_encrypt |= typemask (type);
-  if (!(ep = finddecryption (type)))
+
+  ep = finddecryption (type);
+  if (!ep)
     {
       if (encrypt_debug_mode)
 	printf (">>>%s: Can't find type %s (%d) for initial negotiation\r\n",
 		Name,
-		ENCTYPE_NAME_OK (type)
+		ENCTYPE_NAME_OK (type) && ENCTYPE_NAME (type)
 		? ENCTYPE_NAME (type) : "(unknown)", type);
       return;
     }
@@ -562,7 +589,7 @@ encrypt_is (unsigned char *data, int cnt)
       if (encrypt_debug_mode)
 	printf (">>>%s: No initial negotiation needed for type %s (%d)\r\n",
 		Name,
-		ENCTYPE_NAME_OK (type)
+		ENCTYPE_NAME_OK (type) && ENCTYPE_NAME (type)
 		? ENCTYPE_NAME (type) : "(unknown)", type);
       ret = 0;
     }
@@ -570,9 +597,11 @@ encrypt_is (unsigned char *data, int cnt)
     {
       ret = (*ep->is) (data, cnt);
       if (encrypt_debug_mode)
-	printf ("(*ep->is)(%x, %d) returned %s(%d)\n", data, cnt,
-		(ret < 0) ? "FAIL " :
-		(ret == 0) ? "SUCCESS " : "MORE_TO_DO ", ret);
+	printf ("(*ep->is)(%p, %d) returned %s (%d).\r\n",
+		data, cnt,
+		(ret < 0) ? "FAIL "
+			  : ((ret == 0) ? "SUCCESS " : "MORE_TO_DO "),
+		ret);
     }
   if (ret < 0)
     autodecrypt = 0;
@@ -593,12 +622,14 @@ encrypt_reply (unsigned char *data, int cnt)
   if (--cnt < 0)
     return;
   type = *data++;
-  if (!(ep = findencryption (type)))
+
+  ep = findencryption (type);
+  if (!ep)
     {
       if (encrypt_debug_mode)
 	printf (">>>%s: Can't find type %s (%d) for initial negotiation\r\n",
 		Name,
-		ENCTYPE_NAME_OK (type)
+		ENCTYPE_NAME_OK (type) && ENCTYPE_NAME (type)
 		? ENCTYPE_NAME (type) : "(unknown)", type);
       return;
     }
@@ -607,7 +638,7 @@ encrypt_reply (unsigned char *data, int cnt)
       if (encrypt_debug_mode)
 	printf (">>>%s: No initial negotiation needed for type %s (%d)\r\n",
 		Name,
-		ENCTYPE_NAME_OK (type)
+		ENCTYPE_NAME_OK (type) && ENCTYPE_NAME (type)
 		? ENCTYPE_NAME (type) : "(unknown)", type);
       ret = 0;
     }
@@ -615,10 +646,11 @@ encrypt_reply (unsigned char *data, int cnt)
     {
       ret = (*ep->reply) (data, cnt);
       if (encrypt_debug_mode)
-	printf ("(*ep->reply)(%x, %d) returned %s(%d)\n",
+	printf ("(*ep->reply)(%p, %d) returned %s (%d).\r\n",
 		data, cnt,
-		(ret < 0) ? "FAIL " :
-		(ret == 0) ? "SUCCESS " : "MORE_TO_DO ", ret);
+		(ret < 0) ? "FAIL "
+			  : ((ret == 0) ? "SUCCESS " : "MORE_TO_DO "),
+		ret);
     }
   if (encrypt_debug_mode)
     printf (">>>%s: encrypt_reply returned %d\n", Name, ret);
@@ -636,7 +668,8 @@ encrypt_reply (unsigned char *data, int cnt)
  * Called when a ENCRYPT START command is received.
  */
 void
-encrypt_start (unsigned char *data, int cnt)
+encrypt_start (unsigned char *data _GL_UNUSED_PARAMETER,
+	       int cnt _GL_UNUSED_PARAMETER)
 {
   Encryptions *ep;
 
@@ -653,7 +686,8 @@ encrypt_start (unsigned char *data, int cnt)
       return;
     }
 
-  if (ep = finddecryption (decrypt_mode))
+  ep = finddecryption (decrypt_mode);
+  if (ep)
     {
       decrypt_input = ep->input;
       if (encrypt_verbose)
@@ -667,7 +701,7 @@ encrypt_start (unsigned char *data, int cnt)
     {
       printf ("%s: Warning, Cannot decrypt type %s (%d)!!!\r\n",
 	      Name,
-	      ENCTYPE_NAME_OK (decrypt_mode)
+	      ENCTYPE_NAME_OK (decrypt_mode) && ENCTYPE_NAME (decrypt_mode)
 	      ? ENCTYPE_NAME (decrypt_mode) : "(unknown)", decrypt_mode);
       encrypt_send_request_end ();
     }
@@ -717,7 +751,8 @@ encrypt_request_end (void)
  * can.
  */
 void
-encrypt_request_start (unsigned char *data, int cnt)
+encrypt_request_start (unsigned char *data _GL_UNUSED_PARAMETER,
+		       int cnt _GL_UNUSED_PARAMETER)
 {
   if (encrypt_mode == 0)
     {
@@ -735,14 +770,14 @@ static void
 encrypt_keyid (struct key_info *kp, unsigned char *keyid, int len)
 {
   Encryptions *ep;
-  unsigned char *strp, *cp;
   int dir = kp->dir;
   int ret = 0;
 
   if (len > MAXKEYLEN)
     len = MAXKEYLEN;
 
-  if (!(ep = (*kp->getcrypt) (*kp->modep)))
+  ep = (*kp->getcrypt) (*kp->modep);
+  if (!ep)
     {
       if (len == 0)
 	return;
@@ -843,13 +878,14 @@ encrypt_start_output (int type)
   unsigned char *p;
   int i;
 
-  if (!(ep = findencryption (type)))
+  ep = findencryption (type);
+  if (!ep)
     {
       if (encrypt_debug_mode)
 	{
 	  printf (">>>%s: Can't encrypt with type %s (%d)\r\n",
 		  Name,
-		  ENCTYPE_NAME_OK (type)
+		  ENCTYPE_NAME_OK (type) && ENCTYPE_NAME (type)
 		  ? ENCTYPE_NAME (type) : "(unknown)", type);
 	}
       return;
@@ -951,7 +987,6 @@ encrypt_send_request_end (void)
 void
 encrypt_wait (void)
 {
-  int encrypt, decrypt;
   if (encrypt_debug_mode)
     printf (">>>%s: in encrypt_wait\r\n", Name);
   if (!havesessionkey || !(I_SUPPORT_ENCRYPT & remote_supports_decrypt))
@@ -967,9 +1002,9 @@ encrypt_debug (int mode)
   encrypt_debug_mode = mode;
 }
 
-void
-encrypt_gen_printsub (unsigned char *data, unsigned char *buf,
-		      int cnt, int buflen)
+static void
+encrypt_gen_printsub (unsigned char *data, int cnt,
+		      char *buf, int buflen)
 {
   char tbuf[16], *cp;
 
@@ -990,8 +1025,8 @@ encrypt_gen_printsub (unsigned char *data, unsigned char *buf,
 }
 
 void
-encrypt_printsub (unsigned char *data, unsigned char *buf,
-		  int cnt, int buflen)
+encrypt_printsub (unsigned char *data, int cnt,
+		  char *buf, int buflen)
 {
   Encryptions *ep;
   int type = data[1];

@@ -1,5 +1,6 @@
 /*
-   Copyright (C) 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+   Copyright (C) 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+   Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -68,7 +69,7 @@ static struct argp_option argp_options[] = {
   {"yp", 'y', NULL, 0, "NIS/YP domain name", GRP+1},
   {"nis", 0, NULL, OPTION_ALIAS, NULL, GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
@@ -128,7 +129,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 static void get_name (const hostname_arguments *const args);
 static void set_name (const hostname_arguments *const args);
@@ -370,7 +372,7 @@ parse_file (const char *const file_name)
   char *buffer = NULL;
   char *name;
   FILE *file;
-  size_t nread;
+  ssize_t nread;
   size_t size = 0;
 
   file = fopen (file_name, "r");

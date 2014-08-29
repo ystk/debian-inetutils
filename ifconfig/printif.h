@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -120,6 +120,10 @@ void fh_memend_query (format_data_t form, int argc, char *argv[]);
 void fh_memend (format_data_t form, int argc, char *argv[]);
 void fh_dma_query (format_data_t form, int argc, char *argv[]);
 void fh_dma (format_data_t form, int argc, char *argv[]);
+void fh_media_query (format_data_t form, int argc, char *argv[]);
+void fh_media (format_data_t form, int argc, char *argv[]);
+void fh_status_query (format_data_t form, int argc, char *argv[]);
+void fh_status (format_data_t form, int argc, char *argv[]);
 
 /* Used for recursion by format handlers.  */
 void print_interfaceX (format_data_t form, int quiet);

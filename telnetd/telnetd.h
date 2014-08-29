@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -50,7 +50,9 @@
 #include <sys/ioctl.h>
 
 #include <arpa/telnet.h>
+
 #include <libtelnet/auth.h>
+#include <libtelnet/encrypt.h>
 
 #include <termios.h>
 
@@ -71,6 +73,7 @@ typedef enum debug_mode
   debug_net_data,
   debug_pty_data,
   debug_auth,
+  debug_encr,
   debug_max_mode
 } debug_mode_t;
 
@@ -117,7 +120,7 @@ typedef struct
 #ifdef HAVE_UNAME
    /* Prefix and suffix if the IM string can be generated from uname.  */
 # define UNAME_IM_PREFIX "\r\n"
-# define UNAME_IM_SUFFIX " (%h) (%t)\r\n\n"
+# define UNAME_IM_SUFFIX " (%l) (%t)\r\n\r\n"
 #else /* ! HAVE_UNAME */
 # define UNAME_IM_PREFIX "\r\n"
 # define UNAME_IM_SUFFIX "\r\n"
@@ -367,7 +370,7 @@ extern int (*decrypt_input) (int);
 #endif /* ENCRYPTION */
 
 extern int startslave (char *host, int autologin, char *autoname);
-extern int getterminaltype (char *user_name);
+extern int getterminaltype (char *user_name, size_t len);
 extern int net_input_level (void);
 extern int net_output_level (void);
 extern int net_read (void);

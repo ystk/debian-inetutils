@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -22,17 +22,20 @@
 #include "libinetutils.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <unused-parameter.h>
 #include <progname.h>
 
 int
-main (int argc, char **argv)
+main (int argc _GL_UNUSED_PARAMETER, char **argv)
 {
-  const char *p = localhost ();
+  char *p = localhost ();
   set_program_name (argv[0]);
   if (!p)
     return 1;
 
   printf ("localhost: %s\n", p);
+  free (p);
 
   return 0;
 }

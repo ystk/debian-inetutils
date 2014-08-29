@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -75,6 +75,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <stdint.h>		/* intmax_t */
 #include <string.h>
 #include <string.h>
 #include <unistd.h>
@@ -82,6 +83,7 @@
 # include <utime.h>		/* If we don't have utimes(), use utime(). */
 #endif
 #include <progname.h>
+#include <unused-parameter.h>
 #include <libinetutils.h>
 #include <argp.h>
 #include <error.h>
@@ -101,29 +103,55 @@ void run_err (const char *, ...);
 int susystem (char *, int);
 void verifydir (char *);
 
-#ifdef KERBEROS
-# include <kerberosIV/des.h>
-# include <kerberosIV/krb.h>
+#ifdef SHISHI
+# include <shishi.h>
+# include "shishi_def.h"
+#endif /* SHISHI */
 
+#ifdef KERBEROS
+# ifdef HAVE_KERBEROSIV_DES_H
+#  include <kerberosIV/des.h>
+# endif
+# ifdef HAVE_KERBEROSIV_KRB_H
+#  include <kerberosIV/krb.h>
+# endif
+#endif /* KERBEROS */
+
+#if defined KERBEROS || defined SHISHI
 char *dest_realm = NULL;
 int use_kerberos = 1;
+int doencrypt = 0;
+
+# ifdef KERBEROS
 CREDENTIALS cred;
 Key_schedule schedule;
 extern char *krb_realmofhost ();
 
-# ifdef CRYPT
-int doencrypt = 0;
-# endif
-#endif /* KERBEROS  */
+# elif defined SHISHI /* !KERBEROS  */
+Shishi *h;
+Shishi_key *enckey;
+shishi_ivector iv1, iv2, iv3, iv4;
+shishi_ivector *ivtab[4];
+
+int keytype;
+int keylen;
+int rc;
+int wlen;
+# endif /* SHISHI */
+#endif /* KERBEROS || SHISHI */
 
 const char doc[] = "Remote copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.";
 const char arg_doc[] = "SOURCE DEST\n"
                        "SOURCE... DIRECTORY\n"
                        "--target-directory=DIRECTORY SOURCE...";
 
+char *target = NULL;
 int preserve_option;
 int from_option, to_option;
 int iamremote, iamrecursive, targetshouldbedirectory;
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+sa_family_t family = AF_UNSPEC;
+#endif
 
 static struct argp_option options[] = {
 #define GRID 0
@@ -136,54 +164,74 @@ static struct argp_option options[] = {
     "attempt to preserve (duplicate) in its copies the"
     " modification times and modes of the source files",
     GRID+1 },
-#ifdef KERBEROS
+  { "target-directory", 'd', "DIRECTORY", OPTION_ARG_OPTIONAL,
+    "copy all SOURCE arguments into DIRECTORY",
+    GRID+1 },
+  { "from", 'f', NULL, 0,
+    "copying from remote host (server use only)",
+    GRID+1 },
+  { "to", 't', NULL, 0,
+    "copying to remote host (server use only)",
+    GRID+1 },
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+  { "ipv4", '4', NULL, 0,
+    "use only IPv4",
+    GRID+1 },
+  { "ipv6", '6', NULL, 0,
+    "use only IPv6",
+    GRID+1 },
+#endif /* WITH_ORCMD_AF || WITH_RCMD_AF || SHISHI */
+#undef GRID
+#if defined KERBEROS || defined SHISHI
+# define GRID 10
   { "kerberos", 'K', NULL, 0,
     "turns off all Kerberos authentication",
     GRID+1 },
   { "realm", 'k', "REALM", 0,
-    "obtain tickets for the remote host in REALM instead of the remote host's realm",
+    "obtain tickets for a remote host in REALM instead of the remote host's realm",
     GRID+1 },
-#endif
-#ifdef CRYPT
+# ifdef ENCRYPTION
   { "encrypt", 'x', NULL, 0,
-    "encrypt all data using DES",
+    "encrypt all data transfer",
     GRID+1 },
+# endif
+# undef GRID
 #endif
-  { "target-directory", 'd', "DIRECTORY", 0,
-    "copy all SOURCE arguments into DIRECTORY",
-    GRID+1 },
-  { "from", 'f', NULL, 0,
-    "copying from remote host",
-    GRID+1 },
-  { "to", 't', NULL, 0,
-    "copying to remote host",
-    GRID+1 },
-  { NULL }
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
-#ifdef KERBEROS
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+    case '4':
+      family = AF_INET;
+      break;
+    case '6':
+      family = AF_INET6;
+      break;
+#endif /* WITH_ORCMD_AF || WITH_RCMD_AF || SHISHI */
+
+#if defined KERBEROS || defined SHISHI
     case 'K':
       use_kerberos = 0;
       break;
-#endif
 
-#ifdef KERBEROS
     case 'k':
       dest_realm = arg;
       break;
-#endif
 
-#ifdef CRYPT
+# ifdef ENCRYPTION
     case 'x':
       doencrypt = 1;
-      /* des_set_key(cred.session, schedule); */
+#  ifdef KERBEROS
+      des_set_key(cred.session, schedule);
+#  endif
       break;
-#endif
+# endif /* ENCRYPTION */
+#endif /* KERBEROS || SHISHI */
 
     case 'p':
       preserve_option = 1;
@@ -196,6 +244,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
       /* Server options. */
     case 'd':
       targetshouldbedirectory = 1;
+      if (arg && strlen (arg))
+	target = xstrdup (arg);	/* Client side use.  */
       break;
 
     case 'f':		/* "from" */
@@ -227,15 +277,16 @@ static struct argp argp = {
 
 struct passwd *pwd;
 unsigned short port;
-uid_t userid;
+uid_t userid, effuid;
 int errs, rem;
 
 char *command;
 
-#ifdef KERBEROS
+#if defined KERBEROS || defined SHISHI
 int kerberos (char **, char *, char *, char *);
 void oldw (const char *, ...);
-#endif
+#endif /* KERBEROS || SHISHI */
+
 int response (void);
 void rsource (char *, struct stat *);
 void sink (int, char *[]);
@@ -259,15 +310,17 @@ main (int argc, char *argv[])
   argc -= index;
   argv += index;
 
-#ifdef KERBEROS
+#if defined KERBEROS || defined SHISHI
   if (use_kerberos)
     {
-# ifdef CRYPT
+# if defined ENCRYPTION && defined KERBEROS
       shell = doencrypt ? "ekshell" : "kshell";
-# else
-      shell = "kshell";
+# else /* SHISHI */
+      shell = "kshell";		/* Libshishi uses a single service.  */
 # endif
-      if ((sp = getservbyname (shell, "tcp")) == NULL)
+
+      sp = getservbyname (shell, "tcp");
+      if (sp == NULL)
 	{
 	  use_kerberos = 0;
 	  oldw ("can't get entry for %s/tcp service", shell);
@@ -276,14 +329,17 @@ main (int argc, char *argv[])
     }
   else
     sp = getservbyname (shell = "shell", "tcp");
-#else
+#else /* !KERBEROS && !SHISHI */
   sp = getservbyname (shell = "shell", "tcp");
 #endif
   if (sp == NULL)
     error (EXIT_FAILURE, 0, "%s/tcp: unknown service", shell);
   port = sp->s_port;
 
-  if ((pwd = getpwuid (userid = getuid ())) == NULL)
+  effuid = geteuid ();
+  userid = getuid ();
+  pwd = getpwuid (userid);
+  if (pwd == NULL)
     error (EXIT_FAILURE, 0, "unknown user %d", (int) userid);
 
   rem = STDIN_FILENO;		/* XXX */
@@ -303,47 +359,45 @@ main (int argc, char *argv[])
       exit (errs);
     }
 
-  if (argc < 2)
+  if (argc < 1 || (argc < 2 && !(target && strlen (target))))
     error (EXIT_FAILURE, 0, "not enough arguments");
 
   if (argc > 2)
     targetshouldbedirectory = 1;
 
-#ifndef KERBEROS
-  /* We must be setuid root.  */
-  if (geteuid ())
-    error (EXIT_FAILURE, 0, "must be setuid root.");
+#if defined KERBEROS || defined SHISHI
+  if (doencrypt && !use_kerberos)
+    error (EXIT_FAILURE, 0, "encryption must use Kerberos");
 #endif
 
   /* Command to be executed on remote system using "rsh". */
-#ifdef	KERBEROS
-  rc = asprintf (&command, "rcp%s%s%s%s", iamrecursive ? " -r" : "",
-# ifdef CRYPT
-		 (doencrypt && use_kerberos ? " -x" : ""),
-# else
-		 "",
-# endif
-		 preserve_option ? " -p" : "",
-		 targetshouldbedirectory ? " -d" : "");
-#else
   rc = asprintf (&command, "rcp%s%s%s",
 		 iamrecursive ? " -r" : "", preserve_option ? " -p" : "",
 		 targetshouldbedirectory ? " -d" : "");
-#endif
+
   if (rc < 0)
     xalloc_die ();
 
   rem = -1;
   signal (SIGPIPE, lostconn);
 
-  targ = colon (argv[argc - 1]);	/* Dest is remote host. */
+  /* Without a specified target, the last argument
+   * is extracted to serve as target.
+   */
+  if (!target || !strlen (target))
+    {
+      target = xstrdup (argv[argc - 1]);
+      argc--;			/* Do not count target directory.  */
+    }
+
+  targ = colon (target);
   if (targ)			/* Dest is remote host. */
     toremote (targ, argc, argv);
   else
     {
       tolocal (argc, argv);	/* Dest is local host. */
       if (targetshouldbedirectory)
-	verifydir (argv[argc - 1]);
+	verifydir (target);
     }
   exit (errs);
 }
@@ -353,17 +407,21 @@ toremote (char *targ, int argc, char *argv[])
 {
   int i, tos;
   char *bp, *host, *src, *suser, *thost, *tuser;
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
+  struct sockaddr_storage ss;
+  socklen_t sslen;
+#endif
 
   *targ++ = 0;
   if (*targ == 0)
     targ = ".";
 
-  thost = strchr (argv[argc - 1], '@');
+  thost = strchr (target, '@');
   if (thost)
     {
       /* user@host */
       *thost++ = 0;
-      tuser = argv[argc - 1];
+      tuser = target;
       if (*tuser == '\0')
 	tuser = NULL;
       else if (!okname (tuser))
@@ -371,11 +429,11 @@ toremote (char *targ, int argc, char *argv[])
     }
   else
     {
-      thost = argv[argc - 1];
+      thost = target;
       tuser = NULL;
     }
 
-  for (i = 0; i < argc - 1; i++)
+  for (i = 0; i < argc; i++)
     {
       src = colon (argv[i]);
       if (src)
@@ -394,8 +452,16 @@ toremote (char *targ, int argc, char *argv[])
 	      else if (!okname (suser))
 		continue;
 	      if (asprintf (&bp,
-			    "%s %s -l %s -n %s %s '%s%s%s:%s'",
-			    PATH_RSH, host, suser, command, src,
+#if defined ENCRYPTION && (defined KERBEROS || defined SHISHI)
+			    "%s%s -l %s -n %s %s %s '%s%s%s:%s'",
+#else
+			    "%s -l %s -n %s %s %s '%s%s%s:%s'",
+#endif
+			    PATH_RSH,
+#if ENCRYPTION && (defined KERBEROS || defined SHISHI)
+			    doencrypt ? " -x" : "",
+#endif
+			    suser, host, command, src,
 			    tuser ? tuser : "", tuser ? "@" : "",
 			    thost, targ) < 0)
 		xalloc_die ();
@@ -403,8 +469,16 @@ toremote (char *targ, int argc, char *argv[])
 	  else
 	    {
 	      if (asprintf (&bp,
-			    "exec %s %s -n %s %s '%s%s%s:%s'",
-			    PATH_RSH, argv[i], command, src,
+#if defined ENCRYPTION && (defined KERBEROS || defined SHISHI)
+			    "exec %s%s -n %s %s %s '%s%s%s:%s'",
+#else
+			    "exec %s -n %s %s %s '%s%s%s:%s'",
+#endif
+			    PATH_RSH,
+#if ENCRYPTION && (defined KERBEROS || defined SHISHI)
+			    doencrypt ? " -x" : "",
+#endif
+			    argv[i], command, src,
 			    tuser ? tuser : "", tuser ? "@" : "",
 			    thost, targ) < 0)
 		xalloc_die ();
@@ -419,19 +493,45 @@ toremote (char *targ, int argc, char *argv[])
 	      if (asprintf (&bp, "%s -t %s", command, targ) < 0)
 		xalloc_die ();
 	      host = thost;
-#ifdef KERBEROS
+#if defined KERBEROS || defined SHISHI
 	      if (use_kerberos)
 		rem = kerberos (&host, bp, pwd->pw_name,
 				tuser ? tuser : pwd->pw_name);
 	      else
-#endif
+#endif /* KERBEROS || SHISHI */
+#ifdef WITH_ORCMD_AF
+		rem = orcmd_af (&host, port, pwd->pw_name,
+				tuser ? tuser : pwd->pw_name,
+				bp, 0, family);
+#elif defined WITH_RCMD_AF
+		rem = rcmd_af (&host, port, pwd->pw_name,
+			       tuser ? tuser : pwd->pw_name,
+			       bp, 0, family);
+#elif defined WITH_ORCMD
+		rem = orcmd (&host, port, pwd->pw_name,
+			     tuser ? tuser : pwd->pw_name, bp, 0);
+#else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
 		rem = rcmd (&host, port, pwd->pw_name,
 			    tuser ? tuser : pwd->pw_name, bp, 0);
+#endif
 	      if (rem < 0)
-		exit (EXIT_FAILURE);
+		{
+		  /* rcmd() provides its own error messages,
+		   * but we add a vital addition, caused by
+		   * insufficient capabilites.
+		   */
+		  if (errno == EACCES)
+		    error (EXIT_FAILURE, 0,
+			   "No access to privileged ports.");
+
+		  exit (EXIT_FAILURE);
+		}
 #if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
+	      sslen = sizeof (ss);
+	      (void) getpeername (rem, (struct sockaddr *) &ss, &sslen);
 	      tos = IPTOS_THROUGHPUT;
-	      if (setsockopt (rem, IPPROTO_IP, IP_TOS,
+	      if (ss.ss_family == AF_INET &&
+		  setsockopt (rem, IPPROTO_IP, IP_TOS,
 			      (char *) &tos, sizeof (int)) < 0)
 		if (errno != ENOPROTOOPT)
 		  error (0, errno, "TOS (ignored)");
@@ -442,6 +542,25 @@ toremote (char *targ, int argc, char *argv[])
 	      setuid (userid);
 	    }
 	  source (1, argv + i);
+	  close (rem);
+	  rem = -1;
+#ifdef SHISHI
+	  if (use_kerberos)
+	    {
+	      shishi_done (h);
+# ifdef ENCRYPTION
+	      if (doencrypt)
+		{
+		  shishi_key_done (enckey);
+		  for (i = 0; i < 4; i++)
+		    {
+		      shishi_crypto_close (ivtab[i]->ctx);
+		      free (ivtab[i]->iv);
+		    }
+		}
+# endif /* ENCRYPTION */
+	    }
+#endif /* SHISHI */
 	}
     }
 }
@@ -450,18 +569,24 @@ void
 tolocal (int argc, char *argv[])
 {
   int i, len, tos;
-  char *bp, *host, *src, *suser;
+  char *bp, *host, *src, *suser, *vect[1];
+#if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
+  struct sockaddr_storage ss;
+  socklen_t sslen;
+#endif
 
-  for (i = 0; i < argc - 1; i++)
+  for (i = 0; i < argc; i++)
     {
-      if (!(src = colon (argv[i])))
+      src = colon (argv[i]);
+      if (!src)
 	{			/* Local to local. */
 	  len = strlen (PATH_CP) + strlen (argv[i]) +
-	    strlen (argv[argc - 1]) + 20;
+		strlen (target) + 20;
 	  if (asprintf (&bp, "exec %s%s%s %s %s",
 			PATH_CP,
-			iamrecursive ? " -r" : "", preserve_option ? " -p" : "",
-			argv[i], argv[argc - 1]) < 0)
+			iamrecursive ? " -R" : "",
+			preserve_option ? " -p" : "",
+			argv[i], target) < 0)
 	    xalloc_die ();
 	  if (susystem (bp, userid))
 	    ++errs;
@@ -471,7 +596,9 @@ tolocal (int argc, char *argv[])
       *src++ = 0;
       if (*src == 0)
 	src = ".";
-      if ((host = strchr (argv[i], '@')) == NULL)
+
+      host = strchr (argv[i], '@');
+      if (host == NULL)
 	{
 	  host = argv[i];
 	  suser = pwd->pw_name;
@@ -487,11 +614,20 @@ tolocal (int argc, char *argv[])
 	}
       if (asprintf (&bp, "%s -f %s", command, src) < 0)
 	xalloc_die ();
-      rem =
-#ifdef KERBEROS
-	use_kerberos ? kerberos (&host, bp, pwd->pw_name, suser) :
+
+#if defined KERBEROS || defined SHISHI
+      if (use_kerberos)
+	rem = kerberos (&host, bp, pwd->pw_name, suser);
+      else
+#elif defined WITH_ORCMD_AF
+	rem = orcmd_af (&host, port, pwd->pw_name, suser, bp, 0, family);
+#elif defined WITH_RCMD_AF
+	rem = rcmd_af (&host, port, pwd->pw_name, suser, bp, 0, family);
+#elif defined WITH_ORCMD
+	rem = orcmd (&host, port, pwd->pw_name, suser, bp, 0);
+#else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
+	rem = rcmd (&host, port, pwd->pw_name, suser, bp, 0);
 #endif
-	rcmd (&host, port, pwd->pw_name, suser, bp, 0);
       free (bp);
       if (rem < 0)
 	{
@@ -500,16 +636,37 @@ tolocal (int argc, char *argv[])
 	}
       seteuid (userid);
 #if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_THROUGHPUT
+      sslen = sizeof (ss);
+      (void) getpeername (rem, (struct sockaddr *) &ss, &sslen);
       tos = IPTOS_THROUGHPUT;
-      if (setsockopt (rem, IPPROTO_IP, IP_TOS, (char *) &tos, sizeof (int)) <
-	  0)
+      if (ss.ss_family == AF_INET &&
+	  setsockopt (rem, IPPROTO_IP, IP_TOS,
+		      (char *) &tos, sizeof (int)) < 0)
 	if (errno != ENOPROTOOPT)
 	  error (0, errno, "TOS (ignored)");
 #endif
-      sink (1, argv + argc - 1);
-      seteuid (0);
+      vect[0] = target;
+      sink (1, vect);
+      seteuid (effuid);
       close (rem);
       rem = -1;
+#ifdef SHISHI
+      if (use_kerberos)
+	shishi_done (h);
+	{
+# ifdef ENCRYPTION
+	  if (doencrypt)
+	    {
+	      shishi_key_done (enckey);
+	      for (i = 0; i < 4; i++)
+		{
+		  shishi_crypto_close (ivtab[i]->ctx);
+		  free (ivtab[i]->iv);
+		}
+	    }
+# endif /* ENCRYPTION */
+	}
+#endif /* SHISHI */
     }
 }
 
@@ -552,7 +709,8 @@ source (int argc, char *argv[])
   for (indx = 0; indx < argc; ++indx)
     {
       name = argv[indx];
-      if ((fd = open (name, O_RDONLY, 0)) < 0)
+      fd = open (name, O_RDONLY, 0);
+      if (fd < 0)
 	goto syserr;
       if (fstat (fd, &stb))
 	{
@@ -575,7 +733,8 @@ source (int argc, char *argv[])
 	  run_err ("%s: not a regular file", name);
 	  goto next;
 	}
-      if ((last = strrchr (name, '/')) == NULL)
+      last = strrchr (name, '/');
+      if (last == NULL)
 	last = name;
       else
 	++last;
@@ -586,15 +745,14 @@ source (int argc, char *argv[])
 	    goto next;
 	}
 #define RCP_MODEMASK	(S_ISUID|S_ISGID|S_ISVTX|S_IRWXU|S_IRWXG|S_IRWXO)
-      snprintf (buf, sizeof buf,
-		(sizeof (stb.st_size) > sizeof (long)
-		 ? "C%04o %lld %s\n"
-		 : "C%04o %ld %s\n"),
-		stb.st_mode & RCP_MODEMASK, stb.st_size, last);
+      snprintf (buf, sizeof buf, "C%04o %jd %s\n",
+		stb.st_mode & RCP_MODEMASK, (intmax_t) stb.st_size, last);
       write (rem, buf, strlen (buf));
       if (response () < 0)
 	goto next;
-      if ((bp = allocbuf (&buffer, fd, BUFSIZ)) == NULL)
+
+      bp = allocbuf (&buffer, fd, BUFSIZ);
+      if (bp == NULL)
 	{
 	next:
 	  close (fd);
@@ -641,7 +799,8 @@ rsource (char *name, struct stat *statp)
   char *buf;
   int buf_len;
 
-  if (!(dirp = opendir (name)))
+  dirp = opendir (name);
+  if (!dirp)
     {
       run_err ("%s: %s", name, strerror (errno));
       return;
@@ -829,17 +988,25 @@ sink (int argc, char *argv[])
 	SCREWUP ("size not delimited");
       if (targisdir)
 	{
-	  static char *namebuf;
-	  static int cursize;
+	  static char *namebuf = NULL;
+	  static size_t cursize = 0;
 	  size_t need;
 
 	  need = strlen (targ) + strlen (cp) + 250;
 	  if (need > cursize)
 	    {
-	      if (!(namebuf = malloc (need)))
-		run_err ("%s", strerror (errno));
+	      free (namebuf);
+	      namebuf = malloc (need);
+	      if (namebuf)
+		cursize = need;
+	      else
+		{
+		  run_err ("%s", strerror (errno));
+		  cursize = 0;
+		  continue;
+		}
 	    }
-	  snprintf (namebuf, need, "%s%s%s", targ, *targ ? "/" : "", cp);
+	  snprintf (namebuf, cursize, "%s%s%s", targ, *targ ? "/" : "", cp);
 	  np = namebuf;
 	}
       else
@@ -888,14 +1055,16 @@ sink (int argc, char *argv[])
 	}
       omode = mode;
       mode |= S_IWRITE;
-      if ((ofd = open (np, O_WRONLY | O_CREAT, mode)) < 0)
+      ofd = open (np, O_WRONLY | O_CREAT, mode);
+      if (ofd < 0)
 	{
 	bad:
 	  run_err ("%s: %s", np, strerror (errno));
 	  continue;
 	}
       write (rem, "", 1);
-      if ((bp = allocbuf (&buffer, ofd, BUFSIZ)) == NULL)
+      bp = allocbuf (&buffer, ofd, BUFSIZ);
+      if (bp == NULL)
 	{
 	  close (ofd);
 	  continue;
@@ -999,50 +1168,145 @@ screwup:
   exit (EXIT_FAILURE);
 }
 
-#ifdef KERBEROS
+#if defined KERBEROS || defined SHISHI
 int
 kerberos (char **host, char *bp, char *locuser, char *user)
 {
+  int krb_errno = 0;
   struct servent *sp;
 
 again:
   if (use_kerberos)
     {
-      rem = KSUCCESS;
       errno = 0;
+# ifdef KERBEROS
+      rem = KSUCCESS;
       if (dest_realm == NULL)
 	dest_realm = krb_realmofhost (*host);
-      rem =
-# ifdef CRYPT
-	doencrypt ?
-	krcmd_mutual (host, port, user, bp, 0, dest_realm, &cred, schedule) :
+# elif defined SHISHI
+      rem = SHISHI_OK;
 # endif
-	krcmd (host, port, user, bp, 0, dest_realm);
+# ifdef ENCRYPTION
+      if (doencrypt)
+	{
+#  ifdef KERBEROS
+	  rem = krcmd_mutual (host, port, user, bp, 0, dest_realm,
+			      &cred, schedule) :
+	  krb_errno = errno;
+#  elif defined SHISHI
+	  int i;
+	  char *xbp = NULL;
+
+	  xbp = xmalloc (strlen (bp) + sizeof ("-x "));
+	  sprintf (xbp, "%s%s", "-x ", bp);
+	  rem = krcmd_mutual (&h, host, port, &user, xbp, NULL,
+			      dest_realm, &enckey, family);
+	  krb_errno = errno;
+	  if (rem > 0)
+	    {
+	      keytype = shishi_key_type (enckey);
+	      keylen = shishi_cipher_blocksize (keytype);
+
+	      ivtab[0] = &iv1;
+	      ivtab[1] = &iv2;
+	      ivtab[2] = &iv3;
+	      ivtab[3] = &iv4;
+
+	      for (i = 0; i < 4; i++)
+		{
+		  ivtab[i]->ivlen = keylen;
+
+		  switch (keytype)
+		    {
+		    case SHISHI_DES_CBC_CRC:
+		    case SHISHI_DES_CBC_MD4:
+		    case SHISHI_DES_CBC_MD5:
+		    case SHISHI_DES_CBC_NONE:
+		    case SHISHI_DES3_CBC_HMAC_SHA1_KD:
+		      ivtab[i]->keyusage = SHISHI_KEYUSAGE_KCMD_DES;
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
+		      memset (ivtab[i]->iv,
+			      2 * i + 1 * (i < 2) - 4 * (i >= 2),
+			      ivtab[i]->ivlen);
+		      ivtab[i]->ctx =
+			shishi_crypto (h, enckey, ivtab[i]->keyusage,
+				       shishi_key_type (enckey), ivtab[i]->iv,
+				       ivtab[i]->ivlen);
+		      break;
+		    case SHISHI_ARCFOUR_HMAC:
+		    case SHISHI_ARCFOUR_HMAC_EXP:
+		      ivtab[i]->keyusage =
+			SHISHI_KEYUSAGE_KCMD_DES + 2 + 4 * i;
+		      ivtab[i]->ctx =
+			shishi_crypto (h, enckey, ivtab[i]->keyusage,
+				       shishi_key_type (enckey), NULL, 0);
+		      break;
+		    default:
+		      ivtab[i]->keyusage =
+			SHISHI_KEYUSAGE_KCMD_DES + 2 + 4 * i;
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
+		      memset (ivtab[i]->iv, 0, ivtab[i]->ivlen);
+		      ivtab[i]->ctx =
+			shishi_crypto (h, enckey, ivtab[i]->keyusage,
+				       shishi_key_type (enckey), ivtab[i]->iv,
+				       ivtab[i]->ivlen);
+		    }
+		}
+	    }
+	  free (xbp);
+#  endif
+	}
+      else
+# endif /* ENCRYPTION */
+	{
+# ifdef KERBEROS
+	  rem = krcmd (host, port, user, bp, 0, dest_realm);
+# else /* SHISHI */
+	  rem = krcmd (&h, host, port, &user, bp, NULL, dest_realm, family);
+# endif
+	  krb_errno = errno;
+	}
 
       if (rem < 0)
 	{
 	  use_kerberos = 0;
-	  if ((sp = getservbyname ("shell", "tcp")) == NULL)
-	    error (EXIT_FAILURE, 0, "unknown service shell/tcp");
-	  if (errno == ECONNREFUSED)
+	  if (krb_errno == ECONNREFUSED)
 	    oldw ("remote host doesn't support Kerberos");
-	  else if (errno == ENOENT)
-	    oldw ("can't provide Kerberos authentication data");
+	  else if (krb_errno == ENOENT)
+	    error (EXIT_FAILURE, 0, "Can't provide Kerberos authentication data.");
+	  else
+	    error (EXIT_FAILURE, 0, "Kerberos authentication failed.");
+
+	  sp = getservbyname ("shell", "tcp");
+	  if (sp == NULL)
+	    error (EXIT_FAILURE, 0, "unknown service shell/tcp");
 	  port = sp->s_port;
 	  goto again;
 	}
     }
   else
     {
-# ifdef CRYPT
+      char *p = strchr (*host, '/');
+
+# ifdef ENCRYPTION
       if (doencrypt)
 	error (EXIT_FAILURE, 0, "the -x option requires Kerberos authentication");
 # endif
+      if (p)
+	*host = ++p;	/* Skip prefix like `host/'.  */
+# ifdef WITH_ORCMD_AF
+      rem = orcmd_af (host, port, locuser, user, bp, 0, family);
+# elif defined WITH_RCMD_AF
+      rem = rcmd_af (host, port, locuser, user, bp, 0, family);
+# elif defined WITH_ORCMD
+      rem = orcmd (host, port, locuser, user, bp, 0);
+# else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
       rem = rcmd (host, port, locuser, user, bp, 0);
+# endif
     }
   return rem;
 }
-#endif /* KERBEROS */
+#endif /* KERBEROS || SHISHI */
 
 int
 response (void)
@@ -1079,7 +1343,7 @@ response (void)
     }
 }
 
-#ifdef KERBEROS
+#if defined KERBEROS || defined SHISHI
 void
 oldw (const char *fmt, ...)
 {
@@ -1091,7 +1355,7 @@ oldw (const char *fmt, ...)
   fprintf (stderr, ", using standard rcp\n");
   va_end (ap);
 }
-#endif
+#endif /* KERBEROS || SHISHI */
 
 void
 run_err (const char *fmt, ...)
@@ -1107,17 +1371,18 @@ run_err (const char *fmt, ...)
   fprintf (fp, "%c", 0x01);
   fprintf (fp, "rcp: ");
   vfprintf (fp, fmt, ap);
+  va_end (ap);
   fprintf (fp, "\n");
   fflush (fp);
 
   if (!iamremote)
     {
       fprintf (stderr, "%s: ", program_invocation_name);
+      va_start (ap, fmt);
       vfprintf (stderr, fmt, ap);
+      va_end (ap);
       fprintf (stderr, "\n");
     }
-
-  va_end (ap);
 }
 
 char *
@@ -1218,9 +1483,11 @@ allocbuf (BUF * bp, int fd, int blksize)
   size = roundup (BUFSIZ, blksize);
   if (size == 0)
     size = blksize;
-  if (bp->cnt >= size)
+  if ((size_t) bp->cnt >= size)
     return (bp);
-  if ((bp->buf = realloc (bp->buf, size)) == NULL)
+
+  bp->buf = realloc (bp->buf, size);
+  if (bp->buf == NULL)
     {
       bp->cnt = 0;
       run_err ("%s", strerror (errno));
@@ -1231,7 +1498,7 @@ allocbuf (BUF * bp, int fd, int blksize)
 }
 
 void
-lostconn (int signo)
+lostconn (int signo _GL_UNUSED_PARAMETER)
 {
   if (!iamremote)
     error (0, 0, "lost connection");
