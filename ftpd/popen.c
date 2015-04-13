@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013,
+  2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -86,7 +86,9 @@ struct file_pid
 /* A linked list associating ftpd_popen'd FILEs with pids.  */
 struct file_pid *file_pids = 0;
 
+#ifdef WITH_LIBLS
 extern int ls_main (int argc, char *argv[]);
+#endif
 
 FILE *
 ftpd_popen (char *program, const char *type)
@@ -129,8 +131,8 @@ ftpd_popen (char *program, const char *type)
       memset (&gl, 0, sizeof (gl));
       if (glob (argv[argc], flags, NULL, &gl))
 	gargv[gargc++] = strdup (argv[argc]);
-      else
-	for (pop = gl.gl_pathv; *pop; pop++)
+      else if (gl.gl_pathc > 0)
+	for (pop = gl.gl_pathv; *pop && (gargc < MAX_GARGC - 1); pop++)
 	  gargv[gargc++] = strdup (*pop);
       globfree (&gl);
     }
@@ -181,7 +183,7 @@ ftpd_popen (char *program, const char *type)
 #endif
 
       execv (gargv[0], gargv);
-      _exit (1);
+      _exit (EXIT_FAILURE);
     }
   /* parent; assume fdopen can't fail...  */
   if (*type == 'r')

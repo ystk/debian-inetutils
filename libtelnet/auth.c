@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -76,6 +76,7 @@
 # include <sys/types.h>
 # include <signal.h>
 # define AUTH_NAMES
+# define AUTHTYPE_NAMES		/* Needed by Solaris.  */
 # include <arpa/telnet.h>
 # include <stdlib.h>
 # ifdef	NO_STRING_H
@@ -92,6 +93,9 @@
 # include "auth-proto.h"
 
 # define typemask(x)		(1<<((x)-1))
+
+/* Callback from consumer.  */
+extern void printsub (char, unsigned char *, int);
 
 # ifdef	KRB4_ENCPWD
 extern krb4encpwd_init ();
@@ -114,7 +118,7 @@ extern rsaencpwd_printsub ();
 int auth_debug_mode = 0;
 static char *Name = "Noname";
 static int Server = 0;
-static TN_Authenticator *authenticated = 0;
+static TN_Authenticator *authenticated = NULL;
 static int authenticating = 0;
 static int validuser = 0;
 static unsigned char _auth_send_data[256];
@@ -150,7 +154,7 @@ TN_Authenticator authenticators[] = {
    krb5shishi_reply,
    krb5shishi_status,
    krb5shishi_printsub,
-   krb5shishi_cleanup},
+  },
   {AUTHTYPE_KERBEROS_V5, AUTH_WHO_CLIENT | AUTH_HOW_ONE_WAY,
    krb5shishi_init,
    krb5shishi_send,
@@ -158,7 +162,7 @@ TN_Authenticator authenticators[] = {
    krb5shishi_reply,
    krb5shishi_status,
    krb5shishi_printsub,
-   krb5shishi_cleanup},
+  },
 # endif
 # ifdef	KRB5
 #  ifdef	ENCRYPTION
@@ -241,7 +245,7 @@ auth_init (char *name, int server)
   Name = name;
 
   i_support = 0;
-  authenticated = 0;
+  authenticated = NULL;
   authenticating = 0;
   while (ap->type)
     {
@@ -251,13 +255,11 @@ auth_init (char *name, int server)
 	  if (auth_debug_mode)
 	    printf (">>>%s: I support auth type %s (%d) %s (%d)\r\n",
 		    Name,
-		    AUTHTYPE_NAME_OK (ap->type) ?
-		    AUTHTYPE_NAME (ap->type) :
-		    "unknown",
+		    (AUTHTYPE_NAME_OK (ap->type) && AUTHTYPE_NAME (ap->type))
+		    ? AUTHTYPE_NAME (ap->type) : "unknown",
 		    ap->type,
-		    ap->way &
-		    AUTH_HOW_MASK &
-		    AUTH_HOW_MUTUAL ? "MUTUAL" : "ONEWAY", ap->way);
+		    (ap->way & AUTH_HOW_MASK & AUTH_HOW_MUTUAL)
+		    ? "MUTUAL" : "ONEWAY", ap->way);
 	}
       else if (auth_debug_mode)
 	printf (">>>%s: Init failed: auth type %d %d\r\n",
@@ -273,7 +275,7 @@ auth_disable_name (char *name)
 
   for (x = 0; x < AUTHTYPE_CNT; ++x)
     {
-      if (!strcasecmp (name, AUTHTYPE_NAME (x)))
+      if (AUTHTYPE_NAME (x) && !strcasecmp (name, AUTHTYPE_NAME (x)))
 	{
 	  i_wont_support |= typemask (x);
 	  break;
@@ -286,7 +288,7 @@ getauthmask (char *type, int *maskp)
 {
   register int x;
 
-  if (!strcasecmp (type, AUTHTYPE_NAME (0)))
+  if (AUTHTYPE_NAME (0) && !strcasecmp (type, AUTHTYPE_NAME (0)))
     {
       *maskp = -1;
       return (1);
@@ -294,7 +296,7 @@ getauthmask (char *type, int *maskp)
 
   for (x = 1; x < AUTHTYPE_CNT; ++x)
     {
-      if (!strcasecmp (type, AUTHTYPE_NAME (x)))
+      if (AUTHTYPE_NAME (x) && !strcasecmp (type, AUTHTYPE_NAME (x)))
 	{
 	  *maskp = typemask (x);
 	  return (1);
@@ -302,6 +304,8 @@ getauthmask (char *type, int *maskp)
     }
   return (0);
 }
+
+int auth_onoff (char *, int);
 
 int
 auth_enable (char *type)
@@ -329,7 +333,8 @@ auth_onoff (char *type, int on)
       mask = 0;
       for (ap = authenticators; ap->type; ap++)
 	{
-	  if ((mask & (i = typemask (ap->type))) != 0)
+	  i = typemask (ap->type);
+	  if ((mask & i) != 0)
 	    continue;
 	  mask |= i;
 	  printf ("\t%s\n", AUTHTYPE_NAME (ap->type));
@@ -374,7 +379,8 @@ auth_status ()
   mask = 0;
   for (ap = authenticators; ap->type; ap++)
     {
-      if ((mask & (i = typemask (ap->type))) != 0)
+      i = typemask (ap->type);
+      if ((mask & i) != 0)
 	continue;
       mask |= i;
       printf ("%s: %s\n", AUTHTYPE_NAME (ap->type),
@@ -464,8 +470,8 @@ auth_send (unsigned char *data, int cnt)
   if (data < _auth_send_data ||
       data > _auth_send_data + sizeof (_auth_send_data))
     {
-      auth_send_cnt = cnt > sizeof (_auth_send_data)
-	? sizeof (_auth_send_data) : cnt;
+      auth_send_cnt = (cnt > (int) sizeof (_auth_send_data))
+		      ? (int) sizeof (_auth_send_data) : cnt;
       memmove ((void *) _auth_send_data, (void *) data, auth_send_cnt);
       auth_send_data = _auth_send_data;
     }
@@ -481,13 +487,14 @@ auth_send (unsigned char *data, int cnt)
     {
       if (auth_debug_mode)
 	printf (">>>%s: He supports %s (%d) %s (%d)\r\n",
-		Name, AUTHTYPE_NAME_OK (auth_send_data[0]) ?
-		AUTHTYPE_NAME (auth_send_data[0]) :
-		"unknown",
+		Name,
+		(AUTHTYPE_NAME_OK (auth_send_data[0])
+		 && AUTHTYPE_NAME (auth_send_data[0]))
+		? AUTHTYPE_NAME (auth_send_data[0]) : "unknown",
 		auth_send_data[0],
-		auth_send_data[1] &
-		AUTH_HOW_MASK &
-		AUTH_HOW_MUTUAL ? "MUTUAL" : "ONEWAY", auth_send_data[1]);
+		(auth_send_data[1] & AUTH_HOW_MASK & AUTH_HOW_MUTUAL)
+		? "MUTUAL" : "ONEWAY",
+		auth_send_data[1]);
       if ((i_support & ~i_wont_support) & typemask (*auth_send_data))
 	{
 	  ap = findauthenticator (auth_send_data[0], auth_send_data[1]);
@@ -496,14 +503,13 @@ auth_send (unsigned char *data, int cnt)
 	      if (auth_debug_mode)
 		printf (">>>%s: Trying %s (%d) %s (%d)\r\n",
 			Name,
-			AUTHTYPE_NAME_OK (auth_send_data[0]) ?
-			AUTHTYPE_NAME (auth_send_data[0]) :
-			"unknown",
+			(AUTHTYPE_NAME_OK (auth_send_data[0])
+			 && AUTHTYPE_NAME (auth_send_data[0]))
+			? AUTHTYPE_NAME (auth_send_data[0]) : "unknown",
 			auth_send_data[0],
-			auth_send_data[1] &
-			AUTH_HOW_MASK &
-			AUTH_HOW_MUTUAL ?
-			"MUTUAL" : "ONEWAY", auth_send_data[1]);
+			(auth_send_data[1] & AUTH_HOW_MASK & AUTH_HOW_MUTUAL)
+			? "MUTUAL" : "ONEWAY",
+			auth_send_data[1]);
 	      if ((*ap->send) (ap))
 		{
 		  /*
@@ -514,9 +520,10 @@ auth_send (unsigned char *data, int cnt)
 		  if (auth_debug_mode)
 		    printf (">>>%s: Using type %s (%d)\r\n",
 			    Name,
-			    AUTHTYPE_NAME_OK (*auth_send_data) ?
-			    AUTHTYPE_NAME (*auth_send_data) :
-			    "unknown", *auth_send_data);
+			    (AUTHTYPE_NAME_OK (*auth_send_data)
+			     && AUTHTYPE_NAME (*auth_send_data))
+			    ? AUTHTYPE_NAME (*auth_send_data) : "unknown",
+			    *auth_send_data);
 		  auth_send_data += 2;
 		  return;
 		}
@@ -567,7 +574,8 @@ auth_is (unsigned char *data, int cnt)
       return;
     }
 
-  if (ap = findauthenticator (data[0], data[1]))
+  ap = findauthenticator (data[0], data[1]);
+  if (ap)
     {
       if (ap->is)
 	(*ap->is) (ap, data + 2, cnt - 2);
@@ -584,7 +592,8 @@ auth_reply (unsigned char *data, int cnt)
   if (cnt < 2)
     return;
 
-  if (ap = findauthenticator (data[0], data[1]))
+  ap = findauthenticator (data[0], data[1]);
+  if (ap)
     {
       if (ap->reply)
 	(*ap->reply) (ap, data + 2, cnt - 2);
@@ -596,8 +605,7 @@ auth_reply (unsigned char *data, int cnt)
 void
 auth_name (unsigned char *data, int cnt)
 {
-  TN_Authenticator *ap;
-  unsigned char savename[256];
+  char savename[256];
 
   if (cnt < 1)
     {
@@ -605,10 +613,10 @@ auth_name (unsigned char *data, int cnt)
 	printf (">>>%s: Empty name in NAME\r\n", Name);
       return;
     }
-  if (cnt > sizeof (savename) - 1)
+  if (cnt + 1 > (int) sizeof (savename))
     {
       if (auth_debug_mode)
-	printf (">>>%s: Name in NAME (%d) exceeds %d length\r\n",
+	printf (">>>%s: Name in NAME (len %d) overflows buffer (len %zu).\r\n",
 		Name, cnt, sizeof (savename) - 1);
       return;
     }
@@ -620,12 +628,13 @@ auth_name (unsigned char *data, int cnt)
 }
 
 int
-auth_sendname (unsigned char *cp, int len)
+auth_sendname (char *name, int len)
 {
   static unsigned char str_request[256 + 6]
     = { IAC, SB, TELOPT_AUTHENTICATION, TELQUAL_NAME, };
   register unsigned char *e = str_request + 4;
   register unsigned char *ee = &str_request[sizeof (str_request) - 2];
+  unsigned char *cp = (unsigned char *) name;
 
   while (--len >= 0)
     {
@@ -646,8 +655,11 @@ auth_finished (TN_Authenticator * ap, int result)
 {
   if (ap && ap->cleanup)
     (*ap->cleanup) (ap);
-  if (!(authenticated = ap))
+
+  authenticated = ap;
+  if (!authenticated)
     authenticated = &NoAuth;
+
   validuser = result;
 }
 
@@ -658,7 +670,7 @@ auth_intr (int sig _GL_UNUSED_PARAMETER)
 }
 
 int
-auth_wait (char *name)
+auth_wait (char *name, size_t len)
 {
   if (auth_debug_mode)
     printf (">>>%s: in auth_wait.\r\n", Name);
@@ -684,7 +696,8 @@ auth_wait (char *name)
     validuser = AUTH_USER;
 
   if (authenticated->status)
-    validuser = (*authenticated->status) (authenticated, name, validuser);
+    validuser = (*authenticated->status) (authenticated, name, len,
+					  validuser);
   return (validuser);
 }
 
@@ -694,23 +707,12 @@ auth_debug (int mode)
   auth_debug_mode = mode;
 }
 
-void
-auth_printsub (unsigned char *data, int cnt, unsigned char *buf, int buflen)
-{
-  TN_Authenticator *ap;
-
-  if ((ap = findauthenticator (data[1], data[2])) && ap->printsub)
-    (*ap->printsub) (data, cnt, buf, buflen);
-  else
-    auth_gen_printsub (data, cnt, buf, buflen);
-}
-
-void
-auth_gen_printsub (unsigned char *data, int cnt, unsigned char *buf,
+static void
+auth_gen_printsub (unsigned char *data, int cnt, char *buf,
 		   int buflen)
 {
-  register unsigned char *cp;
-  unsigned char tbuf[16];
+  register char *cp;
+  char tbuf[16];
 
   cnt -= 3;
   data += 3;
@@ -719,12 +721,24 @@ auth_gen_printsub (unsigned char *data, int cnt, unsigned char *buf,
   buflen -= 2;
   for (; cnt > 0; cnt--, data++)
     {
-      sprintf ((char *) tbuf, " %d", *data);
+      sprintf (tbuf, " %d", *data);
       for (cp = tbuf; *cp && buflen > 0; --buflen)
 	*buf++ = *cp++;
       if (buflen <= 0)
 	return;
     }
   *buf = '\0';
+}
+
+void
+auth_printsub (unsigned char *data, int cnt, char *buf, int buflen)
+{
+  TN_Authenticator *ap;
+
+  ap = findauthenticator (data[1], data[2]);
+  if (ap && ap->printsub)
+    (*ap->printsub) (data, cnt, buf, buflen);
+  else
+    auth_gen_printsub (data, cnt, buf, buflen);
 }
 #endif

@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -73,8 +73,12 @@
 # include <sys/types.h>
 # include <arpa/telnet.h>
 # include <stdio.h>
-# include <des.h>		/* BSD wont include this in krb.h, so we do it here */
-# include <krb.h>
+# ifdef HAVE_DES_H
+#  include <des.h>		/* BSD wont include this in krb.h, so we do it here */
+# endif
+# ifdef HAVE_KRB_H
+#  include <krb.h>
+# endif
 # include <stdlib.h>
 # include <string.h>
 
@@ -91,6 +95,9 @@ int krb_get_lrealm (char *, int);
 int kuserok (AUTH_DAT *, char *);
 
 extern auth_debug_mode;
+
+/* Callback from consumer.  */
+extern void printsub (char, unsigned char *, int);
 
 static unsigned char str_data[1024] = { IAC, SB, TELOPT_AUTHENTICATION, 0,
   AUTHTYPE_KERBEROS_V4,
@@ -468,9 +475,10 @@ kerberos4_reply (ap, data, cnt)
 }
 
 int
-kerberos4_status (ap, name, level)
+kerberos4_status (ap, name, len, level)
      TN_Authenticator *ap;
      char *name;
+     size_t len;
      int level;
 {
   if (level < AUTH_USER)
@@ -478,7 +486,7 @@ kerberos4_status (ap, name, level)
 
   if (UserNameRequested && !kuserok (&adat, UserNameRequested))
     {
-      strcpy (name, UserNameRequested);
+      strncpy (name, UserNameRequested, len);
       return (AUTH_VALID);
     }
   else
@@ -490,7 +498,8 @@ kerberos4_status (ap, name, level)
 
 void
 kerberos4_printsub (data, cnt, buf, buflen)
-     unsigned char *data, *buf;
+     unsigned char *data;
+     char *buf;
      int cnt, buflen;
 {
   char lbuf[32];

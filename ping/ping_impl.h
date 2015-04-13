@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -20,6 +20,9 @@
 #define PING_MAX_DATALEN (65535 - MAXIPLEN - MAXICMPLEN)
 
 extern unsigned options;
+#if !USE_IPV6
+extern unsigned int suboptions;
+#endif
 extern PING *ping;
 extern unsigned char *data_buffer;
 extern size_t data_length;

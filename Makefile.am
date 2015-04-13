@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-EXTRA_DIST = paths ChangeLog.0
+EXTRA_DIST = paths ChangeLog.0 summary.sh.in CHECKLIST
 
 SUBDIRS = lib \
 	libinetutils libtelnet libicmp libls \
@@ -25,10 +26,12 @@ SUBDIRS = lib \
 	doc man \
 	tests
 
-DISTCLEANFILES = pathdefs.make paths.defs $(PACKAGE)-$(VERSION).tar.gz
+DISTCLEANFILES = pathdefs.make paths.defs \
+	$(top_builddir)/.version \
+	$(PACKAGE)-$(VERSION).tar.gz $(PACKAGE)-$(VERSION).tar.xz
 
-BUILT_SOURCES = $(top_srcdir)/.version
-$(top_srcdir)/.version:
+BUILT_SOURCES = $(top_builddir)/.version
+$(top_builddir)/.version:
 	echo $(VERSION) > $@-t && mv $@-t $@
 dist-hook:
 	echo $(VERSION) > $(distdir)/.tarball-version

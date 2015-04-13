@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013,
+  2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -76,7 +76,7 @@
  *	protocol			must be in /etc/protocols
  *	wait/nowait[.max]		single-threaded/multi-threaded
  *                                      [with an optional fork limit]
- *	user				user to run daemon as
+ *	user[:group] or user[.group]	user (and group) to run daemon as
  *	server program			full path name
  *	server program arguments	arguments starting with argv[0]
  *
@@ -156,7 +156,7 @@ int nsock, maxsock;
 fd_set allsock;
 int options;
 int timingout;
-int toomany = TOOMANY;
+unsigned toomany = TOOMANY;
 char **Argv;
 char *LastArg;
 
@@ -197,11 +197,12 @@ static struct argp_option argp_options[] = {
    "resolve IP addresses when setting environment variables "
    "(see --environment)", GRP+1},
 #undef GRP
-  {NULL}
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg,
+	   struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   char *p;
   int number;
@@ -243,7 +244,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 
 struct servtab
@@ -258,6 +260,7 @@ struct servtab
   unsigned se_max;              /* Maximum number of instances per CNT_INTVL */
   short se_checked;		/* looked at during merge */
   char *se_user;		/* user name to run as */
+  char *se_group;		/* group name to run as */
   struct biltin *se_bi;		/* if built-in, description */
   char *se_server;		/* server program */
   char **se_argv;		/* program arguments */
@@ -269,7 +272,7 @@ struct servtab
   struct sockaddr_storage se_ctrladdr;	/* bound address */
   socklen_t se_addrlen;		/* exact address length in use */
   unsigned se_refcnt;
-  int se_count;			/* number started since se_time */
+  unsigned se_count;			/* number started since se_time */
   struct timeval se_time;	/* start of se_count */
   struct servtab *se_next;
 } *servtab;
@@ -413,6 +416,7 @@ void
 run_service (int ctrl, struct servtab *sep)
 {
   struct passwd *pwd;
+  struct group *grp = NULL;
   char buf[50];
 
   if (sep->se_bi)
@@ -422,42 +426,65 @@ run_service (int ctrl, struct servtab *sep)
   else
     {
       if (debug)
-	fprintf (stderr, "%d execl %s\n", getpid (), sep->se_server);
+	fprintf (stderr, "%d execl %s\n", (int) getpid (), sep->se_server);
       dup2 (ctrl, 0);
       close (ctrl);
       dup2 (0, 1);
       dup2 (0, 2);
-      if ((pwd = getpwnam (sep->se_user)) == NULL)
+      pwd = getpwnam (sep->se_user);
+      if (pwd == NULL)
 	{
 	  syslog (LOG_ERR, "%s/%s: %s: No such user",
 		  sep->se_service, sep->se_proto, sep->se_user);
 	  if (sep->se_socktype != SOCK_STREAM)
 	    recv (0, buf, sizeof buf, 0);
-	  _exit (1);
+	  _exit (EXIT_FAILURE);
+	}
+      if (sep->se_group && *sep->se_group)
+	{
+	  grp = getgrnam (sep->se_group);
+	  if (grp == NULL)
+	    {
+	      syslog (LOG_ERR, "%s/%s: %s: No such group",
+		      sep->se_service, sep->se_proto, sep->se_group);
+	      if (sep->se_socktype != SOCK_STREAM)
+		recv (0, buf, sizeof buf, 0);
+	      _exit (EXIT_FAILURE);
+	    }
 	}
       if (pwd->pw_uid)
 	{
-	  if (setgid (pwd->pw_gid) < 0)
+	  if (grp && grp->gr_gid)
+	    {
+	      if (setgid (grp->gr_gid) < 0)
+		{
+		  syslog (LOG_ERR, "%s: can't set gid %d: %m",
+			  sep->se_service, grp->gr_gid);
+		  _exit (EXIT_FAILURE);
+		}
+	    }
+	  else if (setgid (pwd->pw_gid) < 0)
 	    {
 	      syslog (LOG_ERR, "%s: can't set gid %d: %m",
 		      sep->se_service, pwd->pw_gid);
-	      _exit (1);
+	      _exit (EXIT_FAILURE);
 	    }
 #ifdef HAVE_INITGROUPS
-	  initgroups (pwd->pw_name, pwd->pw_gid);
+	  initgroups (pwd->pw_name,
+		      (grp && grp->gr_gid) ? grp->gr_gid : pwd->pw_gid);
 #endif
 	  if (setuid (pwd->pw_uid) < 0)
 	    {
 	      syslog (LOG_ERR, "%s: can't set uid %d: %m",
 		      sep->se_service, pwd->pw_uid);
-	      _exit (1);
+	      _exit (EXIT_FAILURE);
 	    }
 	}
       execv (sep->se_server, sep->se_argv);
       if (sep->se_socktype != SOCK_STREAM)
 	recv (0, buf, sizeof buf, 0);
       syslog (LOG_ERR, "cannot execute %s: %m", sep->se_server);
-      _exit (1);
+      _exit (EXIT_FAILURE);
     }
 }
 
@@ -478,7 +505,7 @@ reapchild (int signo _GL_UNUSED_PARAMETER)
       if (pid <= 0)
 	break;
       if (debug)
-	fprintf (stderr, "%d reaped, status %#x\n", pid, status);
+	fprintf (stderr, "%d reaped, status %#x\n", (int) pid, status);
       for (sep = servtab; sep; sep = sep->se_next)
 	if (sep->se_wait == pid)
 	  {
@@ -501,7 +528,8 @@ char *
 newstr (const char *cp)
 {
   char *s;
-  if ((s = strdup (cp ? cp : "")))
+  s = strdup (cp ? cp : "");
+  if (s != NULL)
     return s;
   syslog (LOG_ERR, "strdup: %m");
   exit (-1);
@@ -536,13 +564,15 @@ void
 print_service (const char *action, struct servtab *sep)
 {
   fprintf (stderr,
-	   "%s:%d: %s: %s:%s proto=%s, wait=%d, max=%u, user=%s builtin=%s server=%s\n",
+	   "%s:%d: %s: %s:%s proto=%s, wait=%d, max=%u, "
+	   "user=%s group=%s builtin=%s server=%s\n",
 	   sep->se_file, sep->se_line,
 	   action,
 	   ISMUX (sep) ? (ISMUXPLUS (sep) ? "tcpmuxplus" : "tcpmux")
 		      : (sep->se_node ? sep->se_node : "*"),
 	   sep->se_service, sep->se_proto,
-	   sep->se_wait, sep->se_max, sep->se_user,
+	   (int) sep->se_wait, sep->se_max,
+	   sep->se_user, sep->se_group,
 	   sep->se_bi ? sep->se_bi->bi_service : "no",
 	   sep->se_server);
 }
@@ -592,7 +622,8 @@ setup (struct servtab *sep)
   if (strncmp (sep->se_proto, "tcp", 3) == 0 && (options & SO_DEBUG))
     {
       if (setsockopt (sep->se_fd, SOL_SOCKET, SO_DEBUG,
-		      (char *) &on, sizeof (on)) < 0)
+		      (char *) &on, sizeof (on)) < 0
+	  && errno != EACCES)	/* Ignore insufficient permission.  */
 	syslog (LOG_ERR, "setsockopt (SO_DEBUG): %m");
     }
 
@@ -614,10 +645,22 @@ setup (struct servtab *sep)
 	  close (sep->se_fd);
 	  goto tryagain;
 	}
-      if (debug)
-	fprintf (stderr, "bind failed on %s/%s: %s\n",
-		 sep->se_service, sep->se_proto, strerror (errno));
-      syslog (LOG_ERR, "%s/%s: bind: %m", sep->se_service, sep->se_proto);
+      if (sep->se_node)
+	{
+	  if (debug)
+	    fprintf (stderr, "bind failed for %s %s/%s: %s\n",
+		     sep->se_node, sep->se_service, sep->se_proto,
+		     strerror (errno));
+	  syslog (LOG_ERR,"%s %s/%s: bind: %m",
+		  sep->se_node, sep->se_service, sep->se_proto);
+	}
+      else
+	{
+	  if (debug)
+	    fprintf (stderr, "bind failed for %s/%s: %s\n",
+		     sep->se_service, sep->se_proto, strerror (errno));
+	  syslog (LOG_ERR,"%s/%s: bind: %m", sep->se_service, sep->se_proto);
+	}
       close (sep->se_fd);
       sep->se_fd = -1;
       if (!timingout)
@@ -685,7 +728,7 @@ enter (struct servtab *cp)
 {
   struct servtab *sep;
   SIGSTATUS sigstatus;
-  int i;
+  size_t i;
 
   /* Checking/Removing duplicates */
   for (sep = servtab; sep; sep = sep->se_next)
@@ -709,6 +752,8 @@ enter (struct servtab *cp)
 #define SWAP(a, b) { char *c = a; a = b; b = c; }
       if (cp->se_user)
 	SWAP (sep->se_user, cp->se_user);
+      if (cp->se_group)
+	SWAP (sep->se_group, cp->se_group);
       if (cp->se_server)
 	SWAP (sep->se_server, cp->se_server);
       argcv_free (sep->se_argc, sep->se_argv);
@@ -737,6 +782,7 @@ enter (struct servtab *cp)
   dupstr (&sep->se_service);
   dupstr (&sep->se_proto);
   dupstr (&sep->se_user);
+  dupstr (&sep->se_group);
   dupstr (&sep->se_server);
   dupmem ((void**)&sep->se_argv, sep->se_argc * sizeof (sep->se_argv[0]));
   for (i = 0; i < sep->se_argc; i++)
@@ -837,8 +883,22 @@ expand_enter (struct servtab *sep)
       else
 	errmsg = gai_strerror (err);
 
-      syslog (LOG_ERR, "%s/%s: getaddrinfo: %s",
-	      sep->se_service, sep->se_proto, errmsg);
+      if (sep->se_node)
+	{
+	  if (debug)
+	    fprintf (stderr, "resolution of %s %s/%s failed: %s\n",
+		     sep->se_node, sep->se_service, sep->se_proto, errmsg);
+	  syslog (LOG_ERR, "%s %s/%s: getaddrinfo: %s",
+		  sep->se_node, sep->se_service, sep->se_proto, errmsg);
+	}
+      else
+	{
+	  if (debug)
+	    fprintf (stderr, "resolution of %s/%s failed: %s\n",
+		     sep->se_service, sep->se_proto, errmsg);
+	  syslog (LOG_ERR, "%s/%s: getaddrinfo: %s",
+		  sep->se_service, sep->se_proto, errmsg);
+	}
       return 1;
     }
 
@@ -885,6 +945,7 @@ freeconfig (struct servtab *cp)
   free (cp->se_service);
   free (cp->se_proto);
   free (cp->se_user);
+  free (cp->se_group);
   free (cp->se_server);
   argcv_free (cp->se_argc, cp->se_argv);
 }
@@ -1126,7 +1187,27 @@ getconfigent (FILE *fconfig, const char *file, size_t *line)
 	    }
 	}
 
-      sep->se_user = newstr (argv[INETD_USER]);
+      /* Establish optional group identity:
+       *   user:group, user.group
+       */
+      {
+	char *p;
+
+	sep->se_user = newstr (argv[INETD_USER]);
+
+	p = strchr (sep->se_user, ':');
+	if (!p)
+	  p = strchr (sep->se_user, '.');
+
+	if (p)
+	  {
+	    *p = '\0';
+	    sep->se_group = newstr (++p);
+	  }
+	else
+	  sep->se_group = newstr (NULL);
+      }
+
       sep->se_server = newstr (argv[INETD_SERVER_PATH]);
       if (strcmp (sep->se_server, "internal") == 0)
 	{
@@ -1183,6 +1264,7 @@ nextconfig (const char *file)
 #endif
   struct servtab *sep, **sepp;
   struct passwd *pwd;
+  struct group *grp;
   FILE *fconfig;
   SIGSTATUS sigstatus;
 
@@ -1196,11 +1278,22 @@ nextconfig (const char *file)
     }
   while ((sep = getconfigent (fconfig, file, &line)))
     {
-      if ((pwd = getpwnam (sep->se_user)) == NULL)
+      pwd = getpwnam (sep->se_user);
+      if (pwd == NULL)
 	{
 	  syslog (LOG_ERR, "%s/%s: No such user '%s', service ignored",
 		  sep->se_service, sep->se_proto, sep->se_user);
 	  continue;
+	}
+      if (sep->se_group && *sep->se_group)
+	{
+	  grp = getgrnam (sep->se_group);
+	  if (grp == NULL)
+	    {
+	      syslog (LOG_ERR, "%s/%s: No such group '%s', service ignored",
+		      sep->se_service, sep->se_proto, sep->se_group);
+	      continue;
+	    }
 	}
       if (ISMUX (sep))
 	{
@@ -1275,6 +1368,7 @@ fix_tcpmux (void)
       serv.se_socktype = SOCK_STREAM;
       serv.se_checked = 1;
       serv.se_user = newstr ("root");
+      serv.se_group = newstr (NULL);	/* Group name for root is not portable.  */
       serv.se_bi = bi_lookup (&serv);
       if (!serv.se_bi)
 	{
@@ -1430,7 +1524,7 @@ echo_stream (int s, struct servtab *sep)
 
 /* Echo service -- echo data back */
 void
-echo_dg (int s, struct servtab *sep)
+echo_dg (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   char buffer[BUFSIZE];
   int i;
@@ -1468,7 +1562,7 @@ discard_stream (int s, struct servtab *sep)
 
 void
 /* Discard service -- ignore data */
-discard_dg (int s, struct servtab *sep)
+discard_dg (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   char buffer[BUFSIZE];
 
@@ -1511,7 +1605,8 @@ chargen_stream (int s, struct servtab *sep)
   text[LINESIZ + 1] = '\n';
   for (rs = ring;;)
     {
-      if ((len = endring - rs) >= LINESIZ)
+      len = endring - rs;
+      if (len >= LINESIZ)
 	memmove (text, rs, LINESIZ);
       else
 	{
@@ -1528,7 +1623,7 @@ chargen_stream (int s, struct servtab *sep)
 
 /* Character generator */
 void
-chargen_dg (int s, struct servtab *sep)
+chargen_dg (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
 #ifdef IPV6
   struct sockaddr_storage sa;
@@ -1550,7 +1645,8 @@ chargen_dg (int s, struct servtab *sep)
   if (recvfrom (s, text, sizeof text, 0, (struct sockaddr *) &sa, &size) < 0)
     return;
 
-  if ((len = endring - rs) >= LINESIZ)
+  len = endring - rs;
+  if (len >= LINESIZ)
     memmove (text, rs, LINESIZ);
   else
     {
@@ -1589,7 +1685,7 @@ machtime (void)
 }
 
 void
-machtime_stream (int s, struct servtab *sep)
+machtime_stream (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   long result;
 
@@ -1598,7 +1694,7 @@ machtime_stream (int s, struct servtab *sep)
 }
 
 void
-machtime_dg (int s, struct servtab *sep)
+machtime_dg (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   long result;
 #ifdef IPV6
@@ -1619,7 +1715,7 @@ machtime_dg (int s, struct servtab *sep)
 
 void
 /* Return human-readable time of day */
-daytime_stream (int s, struct servtab *sep)
+daytime_stream (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   char buffer[256];
   time_t lclock;
@@ -1632,7 +1728,7 @@ daytime_stream (int s, struct servtab *sep)
 
 /* Return human-readable time of day */
 void
-daytime_dg (int s, struct servtab *sep)
+daytime_dg (int s, struct servtab *sep _GL_UNUSED_PARAMETER)
 {
   char buffer[256];
   time_t lclock;
@@ -1695,10 +1791,11 @@ tcpmux (int s, struct servtab *sep)
   int len;
 
   /* Get requested service name */
-  if ((len = fd_getline (s, service, MAX_SERV_LEN)) < 0)
+  len = fd_getline (s, service, MAX_SERV_LEN);
+  if (len < 0)
     {
       strwrite (s, "-Error reading service name\r\n");
-      _exit (1);
+      _exit (EXIT_FAILURE);
     }
   service[len] = '\0';
 
@@ -1718,7 +1815,7 @@ tcpmux (int s, struct servtab *sep)
 	  write (s, sep->se_service, strlen (sep->se_service));
 	  strwrite (s, "\r\n");
 	}
-      _exit (1);
+      _exit (EXIT_FAILURE);
     }
 
   /* Try matching a service in inetd.conf with the request */
@@ -1867,7 +1964,12 @@ main (int argc, char *argv[], char *envp[])
 
   if (!debug)
     {
-      daemon (0, 0);
+      if (daemon (0, 0) < 0)
+	{
+	  syslog (LOG_DAEMON | LOG_ERR,
+		  "%s: Unable to enter daemon mode, %m", argv[0]);
+	  exit (EXIT_FAILURE);
+	};
     }
 
   openlog ("inetd", LOG_PID | LOG_NOWAIT, LOG_DAEMON);
@@ -1879,7 +1981,7 @@ main (int argc, char *argv[], char *envp[])
       {
 	if (debug)
 	  fprintf(stderr, "Using pid-file at \"%s\".\n", pid_file);
-	fprintf (fp, "%d\n", getpid ());
+	fprintf (fp, "%d\n", (int) getpid ());
 	fclose (fp);
       }
     else
@@ -1919,7 +2021,8 @@ main (int argc, char *argv[], char *envp[])
 	  signal_unblock (NULL);
 	}
       readable = allsock;
-      if ((n = select (maxsock + 1, &readable, NULL, NULL, NULL)) <= 0)
+      n = select (maxsock + 1, &readable, NULL, NULL, NULL);
+      if (n <= 0)
 	{
 	  if (n < 0 && errno != EINTR)
 	    syslog (LOG_WARNING, "select: %m");

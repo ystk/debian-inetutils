@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,9 +18,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
+@PATHDEFS_MAKE@
+
+AM_CPPFLAGS = \
+	$(iu_INCLUDES) $(INCAUTH) \
+	$(PATHDEF_WTMPX) $(PATHDEF_TTY_PFX) $(PATHDEF_DEVNULL) \
+	$(PATHDEF_HEQUIV)
+
 noinst_LIBRARIES = libinetutils.a
 
-noinst_HEADERS = argcv.h libinetutils.h tftpsubs.h shishi_def.h
+noinst_HEADERS = argcv.h libinetutils.h tftpsubs.h \
+		 kerberos5_def.h shishi_def.h
 
 EXTRA_DIST = logwtmp.c
 
@@ -28,8 +37,9 @@ libinetutils_a_SOURCES = \
  cleansess.c\
  daemon.c\
  defauthors.c\
- des_rw.c\
+ if_index.c \
  kcmd.c\
+ kerberos5.c \
  krcmd.c\
  localhost.c\
  logwtmpko.c\
@@ -39,9 +49,3 @@ libinetutils_a_SOURCES = \
  ttymsg.c\
  utmp_init.c\
  utmp_logout.c
-
-@PATHDEFS_MAKE@
-
-AM_CPPFLAGS = $(PATHDEF_WTMPX) $(PATHDEF_TTY_PFX) $(PATHDEF_DEVNULL) $(PATHDEF_HEQUIV)
-
-INCLUDES = $(iu_INCLUDES)

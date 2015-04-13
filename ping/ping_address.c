@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -40,6 +40,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
+#include <unused-parameter.h>
 
 #include <ping.h>
 #include <ping_impl.h>
@@ -50,9 +51,6 @@ static int recv_address (int code, void *closure,
 static void print_address (int dupflag, void *closure,
 			   struct sockaddr_in *dest, struct sockaddr_in *from,
 			   struct ip *ip, icmphdr_t * icmp, int datalen);
-static void print_address (int dupflag, void *closure,
-			   struct sockaddr_in *dest, struct sockaddr_in *from,
-			   struct ip *ip, icmphdr_t * icmp, int datalen);
 static int address_finish (void);
 
 int
@@ -60,7 +58,7 @@ ping_address (char *hostname)
 {
   ping_set_type (ping, ICMP_ADDRESS);
   ping_set_event_handler (ping, recv_address, NULL);
-  ping_set_packetsize (ping, 12);	/* FIXME: constant */
+  ping_set_packetsize (ping, ICMP_MASKLEN);
   ping_set_count (ping, 1);
 
   if (ping_set_dest (ping, hostname))
@@ -92,17 +90,20 @@ recv_address (int code, void *closure,
 }
 
 void
-print_address (int dupflag, void *closure,
-	       struct sockaddr_in *dest, struct sockaddr_in *from,
-	       struct ip *ip, icmphdr_t * icmp, int datalen)
+print_address (int dupflag, void *closure _GL_UNUSED_PARAMETER,
+	       struct sockaddr_in *dest _GL_UNUSED_PARAMETER,
+	       struct sockaddr_in *from,
+	       struct ip *ip _GL_UNUSED_PARAMETER,
+	       icmphdr_t * icmp, int datalen)
 {
   struct in_addr addr;
 
   printf ("%d bytes from %s: icmp_seq=%u", datalen,
 	  inet_ntoa (*(struct in_addr *) &from->sin_addr.s_addr),
-	  icmp->icmp_seq);
+	  ntohs (icmp->icmp_seq));
   if (dupflag)
     printf (" (DUP!)");
+  printf ("\n");
   addr.s_addr = icmp->icmp_mask;
   printf ("icmp_mask = %s", inet_ntoa (addr));
   printf ("\n");

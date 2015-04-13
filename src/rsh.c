@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -77,26 +77,37 @@
 #include <xalloc.h>
 #include <argp.h>
 #include <libinetutils.h>
+#include <unused-parameter.h>
+
+#ifdef KRB5
+# ifdef HAVE_KRB5_H
+#  include <krb5.h>
+# endif
+# include "kerberos5_def.h"
+#endif /* KRB5 */
+
+#ifdef SHISHI
+# include <shishi.h>
+# include "shishi_def.h"
+#endif
 
 int debug_option = 0;
 int null_input_option = 0;
 char *user = NULL;
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+sa_family_t family = AF_UNSPEC;
+#endif
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
 int use_kerberos = 1, doencrypt;
-# ifdef KERBEROS
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
-char *dest_realm = NULL;
-CREDENTIALS cred;
-Key_schedule schedule;
-extern char *krb_realmofhost ();
+const char *dest_realm = NULL;
+
+# ifdef KRB5
+krb5_context ctx;
+krb5_keyblock *keyblock;
+krb5_principal server;
 
 # elif defined(SHISHI)
-#  include <shishi.h>
-#  include "shishi_def.h"
-char *dest_realm = NULL;
-
 Shishi *h;
 Shishi_key *enckey;
 shishi_ivector iv1, iv2, iv3, iv4;
@@ -106,16 +117,18 @@ int keytype;
 int keylen;
 int rc;
 int wlen;
-# endif
-#endif /* KERBEROS */
+# endif /* SHISHI */
+#endif /* KRB5 || SHISHI */
 
 /*
  * rsh - remote shell
  */
 int rfd2;
+int end_of_pipe = 0;		/* Used by parent process.  */
 
 char *copyargs (char **);
 void sendsig (int);
+void sigpipe (int);
 void talk (int, sigset_t *, pid_t, int);
 void warning (const char *, ...);
 
@@ -124,33 +137,53 @@ const char args_doc[] = "[USER@]HOST [COMMAND [ARG...]]";
 const char doc[] = "remote shell";
 
 static struct argp_option options[] = {
+#define GRP 10
   { "debug", 'd', NULL, 0,
-    "turns on socket debugging (see setsockopt(2))" },
+    "turns on socket debugging (see setsockopt(2))", GRP },
   { "user", 'l', "USER", 0,
-    "run as USER on the remote system" },
+    "run as USER on the remote system", GRP },
   { "escape", 'e', "CHAR", 0,
-    "allows user specification of the escape character (``~'' by default)" },
+    "allows user specification of the escape "
+    "character (``~'' by default)", GRP },
   { "8-bit", '8', NULL, 0,
-    "allows an eight-bit input data path at all times" },
+    "allows an eight-bit input data path at all times", GRP },
   { "no-input", 'n', NULL, 0,
-    "use /dev/null as input" },
-#if defined KERBEROS || defined SHISHI
-  { "kerberos", 'K', NULL, 0,
-    "turns off all Kerberos authentication" },
-  { "realm", 'k', NULL, 0,
-    "obtain tickets for the remote host in REALM "
-    "instead of the remote host's realm" },
-  { "encrypt", 'x', NULL, 0,
-    "encrypt all data using DES" },
+    "use /dev/null as input", GRP },
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+  { "ipv4", '4', NULL, 0, "use only IPv4", GRP },
+  { "ipv6", '6', NULL, 0, "use only IPv6", GRP },
 #endif
-  { NULL }
+#undef GRP
+#if defined KRB5 || defined SHISHI
+# define GRP 20
+  { "kerberos", 'K', NULL, 0,
+    "turns off all Kerberos authentication", GRP },
+  { "realm", 'k', "REALM", 0,
+    "obtain tickets for a remote host in REALM, "
+    "instead of the remote host's default realm", GRP },
+# ifdef ENCRYPTION
+  { "encrypt", 'x', NULL, 0,
+    "encrypt all data transfer", GRP },
+# endif /* ENCRYPTION */
+# undef GRP
+#endif /* KRB5 || SHISHI */
+  { NULL, 0, NULL, 0, NULL, 0 }
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg,
+	   struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+    case '4':
+      family = AF_INET;
+      break;
+    case '6':
+      family = AF_INET6;
+      break;
+#endif
     case 'L':		/* -8Lew are ignored to allow rlogin aliases */
     case 'e':
     case 'w':
@@ -165,13 +198,11 @@ parse_opt (int key, char *arg, struct argp_state *state)
       user = arg;
       break;
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
     case 'K':
       use_kerberos = 0;
       break;
-#endif
 
-#if defined KERBEROS || defined SHISHI
     case 'k':
       dest_realm = arg;
       break;
@@ -179,12 +210,9 @@ parse_opt (int key, char *arg, struct argp_state *state)
 # ifdef ENCRYPTION
     case 'x':
       doencrypt = 1;
-#  ifdef KERBEROS
-      des_set_key (cred.session, schedule);
-#  endif
       break;
 # endif
-#endif
+#endif /* KRB5 || SHISHI */
 
     case 'n':
       null_input_option = 1;
@@ -197,7 +225,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = { options, parse_opt, args_doc, doc };
+static struct argp argp =
+  { options, parse_opt, args_doc, doc, NULL, NULL, NULL };
 
 
 int
@@ -208,6 +237,9 @@ main (int argc, char **argv)
   struct servent *sp;
   sigset_t sigs, osigs;
   int asrsh, rem;
+#if defined KRB5 || defined SHISHI
+  int krb_errno;
+#endif
   pid_t pid = 0;
   uid_t uid;
   char *args, *host;
@@ -255,11 +287,9 @@ main (int argc, char **argv)
   argc -= index;
   argv += index;
 
-  /* We must be setuid root.  */
-  if (geteuid ())
-    error (EXIT_FAILURE, 0, "must be setuid root.\n");
-
-  if (!(pw = getpwuid (uid = getuid ())))
+  uid = getuid ();
+  pw = getpwuid (uid);
+  if (!pw)
     error (EXIT_FAILURE, 0, "unknown user id");
 
   /* Accept user1@host format, though "-l user2" overrides user1 */
@@ -276,7 +306,7 @@ main (int argc, char **argv)
       }
   }
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
 # ifdef ENCRYPTION
   /* -x turns off -n */
   if (doencrypt)
@@ -287,18 +317,7 @@ main (int argc, char **argv)
   args = copyargs (argv);
 
   sp = NULL;
-#ifdef KERBEROS
-  if (use_kerberos)
-    {
-      sp = getservbyname ((doencrypt ? "ekshell" : "kshell"), "tcp");
-      if (sp == NULL)
-	{
-	  use_kerberos = 0;
-	  warning ("can't get entry for %s/tcp service",
-		   doencrypt ? "ekshell" : "kshell");
-	}
-    }
-#elif defined(SHISHI)
+#if defined KRB5 || defined SHISHI
   if (use_kerberos)
     {
       sp = getservbyname ("kshell", "tcp");
@@ -314,41 +333,67 @@ main (int argc, char **argv)
   if (sp == NULL)
     error (EXIT_FAILURE, 0, "shell/tcp: unknown service");
 
+#if defined KRB5
+  if (use_kerberos)
+    {
+      rem = krb5_init_context (&ctx);
+      if (rem)
+	error (EXIT_FAILURE, errno, "Error initializing krb5");
+    }
+#endif /* KRB5 */
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
 try_connect:
   if (use_kerberos)
     {
+# if defined KRB5
       struct hostent *hp;
 
-      /* fully qualify hostname (needed for krb_realmofhost) */
+      /* Get fully qualify hostname for realm determination.  */
       hp = gethostbyname (host);
       if (hp != NULL && !(host = strdup (hp->h_name)))
 	error (EXIT_FAILURE, errno, "strdup");
 
-# if defined KERBEROS
-      rem = KSUCCESS;
-      errno = 0;
+      rem = 0;
+      krb_errno = 0;
+
       if (dest_realm == NULL)
-	dest_realm = krb_realmofhost (host);
-# elif defined (SHISHI)
+	{
+	  krb_errno = krb5_sname_to_principal (ctx, host, SERVICE,
+					       KRB5_NT_SRV_HST,
+					       &server);
+	  if (krb_errno)
+	    warning ("cannot assign principal to host %s", host);
+	  else
+	    dest_realm = krb5_principal_get_realm (ctx, server);
+	}
+# elif defined SHISHI
       rem = SHISHI_OK;
-      errno = 0;
+      krb_errno = 0;
 # endif
 
 # ifdef ENCRYPTION
       if (doencrypt)
-#  if defined SHISHI
 	{
 	  int i;
+#  if defined KRB5 || defined SHISHI
 	  char *term;
 
 	  term = xmalloc (strlen (args) + 4);
 	  strcpy (term, "-x ");
 	  strcat (term, args);
 
+#   ifdef SHISHI
 	  rem = krcmd_mutual (&h, &host, sp->s_port, &user, term, &rfd2,
-			      dest_realm, &enckey);
+			      dest_realm, &enckey, family);
+#   else /* KRB5 && !SHISHI */
+	  rem = krcmd_mutual (&ctx, &host, sp->s_port, &user, args,
+			      &rfd2, dest_realm, &keyblock);
+#   endif
+	  krb_errno = errno;
+	  free (term);
+
+#   ifdef SHISHI
 	  if (rem > 0)
 	    {
 	      keytype = shishi_key_type (enckey);
@@ -371,7 +416,7 @@ try_connect:
 		    case SHISHI_DES_CBC_NONE:
 		    case SHISHI_DES3_CBC_HMAC_SHA1_KD:
 		      ivtab[i]->keyusage = SHISHI_KEYUSAGE_KCMD_DES;
-		      ivtab[i]->iv = malloc (ivtab[i]->ivlen);
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
 		      memset (ivtab[i]->iv,
 			      2 * i + 1 * (i < 2) - 4 * (i >= 2),
 			      ivtab[i]->ivlen);
@@ -391,7 +436,7 @@ try_connect:
 		    default:
 		      ivtab[i]->keyusage =
 			SHISHI_KEYUSAGE_KCMD_DES + 2 + 4 * i;
-		      ivtab[i]->iv = malloc (ivtab[i]->ivlen);
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
 		      memset (ivtab[i]->iv, 0, ivtab[i]->ivlen);
 		      ivtab[i]->ctx =
 			shishi_crypto (h, enckey, ivtab[i]->keyusage,
@@ -400,50 +445,89 @@ try_connect:
 		    }
 		}
 	    }
-	  free (term);
+#   endif /* SHISHI */
+#  endif /* KRB5 || SHISHI */
 	}
       else
-#  else
-	rem = krcmd_mutual (&host, sp->s_port, user, args, &rfd2,
-			    dest_realm, &cred, schedule);
-      else
-#  endif
-# endif
-	rem = krcmd (
+# endif /* ENCRYPTION */
+	{
 # if defined SHISHI
-		      &h, &host, sp->s_port, &user, args, &rfd2, dest_realm);
-# else
-		      &host, sp->s_port, user, args, &rfd2, dest_realm);
+	  rem = krcmd (&h, &host, sp->s_port, &user, args, &rfd2,
+		       dest_realm, family);
+# else /* KRB5 && !SHISHI */
+	  rem = krcmd (&ctx, &host, sp->s_port, &user, args,
+		       &rfd2, dest_realm);
+# endif /* KRB5 */
+	  krb_errno = errno;
+	}
+
+# ifdef KRB5
+      /* No more use of dest_realm.  */
+      krb5_free_principal (ctx, server);
 # endif
+
       if (rem < 0)
 	{
 	  use_kerberos = 0;
+	  if (krb_errno == ECONNREFUSED)
+	    warning ("remote host doesn't support Kerberos");
+	  else if (krb_errno == ENOENT)
+	    error (EXIT_FAILURE, 0, "Can't provide Kerberos auth data.");
+	  else
+	    error (EXIT_FAILURE, 0, "Kerberos authentication failed.");
+
 	  sp = getservbyname ("shell", "tcp");
 	  if (sp == NULL)
 	    error (EXIT_FAILURE, 0, "shell/tcp: unknown service");
-	  if (errno == ECONNREFUSED)
-	    warning ("remote host doesn't support Kerberos");
-	  if (errno == ENOENT)
-	    warning ("can't provide Kerberos auth data");
 	  goto try_connect;
 	}
     }
   else
     {
+      char *p = strchr (host, '/');
+
       if (!user)
 	user = pw->pw_name;
       if (doencrypt)
 	error (EXIT_FAILURE, 0, "the -x flag requires Kerberos authentication");
+      if (p)
+	host = ++p;	/* Skip prefix like `host/'.  */
+
+# ifdef WITH_ORCMD_AF
+      rem = orcmd_af (&host, sp->s_port, pw->pw_name, user, args, &rfd2, family);
+# elif defined WITH_RCMD_AF
+      rem = rcmd_af (&host, sp->s_port, pw->pw_name, user, args, &rfd2, family);
+# elif defined WITH_ORCMD
+      rem = orcmd (&host, sp->s_port, pw->pw_name, user, args, &rfd2);
+# else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
       rem = rcmd (&host, sp->s_port, pw->pw_name, user, args, &rfd2);
+# endif
     }
-#else
+#else /* !KRB5 && !SHISHI */
   if (!user)
     user = pw->pw_name;
+# ifdef WITH_ORCMD_AF
+  rem = orcmd_af (&host, sp->s_port, pw->pw_name, user, args, &rfd2, family);
+# elif defined WITH_RCMD_AF
+  rem = rcmd_af (&host, sp->s_port, pw->pw_name, user, args, &rfd2, family);
+# elif defined WITH_ORCMD
+  rem = orcmd (&host, sp->s_port, pw->pw_name, user, args, &rfd2);
+# else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
   rem = rcmd (&host, sp->s_port, pw->pw_name, user, args, &rfd2);
-#endif
+# endif
+#endif /* !KRB5 && !SHISHI */
 
   if (rem < 0)
-    exit (EXIT_FAILURE);
+    {
+      /* rcmd() provides its own error messages,
+       * but we add a vital addition, caused by
+       * insufficient capabilites.
+       */
+      if (errno == EACCES)
+	error (EXIT_FAILURE, 0, "No access to privileged ports.");
+
+      exit (EXIT_FAILURE);
+    }
 
   if (rfd2 < 0)
     error (EXIT_FAILURE, 0, "can't establish stderr");
@@ -453,10 +537,10 @@ try_connect:
       int one = 1;
       if (setsockopt (rem, SOL_SOCKET, SO_DEBUG, (char *) &one,
 		      sizeof one) < 0)
-	error (0, errno, "setsockopt");
+	error (0, errno, "setsockopt DEBUG (ignored)");
       if (setsockopt (rfd2, SOL_SOCKET, SO_DEBUG, (char *) &one,
 		      sizeof one) < 0)
-	error (0, errno, "setsockopt");
+	error (0, errno, "setsockopt DEBUG (ignored)");
     }
 
   seteuid (uid);
@@ -478,14 +562,19 @@ try_connect:
   if (signal (SIGTERM, SIG_IGN) != SIG_IGN)
     signal (SIGTERM, sendsig);
 
-  if (!null_input_option)
+  if (null_input_option)
+    /* Nothing from stdin will be written to the socket,
+     * but we still expect response from the server.
+     */
+    shutdown (rem, SHUT_WR);
+  else
     {
       pid = fork ();
       if (pid < 0)
 	error (EXIT_FAILURE, errno, "fork");
     }
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
 # ifdef ENCRYPTION
   if (!doencrypt)
 # endif
@@ -529,6 +618,9 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
   int cc, wc;
   fd_set readfrom, ready, rembits;
   char *bp, buf[BUFSIZ];
+#ifdef HAVE_SIGACTION
+  struct sigaction sa;
+#endif
 
   if (!null_input_option && pid == 0)
     {
@@ -536,7 +628,8 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
 
     reread:
       errno = 0;
-      if ((cc = read (STDIN_FILENO, buf, sizeof buf)) <= 0)
+      cc = read (STDIN_FILENO, buf, sizeof buf);
+      if (cc <= 0)
 	goto done;
       bp = buf;
 
@@ -575,15 +668,29 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
 	goto reread;
       goto rewrite;
     done:
-      shutdown (rem, 1);
+      shutdown (rem, SHUT_WR);
       exit (EXIT_SUCCESS);
     }
 
 #ifdef HAVE_SIGACTION
   sigprocmask (SIG_SETMASK, osigs, NULL);
-#else
+#else /* !HAVE_SIGACTION */
   sigsetmask (*osigs);
 #endif
+
+  /* The access to SIGPIPE is neeeded to kill the child process
+   * in an orderly fashion, for example when a command line
+   * pipe fails.  Otherwise the child lives on eternally.
+   */
+#ifdef HAVE_SIGACTION
+  sigemptyset (&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sa.sa_handler = sigpipe;
+  (void) sigaction (SIGPIPE, &sa, NULL);
+#else /* !HAVE_SIGACTION */
+  signal (SIGPIPE, sigpipe);
+#endif
+
   FD_ZERO (&readfrom);
   FD_SET (rfd2, &readfrom);
   FD_SET (rem, &readfrom);
@@ -603,8 +710,8 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
 	{
 	  errno = 0;
 #ifdef KERBEROS
-# ifdef CRYPT
-	  if (doenencryption)
+# ifdef ENCRYPTION
+	  if (doencrypt)
 	    cc = des_read (rfd2, buf, sizeof buf);
 	  else
 # endif
@@ -620,7 +727,7 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
 		FD_CLR (rfd2, &readfrom);
 	    }
 	  else
-	    write (2, buf, cc);
+	    write (STDERR_FILENO, buf, cc);
 	}
       if (FD_ISSET (rem, &ready))
 	{
@@ -643,10 +750,11 @@ talk (int null_input_option, sigset_t * osigs, pid_t pid, int rem)
 		FD_CLR (rem, &readfrom);
 	    }
 	  else
-	    write (1, buf, cc);
+	    write (STDOUT_FILENO, buf, cc);
 	}
     }
-  while (FD_ISSET (rfd2, &readfrom) || FD_ISSET (rem, &readfrom));
+  while ((FD_ISSET (rfd2, &readfrom) || FD_ISSET (rem, &readfrom))
+	 && !end_of_pipe);
 }
 
 void
@@ -674,6 +782,12 @@ sendsig (int sig)
     write (rfd2, &signo, 1);
 }
 
+void
+sigpipe (int sig _GL_UNUSED_PARAMETER)
+{
+  ++end_of_pipe;
+}
+
 #if defined KERBEROS || defined SHISHI
 void
 warning (const char *fmt, ...)
@@ -682,7 +796,6 @@ warning (const char *fmt, ...)
 
   fprintf (stderr, "%s: warning, using standard rsh: ", program_name);
   va_start (ap, fmt);
-  fmt = va_arg (ap, char *);
   vfprintf (stderr, fmt, ap);
   va_end (ap);
   fprintf (stderr, ".\n");
@@ -698,7 +811,8 @@ copyargs (char **argv)
   cc = 0;
   for (ap = argv; *ap; ++ap)
     cc += strlen (*ap) + 1;
-  if (!(args = malloc ((u_int) cc)))
+  args = malloc ((u_int) cc);
+  if (!args)
     error (EXIT_FAILURE, errno, "copyargs");
   for (p = args, ap = argv; *ap; ++ap)
     {

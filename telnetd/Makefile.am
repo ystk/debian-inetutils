@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,18 +18,25 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
+@PATHDEFS_MAKE@
+
+AM_CPPFLAGS = \
+	$(iu_INCLUDES) \
+	-I$(top_srcdir) \
+	$(INCAUTH) $(NCURSES_INCLUDE) \
+	$(PATHDEF_DEV) $(PATHDEF_TTY) $(PATHDEF_TTY_PFX) $(PATHDEF_LOGIN)
+
+LDADD = \
+	$(top_builddir)/libtelnet/libtelnet.a \
+	$(iu_LIBRARIES) \
+	$(LIBTERMCAP) $(LIBUTIL) $(LIBCRYPT) $(LIBAUTH)
+
 inetdaemondir = @inetdaemondir@
 
-inetdaemon_PROGRAMS = @telnetd_BUILD@
+inetdaemon_PROGRAMS = $(telnetd_BUILD)
 
 EXTRA_PROGRAMS = telnetd
 
 telnetd_SOURCES = telnetd.c pty.c term.c utility.c state.c termstat.c slc.c
+
 noinst_HEADERS = telnetd.h
-
-@PATHDEFS_MAKE@
-
-AM_CPPFLAGS = $(PATHDEF_DEV) $(PATHDEF_TTY) $(PATHDEF_LOGIN)
-INCLUDES = $(iu_INCLUDES) -I$(top_srcdir) $(INCAUTH) $(NCURSES_INCLUDE)
-
-LDADD = $(iu_LIBRARIES) $(top_builddir)/libtelnet/libtelnet.a $(LIBTERMCAP) $(LIBUTIL) $(LIBCRYPT) $(LIBAUTH) $(LIBREADLINE)

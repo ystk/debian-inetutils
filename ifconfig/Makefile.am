@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-# 2010, 2011 Free Software Foundation, Inc.
+# 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -19,15 +19,19 @@
 
 SUBDIRS = system
 
-bin_PROGRAMS = @ifconfig_BUILD@
+@PATHDEFS_MAKE@
+
+AM_CPPFLAGS = \
+	$(iu_INCLUDES) \
+	$(PATHDEF_PROCNET_DEV)
+
+LDADD = \
+	$(iu_LIBRARIES)
+
+bin_PROGRAMS = $(ifconfig_BUILD)
 
 EXTRA_PROGRAMS = ifconfig
 
-ifconfig_SOURCES = ifconfig.c flags.c changeif.c options.c printif.c system.c if_index.c
+ifconfig_SOURCES = ifconfig.c flags.c changeif.c options.c printif.c system.c
 
-noinst_HEADERS = ifconfig.h if_index.h flags.h options.h printif.h system.h
-
-@PATHDEFS_MAKE@
-AM_CPPFLAGS = $(PATHDEF_PROCNET_DEV)
-INCLUDES = $(iu_INCLUDES)
-LDADD = $(iu_LIBRARIES)
+noinst_HEADERS = ifconfig.h flags.h options.h printif.h system.h

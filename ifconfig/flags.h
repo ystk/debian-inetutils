@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -36,6 +36,15 @@
 # define EXPECT_D2 ":D2/SNAP:SNAP:"
 # define EXPECT_SNAP ":D2/SNAP:D2:"
 
+/* Suppress flags that are not changeable by user.  */
+#ifndef IFF_CANTCHANGE
+# define IFF_CANTCHANGE 0
+#endif /* IFF_CANTCHANGE */
+
+/* Manually exclude flags that experience tell us be static.  */
+#define IU_IFF_CANTCHANGE \
+	(IFF_CANTCHANGE | IFF_LOOPBACK | IFF_RUNNING)
+
 /* Return the name corresponding to the interface flag FLAG.
    If FLAG is unknown, return NULL.
    AVOID contains a ':' surrounded and seperated list of flag names
@@ -50,7 +59,7 @@ int if_nametoflag (const char *name, size_t len, int *prev);
 int if_nameztoflag (const char *name, int *prev);
 
 /* Print the flags in FLAGS, using AVOID as in if_flagtoname, and
-   SEPERATOR between individual flags.  Returns the number of
+   SEPARATOR between individual flags.  Returns the number of
    characters printed.  */
 int print_if_flags (int flags, const char *avoid, char seperator);
 

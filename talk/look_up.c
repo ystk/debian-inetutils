@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -107,11 +107,18 @@ check_local (void)
   current_state = "Waiting to connect with caller";
   do
     {
+      struct sockaddr addr;
+
       if (rp->addr.sa_family != AF_INET)
 	p_error ("Response uses invalid network address");
       errno = 0;
-      if (connect (sockt,
-		   (struct sockaddr *) &rp->addr, sizeof (rp->addr)) != -1)
+      addr.sa_family = rp->addr.sa_family;
+#ifdef HAVE_STRUCT_SOCKADDR_SA_LEN
+      addr.sa_len = sizeof (struct sockaddr_in);
+#endif
+      memcpy (&addr.sa_data, &rp->addr.sa_data, sizeof (addr.sa_data));
+
+      if (connect (sockt, &addr, sizeof (addr)) != -1)
 	return (1);
     }
   while (errno == EINTR);

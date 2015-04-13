@@ -1,5 +1,6 @@
 /*
-  Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+  Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -40,6 +41,7 @@
 #include <error.h>
 #include <xalloc.h>
 #include <inttostr.h>
+#include <unused-parameter.h>
 
 #define SYSLOG_NAMES
 #include <syslog.h>
@@ -51,8 +53,11 @@
 
 static char *tag = NULL;
 static int logflags = 0;
-static int pri = MAKE_PRI (LOG_USER, LOG_NOTICE);
+static int pri = MAKE_PRI (LOG_USER, LOG_NOTICE);  /* Cf. parse_level */
+/* Only one of `host' and `unixsock' will be non-NULL
+ * once option parsing has been completed. */
 static char *host = PATH_LOG;
+static char *unixsock = NULL;
 static char *source;
 static char *pidstr;
 
@@ -75,12 +80,20 @@ decode (char *name, CODE *codetab, const char *what)
   if (isdigit (*name))
     {
       char *p;
-      int c;
       unsigned long n = strtoul (name, &p, 0);
 
-      if (*p || (c = n) != n)
-	error (EXIT_FAILURE, 0, "%s: invalid %s number", what, name);
-      return c;
+      /* For portability reasons, a numerical facility is entered
+       * as a decimal integer, shifted left by three binary bits.
+       * Any overflow check must adapt to this fact.
+       * For the purpose of remote logging from a local system,
+       * tests based on LOG_NFACILITIES are insufficient, as a
+       * remote system may well distinguish more facilities than
+       * the local system does!
+       */
+      if (*p || n > LOG_FACMASK)	/* Includes range errors.  */
+	error (EXIT_FAILURE, 0, "invalid %s number: %s", what, name);
+
+      return n;
     }
 
   for (cp = codetab; cp->c_name; cp++)
@@ -96,7 +109,7 @@ int
 parse_level (char *str)
 {
   char *p;
-  int fac, pri = 0;
+  int fac, prio = LOG_NOTICE;	/* Default priority!  */
 
   p = strchr (str, '.');
   if (p)
@@ -104,8 +117,9 @@ parse_level (char *str)
 
   fac = decode (str, facilitynames, "facility");
   if (p)
-    pri = decode (p, prioritynames, "priority");
-  return MAKE_PRI (fac, pri);
+    prio = decode (p, prioritynames, "priority");
+
+  return MAKE_PRI (fac, prio);
 }
 
 
@@ -131,9 +145,17 @@ open_socket (void)
   int ret;
 #endif
 
-  if (host[0] == '/')
+  /* A UNIX socket name can be specified in two ways.
+   * Zero length of `unixsock' is handled automatically.  */
+  if ((host != NULL && strchr (host, '/')) || unixsock != NULL)
     {
-      size_t len = strlen (host);
+      size_t len;
+
+      /* Copy `unixsock' to `host' if necessary.
+       * There is no need to differentiate them.  */
+      if (unixsock)
+	host = unixsock;
+      len = strlen (host);
       if (len >= sizeof sockaddr.sunix.sun_path)
 	error (EXIT_FAILURE, 0, "UNIX socket name too long");
       strcpy (sockaddr.sunix.sun_path, host);
@@ -195,10 +217,6 @@ open_socket (void)
        * was made with !HAVE_IPV6.  */
       hints.ai_family = host_family;
 
-# ifdef AI_ADDRCONFIG
-      hints.ai_flags = AI_ADDRCONFIG;
-# endif
-
       /* The complete handshake is attempted within
        * a single while-loop, since the answers from
        * getaddrinfo() need to be checked in detail.  */
@@ -214,15 +232,14 @@ open_socket (void)
 
 	  if (source)
 	    {
-	      /* Make the assumption that the source address
-	       * encodes a desired domain family and that it
-	       * be numeric.  */
+	      /* Resolver uses the same address family
+	       * as the already resolved target host.
+	       */
 	      int ret;
 	      struct addrinfo tips, *a;
 
 	      memset (&tips, 0, sizeof (tips));
 	      tips.ai_family = ai->ai_family;
-	      tips.ai_flags = AI_NUMERICHOST;
 
 	      ret = getaddrinfo(source, NULL, &tips, &a);
 	      if (ret)
@@ -366,7 +383,7 @@ send_to_syslog (const char *msg)
   free (pbuf);
   if (rc == -1)
     error (0, errno, "send failed");
-  else if (rc != len)
+  else if (rc != (ssize_t) len)
     error (0, errno, "sent less bytes than expected (%lu vs. %lu)",
 	   (unsigned long) rc, (unsigned long) len);
 }
@@ -376,25 +393,29 @@ const char args_doc[] = "[MESSAGE]";
 const char doc[] = "Send messages to syslog";
 
 static struct argp_option argp_options[] = {
-  {"ipv4", '4', NULL, 0, "use IPv4 for logging to host" },
-  {"ipv6", '6', NULL, 0, "use IPv6 with a host target" },
+#define GRP 10
+  {"ipv4", '4', NULL, 0, "use IPv4 for logging to host", GRP },
+  {"ipv6", '6', NULL, 0, "use IPv6 with a host target", GRP },
   { "host", 'h', "HOST", 0,
-    "log to host instead of the default " PATH_LOG },
+    "log to HOST instead of to the default " PATH_LOG, GRP },
+  { "unix", 'u', "SOCK", 0,
+    "log to UNIX socket SOCK instead of " PATH_LOG, GRP },
   { "source", 'S', "IP", 0,
-    "set source IP address" },
+    "set source IP address", GRP },
   { "id", 'i', "PID", OPTION_ARG_OPTIONAL,
-    "log the process id with every line" },
+    "log the process id with every line", GRP },
 #ifdef LOG_PERROR
-  { "stderr", 's', NULL, 0, "copy the message to stderr" },
+  { "stderr", 's', NULL, 0, "copy the message to stderr", GRP },
 #endif
-  { "file", 'f', "FILE", 0, "log the content of FILE" },
-  { "priority", 'p', "PRI", 0, "log with priority PRI" },
-  { "tag", 't', "TAG", 0, "prepend every line with TAG" },
-  {NULL}
+  { "file", 'f', "FILE", 0, "log the content of FILE", GRP },
+  { "priority", 'p', "PRI", 0, "log with priority PRI", GRP },
+  { "tag", 't', "TAG", 0, "prepend every line with TAG", GRP },
+#undef GRP
+  {NULL, 0, NULL, 0, NULL, 0 }
 };
 
 static error_t
-parse_opt (int key, char *arg, struct argp_state *state)
+parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
 {
   switch (key)
     {
@@ -417,6 +438,12 @@ parse_opt (int key, char *arg, struct argp_state *state)
 
     case 'h':
       host = arg;
+      unixsock = NULL;	/* Erase any previous `-u'.  */
+      break;
+
+    case 'u':
+      unixsock = arg;
+      host = NULL;	/* Erase previous `-h'.  */
       break;
 
     case 'S':
@@ -461,7 +488,8 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 const char *program_authors[] = {
   "Sergey Poznyakoff",

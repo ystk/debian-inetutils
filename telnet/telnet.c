@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -51,13 +51,13 @@
 
 #include <sys/types.h>
 
-#if defined unix
+#if defined unix || defined __unix || defined __unix__
 # include <signal.h>
 /* By the way, we need to include curses.h before telnet.h since,
  * among other things, telnet.h #defines 'DO', which is a variable
  * declared in curses.h.
  */
-#endif /* defined(unix) */
+#endif /* unix || __unix || __unix__ */
 
 #include <arpa/telnet.h>
 
@@ -79,6 +79,16 @@
 # include <curses.h>
 # include <term.h>
 #endif
+
+#ifdef AUTHENTICATION
+# include <libtelnet/auth.h>
+#endif
+#ifdef ENCRYPTION
+# include <libtelnet/encrypt.h>
+#endif
+#if defined AUTHENTICATION || defined ENCRYPTION
+# include <libtelnet/misc.h>
+#endif
 
 
 #define strip(x) ((my_want_state_is_wont(TELOPT_BINARY)) ? ((x)&0x7f) : (x))
@@ -95,9 +105,9 @@ static unsigned char subbuffer[SUBBUFSIZE], *subpointer, *subend;	/* buffer for 
 #define SB_EOF()	(subpointer >= subend)
 #define SB_LEN()	(subend - subpointer)
 
-char options[256];		/* The combined options */
-char do_dont_resp[256];
-char will_wont_resp[256];
+char options[256] = { 0 };		/* The combined options */
+char do_dont_resp[256] = { 0 };
+char will_wont_resp[256] = { 0 };
 
 int eight = 0, autologin = 0,	/* Autologin anyone? */
   skiprc = 0, connected, showoptions, In3270,	/* Are we in 3270 mode? */
@@ -179,7 +189,6 @@ init_telnet (void)
   env_init ();
 
   SB_CLEAR ();
-  ClearArray (options);
 
   connected = In3270 = ISend = localflow = donebinarytoggle = 0;
 #if defined AUTHENTICATION || defined ENCRYPTION
@@ -595,7 +604,7 @@ is_unique (register char *name, register char **as, register char **ae)
 
 /*
  * Given a buffer returned by tgetent(), this routine will turn
- * the pipe seperated list of names in the buffer into an array
+ * the pipe separated list of names in the buffer into an array
  * of pointers to null terminated names.  We toss out any bad,
  * duplicate, or verbose names (names with spaces).
  */
@@ -624,30 +633,41 @@ mklist (char *buf, char *name)
     }
   else
     unknown[0] = name_unknown;
+
   /*
-   * Count up the number of names.
+   * An empty capability buffer finishes the analysis.
+   */
+  if (!buf || !*buf)
+    return (unknown);
+
+  /*
+   * Count the number of alias names.
+   * Stop at the first field separator, a colon.
    */
   for (n = 1, cp = buf; *cp && *cp != ':'; cp++)
     {
       if (*cp == '|')
 	n++;
     }
+
   /*
-   * Allocate an array to put the name pointers into
+   * Allocate an array to hold the name pointers.
    */
   argv = (char **) malloc ((n + 3) * sizeof (char *));
   if (argv == 0)
     return (unknown);
 
   /*
-   * Fill up the array of pointers to names.
+   * Fill the array of pointers with the established aliases.
+   * Reserve the first slot for the preferred name.
    */
-  *argv = 0;
   argvp = argv + 1;
-  n = 0;
+  *argv = *argvp = 0;
+  n = 0;		/* Positive: name uses white space.  */
+
   for (cp = cp2 = buf; (c = *cp); cp++)
     {
-      if (c == '|' || c == ':')
+      if (c == '|' || c == ':')		/* Delimiters */
 	{
 	  *cp++ = '\0';
 	  /*
@@ -658,21 +678,28 @@ mklist (char *buf, char *name)
 	   * insensitive) add it to the list.
 	   */
 	  if (n || (cp - cp2 > 41))
-	    ;
+	    ;			/* Ignore the just scanned name.  */
 	  else if (name && (strncasecmp (name, cp2, cp - cp2) == 0))
-	    *argv = cp2;
+	    *argv = cp2;	/* Preferred name, exact match.  */
 	  else if (is_unique (cp2, argv + 1, argvp))
-	    *argvp++ = cp2;
+	    {
+	      *argvp++ = cp2;
+	      *argvp = 0;	/* Prevent looking forward.  */
+	    }
+
+	  /* Abort parsing at first field delimiter.  */
 	  if (c == ':')
 	    break;
+
 	  /*
-	   * Skip multiple delimiters. Reset cp2 to
-	   * the beginning of the next name. Reset n,
+	   * Skip multiple delimiters. Reset CP2 to
+	   * the beginning of the next name. Reset N,
 	   * the flag for names with spaces.
 	   */
 	  while ((c = *cp) == '|')
 	    cp++;
-	  cp2 = cp;
+
+	  cp2 = cp;		/* Proceed to next alias name.  */
 	  n = 0;
 	}
       /*
@@ -724,23 +751,28 @@ mklist (char *buf, char *name)
     return (unknown);
 }
 
+/* Claimed to be ignored by contemporary implementations,
+ * but still modified by FreeBSD and NetBSD.
+ * mklist will examine this buffer, so erase it
+ * to cover corner cases.
+ */
+char termbuf[2048] = { 0 };
 
-char termbuf[1024];
-
-int
-init_term (char *tname, int fd, int *errp)
+static int
+init_term (char *tname, int *errp)
 {
   int err = -1;
+
 #ifdef HAVE_TGETENT
   err = tgetent (termbuf, tname);
-#endif
   if (err == 1)
     {
-      termbuf[1023] = '\0';
+      termbuf[sizeof (termbuf) - 1] = '\0';
       if (errp)
 	*errp = 1;
       return (0);
     }
+#endif /* HAVE_TGETENT */
   if (errp)
     *errp = 0;
   return (-1);
@@ -762,7 +794,7 @@ gettermname (void)
       if (tnamep && tnamep != unknown)
 	free (tnamep);
       if ((tname = (char *) env_getvalue ("TERM")) &&
-	  (init_term (tname, 1, &err) == 0))
+	  (init_term (tname, &err) == 0))
 	{
 	  tnamep = mklist (termbuf, tname);
 	}
@@ -1099,7 +1131,7 @@ lm_will (unsigned char *cmd, int len)
     default:
       str_lm[3] = DONT;
       str_lm[4] = cmd[0];
-      if (NETROOM () > sizeof (str_lm))
+      if (NETROOM () > (int) sizeof (str_lm))
 	{
 	  ring_supply_data (&netoring, str_lm, sizeof (str_lm));
 	  printsub ('>', &str_lm[2], sizeof (str_lm) - 2);
@@ -1144,7 +1176,7 @@ lm_do (unsigned char *cmd, int len)
     default:
       str_lm[3] = WONT;
       str_lm[4] = cmd[0];
-      if (NETROOM () > sizeof (str_lm))
+      if (NETROOM () > (int) sizeof (str_lm))
 	{
 	  ring_supply_data (&netoring, str_lm, sizeof (str_lm));
 	  printsub ('>', &str_lm[2], sizeof (str_lm) - 2);
@@ -1191,7 +1223,7 @@ lm_mode (unsigned char *cmd, int len, int init)
   str_lm_mode[4] = linemode;
   if (!init)
     str_lm_mode[4] |= MODE_ACK;
-  if (NETROOM () > sizeof (str_lm_mode))
+  if (NETROOM () > (int) sizeof (str_lm_mode))
     {
       ring_supply_data (&netoring, str_lm_mode, sizeof (str_lm_mode));
       printsub ('>', &str_lm_mode[2], sizeof (str_lm_mode) - 2);
@@ -1319,7 +1351,7 @@ unsigned char slc_import_def[] = {
 void
 slc_import (int def)
 {
-  if (NETROOM () > sizeof (slc_import_val))
+  if (NETROOM () > (int) sizeof (slc_import_val))
     {
       if (def)
 	{
@@ -2339,13 +2371,13 @@ Scheduler (int block)
   netex = !SYNCHing;
 
   /* If we have seen a signal recently, reset things */
-#if defined TN3270 && defined unix
+#if defined TN3270 && (defined unix || defined __unix || defined __unix__)
   if (HaveInput)
     {
       HaveInput = 0;
       signal (SIGIO, inputAvailable);
     }
-#endif /* defined(TN3270) && defined(unix) */
+#endif /* TN3270 && (unix || __unix || __unix__) */
 
   /* Call to system code to process rings */
 
@@ -2403,10 +2435,12 @@ telnet (char *user)
     if (!local_host)
       local_host = localhost ();
 
-    auth_encrypt_init (local_host, hostname, "TELNET", 0);
+    auth_encrypt_init (local_host, hostname, NULL, "TELNET", 0);
     auth_encrypt_user (user);
   }
-#endif /* defined(AUTHENTICATION) || defined(ENCRYPTION)  */
+#else /* !defined(AUTHENTICATION) && !defined(ENCRYPTION)  */
+  (void) user;
+#endif
 #if !defined TN3270
   if (telnetport)
     {

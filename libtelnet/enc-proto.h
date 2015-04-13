@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -68,6 +68,15 @@
  */
 
 #ifdef	ENCRYPTION
+int EncryptStart (char *);
+int EncryptStartInput (void);
+int EncryptStartOutput (void);
+int EncryptStatus (void);
+int EncryptStop (char *);
+int EncryptStopInput (void);
+int EncryptStopOutput (void);
+int EncryptType (char *, char *);
+
 void encrypt_init (char *, int);
 Encryptions *findencryption (int);
 void encrypt_send_supprt (void);
@@ -75,20 +84,28 @@ void encrypt_auto (int);
 void decrypt_auto (int);
 void encrypt_is (unsigned char *, int);
 void encrypt_reply (unsigned char *, int);
+void encrypt_start (unsigned char *, int);
 void encrypt_start_input (int);
 void encrypt_session_key (Session_Key *, int);
+void encrypt_end (void);
 void encrypt_end_input (void);
 void encrypt_start_output (int);
 void encrypt_end_output (void);
+void encrypt_request_start (unsigned char *, int);
 void encrypt_send_request_start (void);
+void encrypt_request_end (void);
 void encrypt_send_request_end (void);
 void encrypt_send_end (void);
 void encrypt_wait (void);
+void encrypt_support (unsigned char *, int);
 void encrypt_send_support (void);
+void encrypt_dec_keyid (unsigned char *, int);
+void encrypt_enc_keyid (unsigned char *, int);
 void encrypt_send_keyid (int, unsigned char *, int, int);
+void encrypt_printsub (unsigned char *, int, char *, int);
 int net_write (unsigned char *, int);
 
-# ifdef	TELENTD
+# ifdef	TELNETD
 void encrypt_wait (void);
 # else
 int encrypt_cmd (int, char **);
@@ -102,7 +119,7 @@ int krbdes_reply (unsigned char *, int);
 void krbdes_init (int);
 int krbdes_start (int, int);
 void krbdes_session (Session_Key *, int);
-void krbdes_printsub (unsigned char *, int, unsigned char *, int);
+void krbdes_printsub (unsigned char *, int, char *, int);
 
 void cfb64_encrypt (unsigned char *, int);
 int cfb64_decrypt (int);
@@ -112,7 +129,7 @@ int cfb64_is (unsigned char *, int);
 int cfb64_reply (unsigned char *, int);
 void cfb64_session (Session_Key *, int);
 int cfb64_keyid (int, unsigned char *, int *);
-void cfb64_printsub (unsigned char *, int, unsigned char *, int);
+void cfb64_printsub (unsigned char *, int, char *, int);
 
 void ofb64_encrypt (unsigned char *, int);
 int ofb64_decrypt (int);
@@ -122,7 +139,7 @@ int ofb64_is (unsigned char *, int);
 int ofb64_reply (unsigned char *, int);
 void ofb64_session (Session_Key *, int);
 int ofb64_keyid (int, unsigned char *, int *);
-void ofb64_printsub (unsigned char *, int, unsigned char *, int);
+void ofb64_printsub (unsigned char *, int, char *, int);
 
 int des_new_random_key (Block);
 void des_set_random_generator_seed (Block);

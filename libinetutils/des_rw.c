@@ -1,6 +1,7 @@
 /*
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -49,16 +50,27 @@
 #include <config.h>
 
 #ifdef ENCRYPTION
-# ifdef KERBEROS
+# ifdef KRB4
 #  include <sys/param.h>
 
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
+#  ifdef HAVE_KERBEROSIV_DES_H
+#   include <kerberosIV/des.h>
+#  endif
+#  ifdef HAVE_KERBEROSIV_KRB_H
+#   include <kerberosIV/krb.h>
+#  endif
 
 #  include <stdlib.h>
 #  include <string.h>
 #  include <time.h>
 #  include <unistd.h>
+
+#  ifndef MIN
+#   define MIN(a,b)	(((a)<(b))? (a):(b))
+#  endif
+#  ifndef roundup
+#   define roundup(x, y)   ((((x)+((y)-1))/(y))*(y))
+#  endif
 
 static unsigned char des_inbuf[10240], storage[10240], *store_ptr;
 static bit_64 *key;
@@ -196,5 +208,5 @@ des_write (fd, buf, len)
   write (fd, des_outbuf, roundup (len, 8));
   return (len);
 }
-# endif	/* KERBEROS */
+# endif	/* KRB4 */
 #endif /* CRYPT */

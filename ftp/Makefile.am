@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,17 +18,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-bin_PROGRAMS = @ftp_BUILD@
+@PATHDEFS_MAKE@
+
+AM_CPPFLAGS = \
+	$(iu_INCLUDES) \
+	$(INCIDN) \
+	$(PATHDEF_TMP) $(PATHDEF_BSHELL)
+
+LDADD = \
+	$(iu_LIBRARIES) \
+	$(LIBREADLINE) $(LIBHISTORY) \
+	$(LIBIDN)
+
+bin_PROGRAMS = $(ftp_BUILD)
 
 EXTRA_PROGRAMS = ftp
 
 ftp_SOURCES = cmds.c cmdtab.c domacro.c ftp.c main.c ruserpass.c
 
 noinst_HEADERS = extern.h ftp_var.h
-
-@PATHDEFS_MAKE@
-
-INCLUDES = $(iu_INCLUDES)
-AM_CPPFLAGS = $(PATHDEF_TMP) $(PATHDEF_BSHELL)
-
-LDADD = $(iu_LIBRARIES) $(LIBGLOB) $(LIBREADLINE) $(LIBTERMCAP) $(LIBHISTORY)

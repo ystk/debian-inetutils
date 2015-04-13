@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -25,7 +25,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
 #include <xalloc.h>
+#include <unused-parameter.h>
 
 #include "ping_common.h"
 
@@ -33,6 +38,7 @@ extern unsigned char *data_buffer;
 extern size_t data_length;
 
 static void _ping_freebuf (PING * p);
+extern unsigned int options;
 
 size_t
 ping_cvt_number (const char *optarg, size_t maxval, int allow_zero)
@@ -54,9 +60,9 @@ ping_cvt_number (const char *optarg, size_t maxval, int allow_zero)
 }
 
 void
-init_data_buffer (unsigned char * pat, int len)
+init_data_buffer (unsigned char * pat, size_t len)
 {
-  int i = 0;
+  size_t i = 0;
   unsigned char *p;
 
   if (data_length == 0)
@@ -69,7 +75,7 @@ init_data_buffer (unsigned char * pat, int len)
       for (p = data_buffer; p < data_buffer + data_length; p++)
 	{
 	  *p = pat[i];
-	  if (i++ >= len)
+	  if (++i >= len)
 	    i = 0;
 	}
     }
@@ -92,6 +98,7 @@ decode_pattern (const char *text, int *pattern_len,
         error (EXIT_FAILURE, 0, "error in pattern near %s", text);
 
       text += off;
+      pattern_data[i] = c;
     }
   *pattern_len = i;
 }
@@ -137,6 +144,28 @@ nsqrt (double a, double prec)
   while (nabs (x1 - x0) > prec);
 
   return x1;
+}
+
+int
+is_normed_time (n_time t)
+{
+  /* A set MSB indicates non-normalised time standard.  */
+  return (t & (1UL << 31)) ? 0 : 1;
+}
+
+const char *
+ping_cvt_time (char *buf, size_t buflen, n_time t)
+{
+  n_time t_red;
+
+  t_red = t & ((1UL << 31) - 1);
+
+  if (is_normed_time (t))
+    snprintf (buf, buflen, "%u", t_red);
+  else
+    snprintf (buf, buflen, "<%u>", t_red);
+
+  return buf;
 }
 
 int
@@ -225,4 +254,79 @@ ping_timeout_p (struct timeval *start_time, int timeout)
         return 1;
     }
   return 0;
+}
+
+char *
+ipaddr2str (struct sockaddr *from, socklen_t fromlen)
+{
+  int err;
+  size_t len;
+  char *buf, ipstr[INET6_ADDRSTRLEN], hoststr[256];
+
+  err = getnameinfo (from, fromlen, ipstr, sizeof (ipstr),
+		     NULL, 0, NI_NUMERICHOST);
+  if (err)
+    {
+      const char *errmsg;
+
+      if (err == EAI_SYSTEM)
+	errmsg = strerror (errno);
+      else
+	errmsg = gai_strerror (err);
+
+      fprintf (stderr, "ping: getnameinfo: %s\n", errmsg);
+      return xstrdup ("unknown");
+    }
+
+  if (options & OPT_NUMERIC)
+    return xstrdup (ipstr);
+
+  err = getnameinfo (from, fromlen, hoststr, sizeof (hoststr),
+		     NULL, 0,
+#ifdef NI_IDN
+		     NI_IDN | NI_NAMEREQD
+#else
+		     NI_NAMEREQD
+#endif
+		     );
+  if (err)
+    return xstrdup (ipstr);
+
+  len = strlen (ipstr) + strlen (hoststr) + 4;	/* Pair of parentheses, a space
+						   and a NUL. */
+  buf = xmalloc (len);
+  snprintf (buf, len, "%s (%s)", hoststr, ipstr);
+
+  return buf;
+}
+
+char *
+sinaddr2str (struct in_addr ina)
+{
+  struct hostent *hp;
+
+  if (options & OPT_NUMERIC)
+    return xstrdup (inet_ntoa (ina));
+
+  hp = gethostbyaddr ((char *) &ina, sizeof (ina), AF_INET);
+  if (hp == NULL)
+    return xstrdup (inet_ntoa (ina));
+  else
+    {
+      char *buf, *ipstr;
+      int len;
+
+      ipstr = inet_ntoa (ina);
+      len = strlen (ipstr) + 1;
+
+      if (hp->h_name)
+	len += strlen (hp->h_name) + 4;	/* parentheses, space, and NUL */
+
+      buf = xmalloc (len);
+      if (hp->h_name)
+	snprintf (buf, len, "%s (%s)", hp->h_name, ipstr);
+      else
+	snprintf (buf, len, "%s", ipstr);
+      return buf;
+    }
 }

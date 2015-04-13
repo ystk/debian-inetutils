@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -40,6 +40,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <unused-parameter.h>
 
 #include <ping.h>
 #include "ping_impl.h"
@@ -67,7 +68,7 @@ int
 ping_echo (char *hostname)
 {
 #ifdef IP_OPTIONS
-  char rspace[3 + 4 * NROUTES + 1];	/* record route space */
+  char rspace[MAX_IPOPTLEN];	/* Maximal IP option space.  */
 #endif
   struct ping_stat ping_stat;
   int status;
@@ -100,10 +101,51 @@ ping_echo (char *hostname)
              "implementation.");
 #endif /* IP_OPTIONS */
     }
+  else if (options & OPT_IPTIMESTAMP)
+    {
+      int type;
 
-  printf ("PING %s (%s): %d data bytes\n",
+      if (suboptions & SOPT_TSPRESPEC)
+#ifdef IPOPT_TS_PRESPEC_RFC791
+	type = IPOPT_TS_PRESPEC_RFC791;
+#else
+	type = IPOPT_TS_PRESPEC;
+#endif
+      else if (suboptions & SOPT_TSADDR)
+	type = IPOPT_TS_TSANDADDR;
+      else
+        type = IPOPT_TS_TSONLY;
+
+#ifdef IP_OPTIONS
+      memset (rspace, 0, sizeof (rspace));
+      rspace[IPOPT_OPTVAL] = IPOPT_TS;
+      rspace[IPOPT_OLEN] = sizeof (rspace);
+      if (type != IPOPT_TS_TSONLY)
+	rspace[IPOPT_OLEN] -= sizeof (n_time);	/* Exsessive part.  */
+      rspace[IPOPT_OFFSET] = IPOPT_MINOFF + 1;
+
+# ifdef IPOPT_POS_OV_FLG
+      rspace[IPOPT_POS_OV_FLG] = type;
+# else
+      rspace[3] = type;
+# endif /* !IPOPT_POS_OV_FLG */
+
+      if (setsockopt (ping->ping_fd, IPPROTO_IP,
+		      IP_OPTIONS, rspace, rspace[IPOPT_OLEN]) < 0)
+        error (EXIT_FAILURE, errno, "setsockopt");
+#else /* !IP_OPTIONS */
+      error (EXIT_FAILURE, 0, "IP timestamp not available in this "
+             "implementation.");
+#endif /* IP_OPTIONS */
+    }
+
+  printf ("PING %s (%s): %zu data bytes",
 	  ping->ping_hostname,
 	  inet_ntoa (ping->ping_dest.ping_sockaddr.sin_addr), data_length);
+  if (options & OPT_VERBOSE)
+    printf (", id 0x%04x = %u", ping->ping_ident, ping->ping_ident);
+
+  printf ("\n");
 
   status = ping_run (ping, echo_finish);
   free (ping->ping_hostname);
@@ -131,7 +173,8 @@ handler (int code, void *closure,
 
 int
 print_echo (int dupflag, struct ping_stat *ping_stat,
-	    struct sockaddr_in *dest, struct sockaddr_in *from,
+	    struct sockaddr_in *dest _GL_UNUSED_PARAMETER,
+	    struct sockaddr_in *from,
 	    struct ip *ip, icmphdr_t * icmp, int datalen)
 {
   int hlen;
@@ -148,7 +191,7 @@ print_echo (int dupflag, struct ping_stat *ping_stat,
   datalen -= hlen;
 
   /* Do timing */
-  if (PING_TIMING (datalen - 8))
+  if (PING_TIMING (datalen - PING_HEADER_LEN))
     {
       struct timeval tv1, *tp;
 
@@ -179,7 +222,7 @@ print_echo (int dupflag, struct ping_stat *ping_stat,
 
   printf ("%d bytes from %s: icmp_seq=%u", datalen,
 	  inet_ntoa (*(struct in_addr *) &from->sin_addr.s_addr),
-	  icmp->icmp_seq);
+	  ntohs (icmp->icmp_seq));
   printf (" ttl=%d", ip->ip_ttl);
   if (timing)
     printf (" time=%.3f ms", triptime);
@@ -190,32 +233,6 @@ print_echo (int dupflag, struct ping_stat *ping_stat,
   printf ("\n");
 
   return 0;
-}
-
-char *
-ipaddr2str (struct in_addr ina)
-{
-  struct hostent *hp;
-
-  if (options & OPT_NUMERIC
-      || !(hp = gethostbyaddr ((char *) &ina, 4, AF_INET)))
-    return xstrdup (inet_ntoa (ina));
-  else
-    {
-      char *ipstr = inet_ntoa (ina);
-      int len = strlen (hp->h_name) + 1;
-      char *buf;
-
-      if (ipstr)
-	len += strlen (ipstr) + 3;	/* a pair of parentheses and a space */
-
-      buf = xmalloc (len);
-      if (ipstr)
-	snprintf (buf, len, "%s (%s)", hp->h_name, ipstr);
-      else
-	snprintf (buf, len, "%s", hp->h_name);
-      return buf;
-    }
 }
 
 #define NITEMS(a) sizeof(a)/sizeof((a)[0])
@@ -230,46 +247,47 @@ struct icmp_diag
 
 struct icmp_code_descr
 {
+  int type;
   int code;
   char *diag;
 } icmp_code_descr[] =
   {
-    {ICMP_NET_UNREACH, "Destination Net Unreachable"},
-    {ICMP_HOST_UNREACH, "Destination Host Unreachable"},
-    {ICMP_PROT_UNREACH, "Destination Protocol Unreachable"},
-    {ICMP_PORT_UNREACH, "Destination Port Unreachable"},
-    {ICMP_FRAG_NEEDED, "Fragmentation needed and DF set"},
-    {ICMP_SR_FAILED, "Source Route Failed"},
-    {ICMP_NET_UNKNOWN, "Network Unknown"},
-    {ICMP_HOST_UNKNOWN, "Host Unknown"},
-    {ICMP_HOST_ISOLATED, "Host Isolated"},
-    {ICMP_NET_UNR_TOS, "Destination Network Unreachable At This TOS"},
-    {ICMP_HOST_UNR_TOS, "Destination Host Unreachable At This TOS"},
+    {ICMP_DEST_UNREACH, ICMP_NET_UNREACH, "Destination Net Unreachable"},
+    {ICMP_DEST_UNREACH, ICMP_HOST_UNREACH, "Destination Host Unreachable"},
+    {ICMP_DEST_UNREACH, ICMP_PROT_UNREACH, "Destination Protocol Unreachable"},
+    {ICMP_DEST_UNREACH, ICMP_PORT_UNREACH, "Destination Port Unreachable"},
+    {ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED, "Fragmentation needed and DF set"},
+    {ICMP_DEST_UNREACH, ICMP_SR_FAILED, "Source Route Failed"},
+    {ICMP_DEST_UNREACH, ICMP_NET_UNKNOWN, "Network Unknown"},
+    {ICMP_DEST_UNREACH, ICMP_HOST_UNKNOWN, "Host Unknown"},
+    {ICMP_DEST_UNREACH, ICMP_HOST_ISOLATED, "Host Isolated"},
+    {ICMP_DEST_UNREACH, ICMP_NET_UNR_TOS, "Destination Network Unreachable At This TOS"},
+    {ICMP_DEST_UNREACH, ICMP_HOST_UNR_TOS, "Destination Host Unreachable At This TOS"},
 #ifdef ICMP_PKT_FILTERED
-    {ICMP_PKT_FILTERED, "Packet Filtered"},
+    {ICMP_DEST_UNREACH, ICMP_PKT_FILTERED, "Packet Filtered"},
 #endif
 #ifdef ICMP_PREC_VIOLATION
-    {ICMP_PREC_VIOLATION, "Precedence Violation"},
+    {ICMP_DEST_UNREACH, ICMP_PREC_VIOLATION, "Precedence Violation"},
 #endif
 #ifdef ICMP_PREC_CUTOFF
-    {ICMP_PREC_CUTOFF, "Precedence Cutoff"},
+    {ICMP_DEST_UNREACH, ICMP_PREC_CUTOFF, "Precedence Cutoff"},
 #endif
-    {ICMP_REDIR_NET, "Redirect Network"},
-    {ICMP_REDIR_HOST, "Redirect Host"},
-    {ICMP_REDIR_NETTOS, "Redirect Type of Service and Network"},
-    {ICMP_REDIR_HOSTTOS, "Redirect Type of Service and Host"},
-    {ICMP_EXC_TTL, "Time to live exceeded"},
-    {ICMP_EXC_FRAGTIME, "Frag reassembly time exceeded"}
+    {ICMP_REDIRECT, ICMP_REDIR_NET, "Redirect Network"},
+    {ICMP_REDIRECT, ICMP_REDIR_HOST, "Redirect Host"},
+    {ICMP_REDIRECT, ICMP_REDIR_NETTOS, "Redirect Type of Service and Network"},
+    {ICMP_REDIRECT, ICMP_REDIR_HOSTTOS, "Redirect Type of Service and Host"},
+    {ICMP_TIME_EXCEEDED, ICMP_EXC_TTL, "Time to live exceeded"},
+    {ICMP_TIME_EXCEEDED, ICMP_EXC_FRAGTIME, "Frag reassembly time exceeded"}
   };
 
 static void
-print_icmp_code (int code, char *prefix)
+print_icmp_code (int type, int code, char *prefix)
 {
   struct icmp_code_descr *p;
 
   for (p = icmp_code_descr; p < icmp_code_descr + NITEMS (icmp_code_descr);
        p++)
-    if (p->code == code)
+    if (p->type == type && p->code == code)
       {
 	printf ("%s\n", p->diag);
 	return;
@@ -281,29 +299,46 @@ print_icmp_code (int code, char *prefix)
 static void
 print_ip_header (struct ip *ip)
 {
-  int hlen;
+  size_t hlen;
   unsigned char *cp;
 
   hlen = ip->ip_hl << 2;
-  cp = (unsigned char *) ip + 20;	/* point to options */
+  cp = (unsigned char *) ip + sizeof (*ip);	/* point to options */
+
+  if (options & OPT_VERBOSE)
+    {
+      size_t j;
+
+      printf ("IP Hdr Dump:\n ");
+      for (j = 0; j < sizeof (*ip); ++j)
+	printf ("%02x%s", *((unsigned char *) ip + j),
+		(j % 2) ? " " : "");	/* Group bytes two by two.  */
+      printf ("\n");
+    }
 
   printf
-    ("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src      Dst Data\n");
-  printf (" %1x  %1x  %02x %04x %04x", ip->ip_v, ip->ip_hl, ip->ip_tos,
-	  ip->ip_len, ip->ip_id);
-  printf ("   %1x %04x", ((ip->ip_off) & 0xe000) >> 13,
-	  (ip->ip_off) & 0x1fff);
-  printf ("  %02x  %02x %04x", ip->ip_ttl, ip->ip_p, ip->ip_sum);
+    ("Vr HL TOS  Len   ID Flg  off TTL Pro  cks      Src\tDst\tData\n");
+  printf (" %1x  %1x  %02x", ip->ip_v, ip->ip_hl, ip->ip_tos);
+  /*
+   * The member `ip_len' is not portably reported in any byte order.
+   * Use a simple heuristic to print a reasonable value.
+   */
+  printf (" %04x %04x",
+	  (ip->ip_len > 0x2000) ? ntohs (ip->ip_len) : ip->ip_len,
+	  ntohs (ip->ip_id));
+  printf ("   %1x %04x", (ntohs (ip->ip_off) & 0xe000) >> 13,
+	  ntohs (ip->ip_off) & 0x1fff);
+  printf ("  %02x  %02x %04x", ip->ip_ttl, ip->ip_p, ntohs (ip->ip_sum));
   printf (" %s ", inet_ntoa (*((struct in_addr *) &ip->ip_src)));
   printf (" %s ", inet_ntoa (*((struct in_addr *) &ip->ip_dst)));
-  while (hlen-- > 20)
+  while (hlen-- > sizeof (*ip))
     printf ("%02x", *cp++);
 
   printf ("\n");
 }
 
 void
-print_ip_data (icmphdr_t * icmp, void *data)
+print_ip_data (icmphdr_t * icmp, void *data _GL_UNUSED_PARAMETER)
 {
   int hlen;
   unsigned char *cp;
@@ -314,20 +349,32 @@ print_ip_data (icmphdr_t * icmp, void *data)
   hlen = ip->ip_hl << 2;
   cp = (unsigned char *) ip + hlen;
 
-  if (ip->ip_p == 6)
+  if (ip->ip_p == IPPROTO_TCP)
     printf ("TCP: from port %u, to port %u (decimal)\n",
 	    (*cp * 256 + *(cp + 1)), (*(cp + 2) * 256 + *(cp + 3)));
-  else if (ip->ip_p == 17)
+  else if (ip->ip_p == IPPROTO_UDP)
     printf ("UDP: from port %u, to port %u (decimal)\n",
 	    (*cp * 256 + *(cp + 1)), (*(cp + 2) * 256 + *(cp + 3)));
+  else if (ip->ip_p == IPPROTO_ICMP)
+    {
+      int type = *cp;
+      int code = *(cp + 1);
 
+      printf ("ICMP: type %u, code %u, size %u", type, code,
+	      ntohs (ip->ip_len) - hlen);
+      if (type == ICMP_ECHOREPLY || type == ICMP_ECHO)
+	printf (", id 0x%04x, seq 0x%04x", *(cp + 4) * 256 + *(cp + 5),
+		*(cp + 6) * 256 + *(cp + 7));
+      printf ("\n");
+    }
 }
 
 static void
 print_icmp (icmphdr_t * icmp, void *data)
 {
-  print_icmp_code (icmp->icmp_code, data);
-  print_ip_data (icmp, NULL);
+  print_icmp_code (icmp->icmp_type, icmp->icmp_code, data);
+  if (options & OPT_VERBOSE)
+    print_ip_data (icmp, NULL);
 }
 
 static void
@@ -339,19 +386,21 @@ print_parameterprob (icmphdr_t * icmp, void *data)
 }
 
 struct icmp_diag icmp_diag[] = {
-  {ICMP_ECHOREPLY, "Echo Reply", NULL},
+  {ICMP_ECHOREPLY, "Echo Reply", NULL, NULL},
   {ICMP_DEST_UNREACH, NULL, print_icmp, "Dest Unreachable"},
-  {ICMP_SOURCE_QUENCH, "Source Quench", print_ip_data},
+  {ICMP_SOURCE_QUENCH, "Source Quench", print_ip_data, NULL},
   {ICMP_REDIRECT, NULL, print_icmp, "Redirect"},
-  {ICMP_ECHO, "Echo Request", NULL},
+  {ICMP_ECHO, "Echo Request", NULL, NULL},
+  {ICMP_ROUTERADV, "Router Advertisment", NULL, NULL},
+  {ICMP_ROUTERDISCOVERY, "Router Discovery", NULL, NULL},
   {ICMP_TIME_EXCEEDED, NULL, print_icmp, "Time exceeded"},
-  {ICMP_PARAMETERPROB, NULL, print_parameterprob},
-  {ICMP_TIMESTAMP, "Timestamp", NULL},
-  {ICMP_TIMESTAMPREPLY, "Timestamp Reply", NULL},
-  {ICMP_INFO_REQUEST, "Information Request", NULL},
-#ifdef ICMP_MASKREQ
-  {ICMP_MASKREPLY, "Address Mask Reply", NULL},
-#endif
+  {ICMP_PARAMETERPROB, NULL, print_parameterprob, NULL},
+  {ICMP_TIMESTAMP, "Timestamp", NULL, NULL},
+  {ICMP_TIMESTAMPREPLY, "Timestamp Reply", NULL, NULL},
+  {ICMP_INFO_REQUEST, "Information Request", NULL, NULL},
+  {ICMP_INFO_REPLY, "Information Reply", NULL, NULL},
+  {ICMP_ADDRESS, "Address Mask Request", NULL, NULL},
+  {ICMP_ADDRESSREPLY, "Address Mask Reply", NULL, NULL},
 };
 
 void
@@ -372,7 +421,8 @@ print_icmp_header (struct sockaddr_in *from,
 	|| orig_ip->ip_dst.s_addr == ping->ping_dest.ping_sockaddr.sin_addr.s_addr))
     return;
 
-  printf ("%d bytes from %s: ", len - hlen, s = ipaddr2str (from->sin_addr));
+  s = ipaddr2str ((struct sockaddr *) from, sizeof (*from));
+  printf ("%d bytes from %s: ", len - hlen, s);
   free (s);
 
   for (p = icmp_diag; p < icmp_diag + NITEMS (icmp_diag); p++)
@@ -393,7 +443,7 @@ void
 print_ip_opt (struct ip *ip, int hlen)
 {
   unsigned char *cp;
-  int i, j, l;
+  int i, j, k, l;
   static int old_rrlen;
   static char old_rr[MAX_IPOPTLEN];
 
@@ -407,13 +457,15 @@ print_ip_opt (struct ip *ip, int hlen)
 	break;
 
       case IPOPT_LSRR:
-	printf ("\nLSRR: ");
+      case IPOPT_SSRR:
+	printf ("\n%cSRR: ", (*cp == IPOPT_LSRR) ? 'L' : 'S');
 	hlen -= 2;
 	j = *++cp;
 	++cp;
 	if (j > IPOPT_MINOFF)
 	  for (;;)
 	    {
+	      /* Fetch in network byte order, calculate as host.  */
 	      l = *++cp;
 	      l = (l << 8) + *++cp;
 	      l = (l << 8) + *++cp;
@@ -427,8 +479,8 @@ print_ip_opt (struct ip *ip, int hlen)
 		  struct in_addr ina;
 		  char *s;
 
-		  ina.s_addr = ntohl (l);
-		  printf ("\t%s", s = ipaddr2str (ina));
+		  ina.s_addr = htonl (l);
+		  printf ("\t%s", s = sinaddr2str (ina));
 		  free (s);
 		}
 	      hlen -= 4;
@@ -447,7 +499,7 @@ print_ip_opt (struct ip *ip, int hlen)
 	  i = j;
 	i -= IPOPT_MINOFF;
 	if (i <= 0)
-	  continue;
+	  break;
 	if (i == old_rrlen
 	    && cp == (unsigned char *) (ip + 1) + 2
 	    && !memcmp ((char *) cp, old_rr, i) && !(options & OPT_FLOOD))
@@ -470,6 +522,7 @@ print_ip_opt (struct ip *ip, int hlen)
 	j = 0;
 	for (;;)
 	  {
+	    /* Fetch in network byte order, calculate as host.  */
 	    l = *++cp;
 	    l = (l << 8) + *++cp;
 	    l = (l << 8) + *++cp;
@@ -483,8 +536,8 @@ print_ip_opt (struct ip *ip, int hlen)
 		struct in_addr ina;
 		char *s;
 
-		ina.s_addr = ntohl (l);
-		printf ("\t%s", s = ipaddr2str (ina));
+		ina.s_addr = htonl (l);
+		printf ("\t%s", s = sinaddr2str (ina));
 		free (s);
 	      }
 	    hlen -= 4;
@@ -499,6 +552,66 @@ print_ip_opt (struct ip *ip, int hlen)
 	      }
 	    putchar ('\n');
 	  }
+	break;
+
+      case IPOPT_TS:
+	j = *++cp;	/* len */
+	i = *++cp;	/* ptr */
+	hlen -= 2;
+	if (i > j)
+	  i = j;
+
+	/* Check minimal sizing.  */
+	if (j <= (int) (IPOPT_MINOFF + sizeof (n_time)))
+	  break;
+
+	k = *++cp;	/* OV, FL */
+	++cp;		/* Points at first content.  */
+	hlen -= 2;
+
+	printf ("\nTS:");
+	j = 5;		/* First possible slot.  */
+	for (;;)
+	  {
+	    char timestr[16];
+
+	    if ((k & 0x0f) != IPOPT_TS_TSONLY
+		&& ((j / 4) % 2 == 1))	/* find 5, 13, 21, 29 */
+	      {
+		/* IP addresses */
+		struct in_addr ina;
+		char *s;
+
+		ina.s_addr = *((in_addr_t *) cp);
+		printf ("\t%s", s = sinaddr2str (ina));
+		free (s);
+
+		hlen -= sizeof (in_addr_t);
+		cp += sizeof (in_addr_t);
+		j += sizeof (in_addr_t);
+	      }
+	    else
+	      {
+		/* Timestamps */
+		printf ("\t%s ms",
+			ping_cvt_time (timestr, sizeof (timestr),
+					ntohl (*(n_time *) cp)));
+		if (options & OPT_VERBOSE)
+		  printf (" = 0x%08x", ntohl (*(n_time *) cp));
+
+		hlen -= sizeof (n_time);
+		cp += sizeof (n_time);
+		j += sizeof (n_time);
+
+		putchar ('\n');
+	      }
+
+	    if (j >= i)
+	      break;
+	  }
+
+	if (k & 0xf0)
+	  printf ("\t(%u overflowing hosts)", k >> 4);
 	break;
 
       case IPOPT_NOP:

@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-# 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,7 +18,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-bin_PROGRAMS = @whois_BUILD@
+AM_CPPFLAGS = $(iu_INCLUDES)
+
+LDADD = $(iu_LIBRARIES)
+
+bin_PROGRAMS = $(whois_BUILD)
 
 EXTRA_PROGRAMS = whois
 
@@ -28,16 +33,14 @@ EXTRA_DIST = as_del_list ip_del_list tld_serv_list \
   as_del.h ip_del.h tld_serv.h
 
 noinst_HEADERS = data.h as_del.h ip_del.h tld_serv.h whois.h
+
 BUILT_SOURCES = as_del.h ip_del.h tld_serv.h
 
-INCLUDES = $(iu_INCLUDES)
-LDADD = $(iu_LIBRARIES)
-
 as_del.h: $(srcdir)/as_del_list $(srcdir)/make_as_del.pl
-	perl $(srcdir)/make_as_del.pl < $(srcdir)/as_del_list > as_del.h
+	LANG=C perl $(srcdir)/make_as_del.pl < $(srcdir)/as_del_list > as_del.h
 
 ip_del.h: $(srcdir)/ip_del_list $(srcdir)/make_ip_del.pl
-	perl $(srcdir)/make_ip_del.pl < $(srcdir)/ip_del_list > ip_del.h
+	LANG=C perl $(srcdir)/make_ip_del.pl < $(srcdir)/ip_del_list > ip_del.h
 
 tld_serv.h: $(srcdir)/tld_serv_list $(srcdir)/make_tld_serv.pl
-	perl $(srcdir)/make_tld_serv.pl < $(srcdir)/tld_serv_list > tld_serv.h
+	LANG=C perl $(srcdir)/make_tld_serv.pl < $(srcdir)/tld_serv_list > tld_serv.h

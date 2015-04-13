@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-# 2010, 2011 Free Software Foundation, Inc.
+# 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -21,10 +21,12 @@
 # but I'm too tired to figure out the right way right now. -jb
 
 noinst_HEADERS = \
+	bsd.h \
 	generic.h \
 	linux.h \
 	solaris.h \
 	qnx.h \
+	bsd.c \
 	generic.c \
 	linux.c \
 	solaris.c \

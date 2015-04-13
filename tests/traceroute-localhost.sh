@@ -1,6 +1,7 @@
 #!/bin/sh
 
-# Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+# Copyright (C) 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,15 +18,28 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
+# Prerequisites:
+#
+#  * Shell: SVR3 Bourne shell, or newer.
+#
+#  * id(1)
+
+. ./tools.sh
+
 TRACEROUTE=${TRACEROUTE:-../src/traceroute$EXEEXT}
 TARGET=${TARGET:-127.0.0.1}
+
+if [ ! -x $TRACEROUTE ]; then
+    echo 'No executable "'$TRACEROUTE'" available.  Skipping test.' >&2
+    exit 77
+fi
 
 if [ $VERBOSE ]; then
     set -x
     $TRACEROUTE --version
 fi
 
-if [ `id -u` != 0 ]; then
+if [ `func_id_uid` != 0 ]; then
     echo "traceroute needs to run as root"
     exit 77
 fi

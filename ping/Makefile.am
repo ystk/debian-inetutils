@@ -1,6 +1,7 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,19 +18,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-bin_PROGRAMS = @ping_BUILD@ @ping6_BUILD@
+AM_CPPFLAGS = \
+	$(iu_INCLUDES) \
+	-I$(top_srcdir)/libicmp \
+	$(INCIDN)
+
+LDADD = \
+	$(iu_LIBRARIES) \
+	$(LIBIDN)
+
+bin_PROGRAMS = $(ping_BUILD) $(ping6_BUILD)
 
 EXTRA_PROGRAMS = ping ping6
 
-ping_LDADD = $(iu_LIBRARIES) $(top_builddir)/libicmp/libicmp.a
-ping6_LDADD = $(iu_LIBRARIES)
-INCLUDES = $(iu_INCLUDES) -I$(top_srcdir)/libicmp
+ping_LDADD = $(top_builddir)/libicmp/libicmp.a $(LDADD)
 
 ping_SOURCES = ping.c ping_common.c ping_echo.c ping_address.c \
   ping_router.c ping_timestamp.c ping_common.h  ping_impl.h ping.h libping.c
 ping6_SOURCES = ping6.c ping_common.c ping_common.h ping6.h
 
-SUIDMODE = -o root -m 4775
+SUIDMODE = -o root -m 4755
 
 install-ping-hook:
 	-@for x in $(bin_PROGRAMS); do \
@@ -40,4 +48,4 @@ install-ping-hook:
 	fi \
 	done
 
-install-exec-hook: @ping_INSTALL_HOOK@
+install-exec-hook: $(ping_INSTALL_HOOK)

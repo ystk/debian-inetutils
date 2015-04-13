@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002,
-  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013,
+  2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -116,7 +116,7 @@ print_mesg (char *tty, CTL_MSG * request, char *remote_machine)
 
   if ((cp = ttymsg (&iovec, 1, tty, RING_WAIT - 5)) != NULL)
     {
-      syslog (LOG_CRIT, "%s", cp);
+      syslog (LOG_ERR, "%s", cp);
       return FAILED;
     }
   return SUCCESS;
@@ -132,14 +132,14 @@ announce (CTL_MSG * request, char *remote_machine)
   struct stat st;
   int rc;
 
-  len = sizeof (PATH_DEV) + strlen (request->r_tty) + 2;
+  len = sizeof (PATH_TTY_PFX) + strlen (request->r_tty) + 2;
   ttypath = malloc (len);
   if (!ttypath)
     {
-      syslog (LOG_CRIT, "out of memory");
+      syslog (LOG_ERR, "Out of memory");
       exit (EXIT_FAILURE);
     }
-  sprintf (ttypath, "%s/%s", PATH_DEV, request->r_tty);
+  sprintf (ttypath, "%s/%s", PATH_TTY_PFX, request->r_tty);
   rc = stat (ttypath, &st);
   free (ttypath);
   if (rc < 0 || (st.st_mode & S_IWGRP) == 0)

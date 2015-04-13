@@ -1,6 +1,6 @@
 #
-# Copyright (C) 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-# Inc.
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+# Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -21,12 +21,23 @@ AM_CPPFLAGS = $(iu_INCLUDES)
 
 LDADD = $(iu_LIBRARIES)
 
-check_PROGRAMS = localhost
+noinst_PROGRAMS = identify
+identify_LDADD =
+
+check_PROGRAMS = localhost readutmp waitdaemon
+
+dist_check_SCRIPTS = utmp.sh
+
 if ENABLE_inetd
-check_PROGRAMS += addrpeek
+check_PROGRAMS += addrpeek tcpget
 endif
 
-dist_check_SCRIPTS =
+if ENABLE_libls
+noinst_PROGRAMS += ls
+ls_LDADD = $(LIBLS) $(iu_LIBRARIES)
+dist_check_SCRIPTS += libls.sh
+endif
+
 if ENABLE_ping
 dist_check_SCRIPTS += ping-localhost.sh
 endif
@@ -46,6 +57,10 @@ dist_check_SCRIPTS += syslogd.sh
 endif
 endif
 
+if ENABLE_ftp
+dist_check_SCRIPTS += ftp-parser.sh
+endif
+
 if ENABLE_inetd
 if ENABLE_ftp
 if ENABLE_ftpd
@@ -54,10 +69,39 @@ endif
 endif
 endif
 
+if ENABLE_inetd
+if ENABLE_telnet
+dist_check_SCRIPTS += inetd.sh telnet-localhost.sh
+endif
+endif
+
 if ENABLE_hostname
 dist_check_SCRIPTS += hostname.sh
 endif
 
-TESTS = $(check_PROGRAMS) $(dist_check_SCRIPTS)
+if ENABLE_dnsdomainname
+dist_check_SCRIPTS += dnsdomainname.sh
+endif
+
+if ENABLE_ifconfig
+dist_check_SCRIPTS += ifconfig.sh
+endif
+
+TESTS = localhost waitdaemon $(dist_check_SCRIPTS)
 
 TESTS_ENVIRONMENT = EXEEXT=$(EXEEXT)
+
+EXTRA_DIST = tools.sh.in ifconfig_modes.sh
+
+BUILT_SOURCES = tools.sh
+
+CLEANFILES = tools.sh
+
+tools_subst = sed -e 's,[@]GREP[@],$(GREP),g' \
+	      -e 's,[@]SED[@],$(SED),g' \
+	      -e 's,[@]DD[@],$(DD),g' \
+	      -e 's,[@]MKTEMP[@],$(MKTEMP),g' \
+	      -e 's,[@]NETSTAT[@],$(NETSTAT),g'
+
+tools.sh: tools.sh.in Makefile
+	$(tools_subst) < $(srcdir)/tools.sh.in > $@

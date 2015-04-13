@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -62,15 +62,9 @@
 #include "talk.h"
 #include "talk_ctl.h"
 
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-struct sockaddr_in daemon_addr = { sizeof (daemon_addr), AF_INET };
-struct sockaddr_in ctl_addr = { sizeof (ctl_addr), AF_INET };
-struct sockaddr_in my_addr = { sizeof (my_addr), AF_INET };
-#else /* !HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-struct sockaddr_in daemon_addr = { AF_INET };
-struct sockaddr_in ctl_addr = { AF_INET };
-struct sockaddr_in my_addr = { AF_INET };
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
+struct sockaddr_in daemon_addr;
+struct sockaddr_in ctl_addr;
+struct sockaddr_in my_addr;
 
 	/* inet addresses of the two machines */
 struct in_addr my_machine_addr;
@@ -89,6 +83,10 @@ open_sockt (void)
 {
   socklen_t length;
 
+  my_addr.sin_family = AF_INET;
+#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+  my_addr.sin_len = sizeof (my_addr);
+#endif
   my_addr.sin_addr = my_machine_addr;
   my_addr.sin_port = 0;
   sockt = socket (AF_INET, SOCK_STREAM, 0);
@@ -109,6 +107,10 @@ open_ctl (void)
 {
   socklen_t length;
 
+  ctl_addr.sin_family = AF_INET;
+#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+  ctl_addr.sin_len = sizeof (ctl_addr);
+#endif
   ctl_addr.sin_port = 0;
   ctl_addr.sin_addr = my_machine_addr;
   ctl_sockt = socket (AF_INET, SOCK_DGRAM, 0);

@@ -1,5 +1,6 @@
 /*
-  Copyright (C) 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  Copyright (C) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -32,6 +33,9 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#ifdef HAVE_IDNA_H
+# include <idna.h>
+#endif
 
 #include "ping.h"
 
@@ -41,8 +45,12 @@ size_t
 _ping_packetsize (PING * p)
 {
   if (p->ping_type == ICMP_TIMESTAMP || p->ping_type == ICMP_TIMESTAMPREPLY)
-    return 20;
-  return 8 + p->ping_datalen;
+    return ICMP_TSLEN;
+
+  if (p->ping_type == ICMP_ADDRESS || p->ping_type == ICMP_ADDRESSREPLY)
+    return ICMP_MASKLEN;
+
+  return PING_HEADER_LEN + p->ping_datalen;
 }
 
 PING *
@@ -64,7 +72,7 @@ ping_init (int type, int ident)
   if (fd < 0)
     {
       if (errno == EPERM || errno == EACCES)
-	fprintf (stderr, "ping: ping must run as root\n");
+	fprintf (stderr, "ping: Lacking privilege for raw socket.\n");
       return NULL;
     }
 
@@ -144,7 +152,7 @@ ping_xmit (PING * p)
   i = sendto (p->ping_fd, (char *) p->ping_buffer, buflen, 0,
 	      (struct sockaddr *) &p->ping_dest.ping_sockaddr, sizeof (struct sockaddr_in));
   if (i < 0)
-    perror ("ping: sendto");
+    return -1;
   else
     {
       p->ping_num_xmit++;
@@ -164,7 +172,7 @@ my_echo_reply (PING * p, icmphdr_t * icmp)
   return (orig_ip->ip_dst.s_addr == p->ping_dest.ping_sockaddr.sin_addr.s_addr
 	  && orig_ip->ip_p == IPPROTO_ICMP
 	  && orig_icmp->icmp_type == ICMP_ECHO
-	  && orig_icmp->icmp_id == p->ping_ident);
+	  && ntohs (orig_icmp->icmp_id) == p->ping_ident);
 }
 
 int
@@ -198,7 +206,7 @@ ping_recv (PING * p)
     case ICMP_ADDRESSREPLY:
       /*    case ICMP_ROUTERADV: */
 
-      if (icmp->icmp_id != p->ping_ident)
+      if (ntohs (icmp->icmp_id) != p->ping_ident)
 	return -1;
 
       if (rc)
@@ -206,7 +214,7 @@ ping_recv (PING * p)
 		 inet_ntoa (p->ping_from.ping_sockaddr.sin_addr));
 
       p->ping_num_recv++;
-      if (_PING_TST (p, icmp->icmp_seq))
+      if (_PING_TST (p, ntohs (icmp->icmp_seq)))
 	{
 	  p->ping_num_rept++;
 	  p->ping_num_recv--;
@@ -214,7 +222,7 @@ ping_recv (PING * p)
 	}
       else
 	{
-	  _PING_SET (p, icmp->icmp_seq);
+	  _PING_SET (p, ntohs (icmp->icmp_seq));
 	  dupflag = 0;
 	}
 
@@ -259,13 +267,70 @@ ping_set_packetsize (PING * ping, size_t size)
 int
 ping_set_dest (PING * ping, char *host)
 {
+#if HAVE_DECL_GETADDRINFO
+  int rc;
+  struct addrinfo hints, *res;
+  char *p;
+
+# ifdef HAVE_IDN
+  rc = idna_to_ascii_lz (host, &p, 0);	/* P is allocated.  */
+  if (rc)
+    return 1;
+# else /* !HAVE_IDN */
+  p = host;
+# endif
+
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = AF_INET;
+  hints.ai_flags = AI_CANONNAME;
+# ifdef AI_IDN
+  hints.ai_flags |= AI_IDN;
+# endif
+# ifdef AI_CANONIDN
+  hints.ai_flags |= AI_CANONIDN;
+# endif
+
+  rc = getaddrinfo (p, NULL, &hints, &res);
+
+  if (rc)
+    return 1;
+
+  memcpy (&ping->ping_dest.ping_sockaddr, res->ai_addr, res->ai_addrlen);
+  if (res->ai_canonname)
+    ping->ping_hostname = strdup (res->ai_canonname);
+  else
+    ping->ping_hostname = strdup (p);
+
+# ifdef HAVE_IDN
+  free (p);
+# endif
+  freeaddrinfo (res);
+
+  return 0;
+#else /* !HAVE_DECL_GETADDRINFO */
+
   struct sockaddr_in *s_in = &ping->ping_dest.ping_sockaddr;
   s_in->sin_family = AF_INET;
+# ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+  s_in->sin_len = sizeof (*s_in);
+# endif
   if (inet_aton (host, &s_in->sin_addr))
     ping->ping_hostname = strdup (host);
   else
     {
-      struct hostent *hp = gethostbyname (host);
+      struct hostent *hp;
+# ifdef HAVE_IDN
+      char *p;
+      int rc;
+
+      rc = idna_to_ascii_lz (host, &p, 0);
+      if (rc)
+	return 1;
+      hp = gethostbyname (p);
+      free (p);
+# else /* !HAVE_IDN */
+      hp = gethostbyname (host);
+# endif
       if (!hp)
 	return 1;
 
@@ -277,4 +342,5 @@ ping_set_dest (PING * ping, char *host)
       ping->ping_hostname = strdup (hp->h_name);
     }
   return 0;
+#endif /* !HAVE_DECL_GETADDRINFO */
 }

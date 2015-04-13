@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free
+  Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -95,7 +95,7 @@ telnet_spin ()
 char *
 telnet_getenv (char *val)
 {
-  return ((char *) env_getvalue ((unsigned char *) val));
+  return ((char *) env_getvalue (val));
 }
 
 char *
@@ -114,10 +114,15 @@ telnet_gets (char *prompt, char *result, int length, int echo)
       printf ("%s", prompt);
       res = fgets (result, length, stdin);
     }
-  else if (res = getpass (prompt))
+  else
     {
-      strncpy (result, res, length);
-      res = result;
+      res = getpass (prompt);
+      if (res)
+	{
+	  strncpy (result, res, length);
+	  memset (res, 0, strlen (res));
+	  res = result;
+	}
     }
   TerminalNewMode (om);
   return (res);

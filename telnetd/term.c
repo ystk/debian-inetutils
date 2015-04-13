@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
-  2011 Free Software Foundation, Inc.
+  2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -305,6 +305,8 @@ tty_setlinemode (int on)
     termbuf.c_lflag |= EXTPROC;
   else
     termbuf.c_lflag &= ~EXTPROC;
+#  else /* !EXTPROC */
+  (void) on;		/* Silence warnings.  */
 #  endif
 # endif	/* TIOCEXT */
 }
@@ -504,11 +506,12 @@ init_termbuf (void)
 }
 
 #if defined TIOCPKT_IOCTL
-/*FIXME: Hardly needed*/
+/*FIXME: Hardly needed?
+ * Built by OpenSolaris and BSD, though.  */
 void
 copy_termbuf ()
 {
-  int len = 0;
+  size_t len = 0;
   char *cp = (char *) &termbuf;
 
   while (pty_input_level () > 0)
@@ -516,6 +519,7 @@ copy_termbuf ()
       if (len >= sizeof (termbuf))
 	break;
       *cp++ = pty_get_char (0);
+      len++;
     }
   termbuf2 = termbuf;
 }

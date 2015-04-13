@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-  2009, 2010, 2011 Free Software Foundation, Inc.
+  2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -19,8 +19,13 @@
 
 #include <config.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <ctype.h>
+#include <pwd.h>
+#include <grp.h>
+#include <mgetgroups.h>
 #include "extern.h"
 
 #ifndef LINE_MAX
@@ -48,33 +53,98 @@ display_file (const char *name, int code)
   return errno;
 }
 
-/* Check if a user is in the file PATH_FTPUSERS
-   return 1 if yes 0 otherwise.  */
+/*
+ * Check if a user is in the file `filename',
+ * typically PATH_FTPUSERS or PATH_FTPCHROOT.
+ * Return 1 if yes, 0 otherwise.
+ */
 int
 checkuser (const char *filename, const char *name)
 {
   FILE *fp;
-  int found = 0;
+  int found = 0, ngroups = 0;
   char *p, line[BUFSIZ];
+  gid_t *groups = NULL;;
+  struct passwd *pwd = NULL;
 
   fp = fopen (filename, "r");
   if (fp != NULL)
     {
       while (fgets (line, sizeof (line), fp) != NULL)
 	{
-	  if (line[0] == '#')
-	    continue;
+	  /* Properly terminate input.  */
 	  p = strchr (line, '\n');
 	  if (p != NULL)
+	    *p = '\0';
+
+	  /* Disregard initial blank characters.  */
+	  p = line;
+	  while (isblank (*p))
+	    p++;
+
+	  /* Skip comments, and empty lines.  */
+	  if (*p == '#' || *p == 0)
+	    continue;
+
+	  /* Wildcard entry, a single '@'.  */
+	  if (p[0] == '@' && (p[1] == 0 || isblank (p[1])))
 	    {
-	      *p = '\0';
-	      if (strcmp (line, name) == 0)
+	      found = 1;
+	      break;
+	    }
+
+	  /* Group entries begin with '@' and are non-trivial.  */
+	  if (p[0] == '@' && p[1] && !isblank (p[1]))
+	    {
+	      /* The group list is generated only if needed,
+	       * and only once.
+	       */
+	      if (!groups)
 		{
-		  found = 1;
-		  break;
+		  pwd = getpwnam (name);
+		  if (pwd)
+		    ngroups = mgetgroups (name, pwd->pw_gid, &groups);
 		}
+
+	      /* Check for group membership.  */
+	      if ((ngroups > 0) && groups && pwd)
+		{
+		  struct group *grp;
+		  char *gname;
+
+		  /* Identify valid group name.  */
+		  gname = ++p;
+		  while (*p && (isalnum (*p) || *p == '_' || *p == '-'))
+		    p++;
+
+		  *p = '\0';	/* Group name ends here.  */
+
+		  grp = getgrnam (gname);
+		  if (grp)
+		    {
+		      int j;
+
+		      for (j = 0; j < ngroups; j++)
+			if (groups[j] == grp->gr_gid)
+			  {
+			    found = 1;
+			    break;
+			  }
+		    }
+		}
+	      continue;	/* No match, or failure.  */
+	    }
+
+	  /* User name ends at the first blank character.  */
+	  if (strncmp (p, name, strlen (name)) == 0
+	      && (p[strlen (name)] == 0
+		  || isblank (p[strlen (name)])))
+	    {
+	      found = 1;
+	      break;
 	    }
 	}
+      free (groups);
       fclose (fp);
     }
   return (found);

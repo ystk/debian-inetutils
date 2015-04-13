@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -67,7 +67,7 @@ void put_ulong (format_data_t form, int argc, char *argv[], unsigned long val);
 void select_arg (format_data_t form, int argc, char *argv[], int nr);
 void put_addr (format_data_t form, int argc, char *argv[],
 	       struct sockaddr *sa);
-void put_flags (format_data_t form, int argc, char *argv[], short flags);
+void put_flags (format_data_t form, int argc, char *argv[], int flags);
 
 /* Format handler can mangle form->format, so update it after calling
    here.  */
@@ -120,6 +120,10 @@ void fh_memend_query (format_data_t form, int argc, char *argv[]);
 void fh_memend (format_data_t form, int argc, char *argv[]);
 void fh_dma_query (format_data_t form, int argc, char *argv[]);
 void fh_dma (format_data_t form, int argc, char *argv[]);
+void fh_media_query (format_data_t form, int argc, char *argv[]);
+void fh_media (format_data_t form, int argc, char *argv[]);
+void fh_status_query (format_data_t form, int argc, char *argv[]);
+void fh_status (format_data_t form, int argc, char *argv[]);
 
 /* Used for recursion by format handlers.  */
 void print_interfaceX (format_data_t form, int quiet);

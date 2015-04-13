@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-  2009, 2010, 2011 Free Software Foundation, Inc.
+  2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -47,25 +47,32 @@
 int
 auth_user (const char *name, struct credentials *pcred)
 {
+  int err = 0;		/* Never remove initialisation!  */
+
   pcred->guest = 0;
+  pcred->expired = AUTH_EXPIRED_NOT;
 
   switch (pcred->auth_type)
     {
-#ifdef WITH_PAM
+#ifdef WITH_LINUX_PAM
     case AUTH_TYPE_PAM:
-      return pam_user (name, pcred);
+      err = pam_user (name, pcred);
+      break;
 #endif
 #ifdef WITH_KERBEROS
     case AUTH_TYPE_KERBEROS:
-      return -1;
+      err = -1;
+      break;
 #endif
 #ifdef WITH_KERBEROS5
     case AUTH_TYPE_KERBEROS5:
-      return -1;
+      err = -1;
+      break;
 #endif
 #ifdef WITH_OPIE
     case AUTH_TYPE_OPIE:
-      return -1;
+      err = -1;
+      break;
 #endif
     case AUTH_TYPE_PASSWD:
     default:
@@ -77,10 +84,15 @@ auth_user (const char *name, struct credentials *pcred)
 	if (pcred->message == NULL)
 	  return -1;
 
-	/* check for anonymous logging */
+	/* Check for anonymous log in.
+	 *
+	 * This code simulates part of `pam_ftp.so'
+	 * for PAM variants that are not Linux-PAM,
+	 * in addition to perform the original
+	 * default authentication checks.
+	 */
 	if (strcmp (name, "ftp") == 0 || strcmp (name, "anonymous") == 0)
 	  {
-	    int err = 0;
 	    if (checkuser (PATH_FTPUSERS, "ftp")
 		|| checkuser (PATH_FTPUSERS, "anonymous"))
 	      {
@@ -129,13 +141,23 @@ auth_user (const char *name, struct credentials *pcred)
 	    pcred->message = NULL;
 	    return 1;
 	  }
-	pcred->dochroot = checkuser (PATH_FTPCHROOT, pcred->name);
 	snprintf (pcred->message, len,
 		  "Password required for %s.", pcred->name);
-	return 0;
+	err = 0;
       }
     }
-  return -1;
+
+  if (err == 0)
+    {
+      pcred->dochroot = checkuser (PATH_FTPCHROOT, pcred->name);
+
+#if defined WITH_PAM && !defined WITH_LINUX_PAM
+      if (pcred->auth_type == AUTH_TYPE_PAM)
+	err = pam_user (name, pcred);
+#endif /* WITH_PAM && !WITH_LINUX_PAM */
+    }
+
+  return err;
 }
 
 int
@@ -202,19 +224,55 @@ sgetcred (const char *name, struct credentials *pcred)
 	  long today;
 	  now = time ((time_t *) 0);
 	  today = now / (60 * 60 * 24);
-	  if ((spw->sp_expire > 0 && spw->sp_expire < today)
-	      || (spw->sp_max > 0 && spw->sp_lstchg > 0
-		  && (spw->sp_lstchg + spw->sp_max < today)))
+
+	  if (spw->sp_expire > 0 && spw->sp_expire < today)
 	    {
-	      /*reply (530, "Login expired."); */
 	      p->pw_passwd = NULL;
+	      pcred->expired |= AUTH_EXPIRED_ACCT;
 	    }
-	  else
+	  if (spw->sp_max > 0 && spw->sp_lstchg > 0
+		   && (spw->sp_lstchg + spw->sp_max < today))
+	    {
+	      p->pw_passwd = NULL;
+	      pcred->expired |= AUTH_EXPIRED_PASS;
+	    }
+
+	  if (pcred->expired == AUTH_EXPIRED_NOT)
 	    p->pw_passwd = spw->sp_pwdp;
 	}
       endspent ();
     }
-#endif
+#elif defined HAVE_STRUCT_PASSWD_PW_EXPIRE	/* !HAVE_SHADOW_H */
+  /* BSD systems provide pw_expire as epoch time,
+   * and the password is exposed in pw_passwd for
+   * a caller with euid 0.
+   *
+   * NetBSD allows -1 for 'pw_change', meaning that immediate
+   * change is required.  Let us deny access in that case..
+   */
+  if (p->pw_expire > 0
+# ifdef HAVE_STRUCT_PASSWD_PW_CHANGE
+      || p->pw_change
+# endif
+     )
+    {
+      time_t now = time ((time_t *) 0);
+
+      if (p->pw_expire > 0 && difftime (p->pw_expire, now) < 0)
+	{
+	  p->pw_passwd = NULL;
+	  pcred->expired |= AUTH_EXPIRED_ACCT;
+	}
+# ifdef HAVE_STRUCT_PASSWD_PW_CHANGE
+      if (p->pw_change && difftime (p->pw_change, now) < 0)
+	{
+	  p->pw_passwd = NULL;
+	  pcred->expired |= AUTH_EXPIRED_PASS;
+	}
+# endif
+    }
+#endif /* !HAVE_STRUCT_PASSWD_PW_EXPIRE */
+
   pcred->uid = p->pw_uid;
   pcred->gid = p->pw_gid;
   pcred->name = sgetsave (p->pw_name);

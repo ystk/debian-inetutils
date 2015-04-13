@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -22,8 +22,6 @@
 #ifndef IFCONFIG_SYSTEM_H
 # define IFCONFIG_SYSTEM_H
 
-
-# include <if_index.h>
 
 /* Option parsing.  */
 
@@ -91,10 +89,14 @@ extern struct if_nameindex* (*system_if_nameindex) (void);
 
 # if defined __linux__
 #  include "system/linux.h"
-# elif defined(__sun__)
+# elif defined __sun
 #  include "system/solaris.h"
-# elif defined(__QNX__)
+# elif defined __QNX__
 #  include "system/qnx.h"
+# elif defined __DragonFly__ || defined __FreeBSD__ || \
+       defined __FreeBSD_kernel__ || \
+       defined __NetBSD__ || defined __OpenBSD__
+#  include "system/bsd.h"
 # else
 #  include "system/generic.h"
 # endif

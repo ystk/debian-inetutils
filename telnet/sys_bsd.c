@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -63,6 +63,7 @@
 #include <errno.h>
 #include <arpa/telnet.h>
 #include <sys/select.h>
+#include <unused-parameter.h>
 
 #include "ring.h"
 
@@ -940,7 +941,7 @@ NetSetPgrp (int fd)
  */
 
 void
-deadpeer (int sig)
+deadpeer (int sig _GL_UNUSED_PARAMETER)
 {
   setcommandmode ();
   longjmp (peerdied, -1);
@@ -948,7 +949,7 @@ deadpeer (int sig)
 
 
 void
-intr (int sig)
+intr (int sig _GL_UNUSED_PARAMETER)
 {
   if (localchars)
     {
@@ -961,7 +962,7 @@ intr (int sig)
 
 
 void
-intr2 (int sig)
+intr2 (int sig _GL_UNUSED_PARAMETER)
 {
   if (localchars)
     {
@@ -977,7 +978,7 @@ intr2 (int sig)
 
 #ifdef	SIGTSTP
 void
-susp (int sig)
+susp (int sig _GL_UNUSED_PARAMETER)
 {
   if ((rlogin != _POSIX_VDISABLE) && rlogin_susp ())
     return;
@@ -988,7 +989,7 @@ susp (int sig)
 
 #ifdef	SIGWINCH
 void
-sendwin (int sig)
+sendwin (int sig _GL_UNUSED_PARAMETER)
 {
   if (connected)
     {
@@ -999,7 +1000,7 @@ sendwin (int sig)
 
 #ifdef	SIGINFO
 void
-ayt (int sig)
+ayt (int sig _GL_UNUSED_PARAMETER)
 {
   if (connected)
     sendayt ();
@@ -1012,17 +1013,25 @@ ayt (int sig)
 void
 sys_telnet_init (void)
 {
+  struct sigaction sa;
+
+  sa.sa_flags = SA_RESTART;
+  sigemptyset (&sa.sa_mask);
+
   signal (SIGINT, intr);
   signal (SIGQUIT, intr2);
   signal (SIGPIPE, deadpeer);
 #ifdef	SIGWINCH
-  signal (SIGWINCH, sendwin);
+  sa.sa_handler = sendwin;
+  (void) sigaction (SIGWINCH, &sa, NULL);
 #endif
 #ifdef	SIGTSTP
-  signal (SIGTSTP, susp);
+  sa.sa_handler = susp;
+  (void) sigaction (SIGTSTP, &sa, NULL);
 #endif
 #ifdef	SIGINFO
-  signal (SIGINFO, ayt);
+  sa.sa_handler = ayt;
+  (void) sigaction (SIGINFO, &sa, NULL);
 #endif
 
   setconnmode (0);
@@ -1068,7 +1077,7 @@ process_rings (int netin, int netout, int netex, int ttyin, int ttyout,
    * time (TN3270 mode only).
    */
   int returnValue = 0;
-  static struct timeval TimeValue = { 0 };
+  static struct timeval TimeValue = { 0, 0 };
   int nfds = 0;
 
   if (netout)

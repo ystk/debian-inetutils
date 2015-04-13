@@ -1,7 +1,7 @@
 /* Emulation for poll(2)
    Contributed by Paolo Bonzini.
 
-   Copyright 2001-2003, 2006-2011 Free Software Foundation, Inc.
+   Copyright 2001-2003, 2006-2014 Free Software Foundation, Inc.
 
    This file is part of gnulib.
 
@@ -16,8 +16,7 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License along
-   with this program; if not, write to the Free Software Foundation,
-   Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.  */
+   with this program; if not, see <http://www.gnu.org/licenses/>.  */
 
 /* Tell gcc not to warn about the (nfd < 0) tests, below.  */
 #if (__GNUC__ == 4 && 3 <= __GNUC_MINOR__) || 4 < __GNUC__
@@ -37,7 +36,7 @@
 #include <assert.h>
 
 #if (defined _WIN32 || defined __WIN32__) && ! defined __CYGWIN__
-# define WIN32_NATIVE
+# define WINDOWS_NATIVE
 # include <winsock2.h>
 # include <windows.h>
 # include <io.h>
@@ -69,9 +68,13 @@
 # define MSG_PEEK 0
 #endif
 
-#ifdef WIN32_NATIVE
+#ifdef WINDOWS_NATIVE
 
-#define IsConsoleHandle(h) (((long) (h) & 3) == 3)
+static BOOL IsConsoleHandle (HANDLE h)
+{
+  DWORD mode;
+  return GetConsoleMode (h, &mode) != 0;
+}
 
 static BOOL
 IsSocketHandle (HANDLE h)
@@ -126,7 +129,7 @@ typedef DWORD (WINAPI *PNtQueryInformationFile)
    for the handle, eliminate them from *P_SOUGHT.  */
 
 static int
-win32_compute_revents (HANDLE h, int *p_sought)
+windows_compute_revents (HANDLE h, int *p_sought)
 {
   int i, ret, happened;
   INPUT_RECORD *irbuffer;
@@ -161,11 +164,12 @@ win32_compute_revents (HANDLE h, int *p_sought)
         {
           /* It was the write-end of the pipe.  Check if it is writable.
              If NtQueryInformationFile fails, optimistically assume the pipe is
-             writable.  This could happen on Win9x, where NtQueryInformationFile
-             is not available, or if we inherit a pipe that doesn't permit
-             FILE_READ_ATTRIBUTES access on the write end (I think this should
-             not happen since WinXP SP2; WINE seems fine too).  Otherwise,
-             ensure that enough space is available for atomic writes.  */
+             writable.  This could happen on Windows 9x, where
+             NtQueryInformationFile is not available, or if we inherit a pipe
+             that doesn't permit FILE_READ_ATTRIBUTES access on the write end
+             (I think this should not happen since Windows XP SP2; WINE seems
+             fine too).  Otherwise, ensure that enough space is available for
+             atomic writes.  */
           memset (&iosb, 0, sizeof (iosb));
           memset (&fpli, 0, sizeof (fpli));
 
@@ -224,7 +228,7 @@ win32_compute_revents (HANDLE h, int *p_sought)
 /* Convert fd_sets returned by select into revents values.  */
 
 static int
-win32_compute_revents_socket (SOCKET h, int sought, long lNetworkEvents)
+windows_compute_revents_socket (SOCKET h, int sought, long lNetworkEvents)
 {
   int happened = 0;
 
@@ -301,6 +305,10 @@ compute_revents (int fd, int sought, fd_set *rfds, fd_set *wfds, fd_set *efds)
                || socket_errno == ECONNABORTED || socket_errno == ENETRESET)
         happened |= POLLHUP;
 
+      /* some systems can't use recv() on non-socket, including HP NonStop */
+      else if (socket_errno == ENOTSOCK)
+        happened |= (POLLIN | POLLRDNORM) & sought;
+
       else
         happened |= POLLERR;
     }
@@ -318,7 +326,7 @@ compute_revents (int fd, int sought, fd_set *rfds, fd_set *wfds, fd_set *efds)
 int
 poll (struct pollfd *pfd, nfds_t nfd, int timeout)
 {
-#ifndef WIN32_NATIVE
+#ifndef WINDOWS_NATIVE
   fd_set rfds, wfds, efds;
   struct timeval tv;
   struct timeval *ptv;
@@ -348,7 +356,7 @@ poll (struct pollfd *pfd, nfds_t nfd, int timeout)
 
   /* EFAULT is not necessary to implement, but let's do it in the
      simplest case. */
-  if (!pfd)
+  if (!pfd && nfd)
     {
       errno = EFAULT;
       return -1;
@@ -501,9 +509,9 @@ restart:
         {
           /* Poll now.  If we get an event, do not poll again.  Also,
              screen buffer handles are waitable, and they'll block until
-             a character is available.  win32_compute_revents eliminates
+             a character is available.  windows_compute_revents eliminates
              bits for the "wrong" direction. */
-          pfd[i].revents = win32_compute_revents (h, &sought);
+          pfd[i].revents = windows_compute_revents (h, &sought);
           if (sought)
             handle_array[nhandles++] = h;
           if (pfd[i].revents)
@@ -579,14 +587,14 @@ restart:
           if (FD_ISSET ((SOCKET) h, &xfds))
             ev.lNetworkEvents |= FD_OOB;
 
-          happened = win32_compute_revents_socket ((SOCKET) h, pfd[i].events,
-                                                   ev.lNetworkEvents);
+          happened = windows_compute_revents_socket ((SOCKET) h, pfd[i].events,
+                                                     ev.lNetworkEvents);
         }
       else
         {
           /* Not a socket.  */
           int sought = pfd[i].events;
-          happened = win32_compute_revents (h, &sought);
+          happened = windows_compute_revents (h, &sought);
           nhandles++;
         }
 
@@ -596,7 +604,7 @@ restart:
 
   if (!rc && timeout == INFTIM)
     {
-      SwitchToThread();
+      SleepEx (1, TRUE);
       goto restart;
     }
 

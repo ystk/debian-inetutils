@@ -1,6 +1,6 @@
 /* changeif.c -- change the configuration of a network interface
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -34,6 +34,13 @@
 #include <netdb.h>
 #include "ifconfig.h"
 
+/* Necessary for BSD systems.  */
+#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
+# define SET_SIN_LEN	sin->sin_len = sizeof (struct sockaddr_in);
+#else /* !HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
+# define SET_SIN_LEN
+#endif
+
 #define SIOCSIF(type, addr)						\
   int err = 0;								\
   struct sockaddr_in *sin = (struct sockaddr_in *) &ifr->ifr_addr;	\
@@ -45,6 +52,7 @@
       error (0, 0, "`%s' is not a valid address", addr);		\
       return -1;							\
     }									\
+  SET_SIN_LEN								\
   err = ioctl (sfd, SIOCSIF##type, ifr);				\
   if (err < 0)								\
     {									\
@@ -52,7 +60,9 @@
       return -1;							\
     }
 
+#if !HAVE_DECL_GETADDRINFO
 extern void herror (const char *pfx);
+#endif
 
 /* Set address of interface in IFR. Destroys union in IFR, but leaves
    ifr_name intact.  ADDRESS may be an IP number or a hostname that
@@ -65,6 +75,41 @@ set_address (int sfd, struct ifreq *ifr, char *address)
 	   "don't know how to set an interface address on this system");
   return -1;
 #else
+# if HAVE_DECL_GETADDRINFO
+  int rc;
+  char addr[INET_ADDRSTRLEN];
+  struct addrinfo hints, *ai, *res;
+
+  memset (&hints, 0, sizeof (hints));
+  hints.ai_family = AF_INET;
+
+  rc = getaddrinfo (address, NULL, &hints, &res);
+  if (rc)
+    {
+      error (0, 0, "cannot resolve `%s': %s", address, gai_strerror (rc));
+      return -1;
+    }
+  for (ai = res; ai; ai = ai->ai_next)
+    if (ai->ai_family == AF_INET)
+      break;
+
+  if (ai == NULL)
+    {
+      error (0, 0, "`%s' refers to an unknown address type", address);
+      freeaddrinfo (res);
+      return -1;
+    }
+
+  rc = getnameinfo (ai->ai_addr, ai->ai_addrlen,
+		    addr, sizeof (addr), NULL, 0,
+		    NI_NUMERICHOST);
+  freeaddrinfo (res);
+  if (rc)
+    {
+      error (0, 0, "cannot resolve `%s': %s", address, gai_strerror (rc));
+      return -1;
+    }
+# else /* !HAVE_DECL_GETADDRINFO */
   char *addr;
   struct hostent *host = gethostbyname (address);
 
@@ -80,9 +125,11 @@ set_address (int sfd, struct ifreq *ifr, char *address)
     }
 
   addr = inet_ntoa (*((struct in_addr *) host->h_addr));
+# endif /* !HAVE_DECL_GETADDRINFO */
 
   {
-    SIOCSIF (ADDR, addr) if (verbose)
+    SIOCSIF (ADDR, addr)
+    if (verbose)
       printf ("Set interface address of `%s' to %s.\n",
 	      ifr->ifr_name, inet_ntoa (sin->sin_addr));
   }
@@ -98,7 +145,8 @@ set_netmask (int sfd, struct ifreq *ifr, char *netmask)
   return -1;
 #else
 
-  SIOCSIF (NETMASK, netmask) if (verbose)
+  SIOCSIF (NETMASK, netmask)
+  if (verbose)
     printf ("Set interface netmask of `%s' to %s.\n",
 	    ifr->ifr_name, inet_ntoa (sin->sin_addr));
   return 0;
@@ -113,7 +161,8 @@ set_dstaddr (int sfd, struct ifreq *ifr, char *dstaddr)
          "don't know how to set an interface peer address on this system");
   return -1;
 #else
-  SIOCSIF (DSTADDR, dstaddr) if (verbose)
+  SIOCSIF (DSTADDR, dstaddr)
+  if (verbose)
     printf ("Set interface peer address of `%s' to %s.\n",
 	    ifr->ifr_name, inet_ntoa (sin->sin_addr));
   return 0;
@@ -128,7 +177,8 @@ set_brdaddr (int sfd, struct ifreq *ifr, char *brdaddr)
          "don't know how to set an interface broadcast address on this system");
   return -1;
 #else
-  SIOCSIF (BRDADDR, brdaddr) if (verbose)
+  SIOCSIF (BRDADDR, brdaddr)
+  if (verbose)
     printf ("Set interface broadcast address of `%s' to %s.\n",
 	    ifr->ifr_name, inet_ntoa (sin->sin_addr));
   return 0;
@@ -197,7 +247,14 @@ set_flags (int sfd, struct ifreq *ifr, int setflags, int clrflags)
       error (0, errno, "SIOCGIFFLAGS failed");
       return -1;
     }
-  ifr->ifr_flags = (tifr.ifr_flags | setflags) & ~clrflags;
+  /* Some systems, notably FreeBSD, use two short integers.  */
+  ifr->ifr_flags = (tifr.ifr_flags | setflags) & ~clrflags & 0xffff;
+
+# ifdef ifr_flagshigh
+  ifr->ifr_flagshigh = (tifr.ifr_flagshigh | (setflags >> 16))
+		       & ~(clrflags >> 16);
+# endif /* ifr_flagshigh */
+
   if (ioctl (sfd, SIOCSIFFLAGS, ifr) < 0)
     {
       error (0, errno, "SIOCSIFFLAGS failed");

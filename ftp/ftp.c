@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -77,10 +77,15 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>	/* intmax_t */
 #include <string.h>
 #include <unistd.h>
 #include <stdarg.h>
 #include <sys/select.h>
+
+#ifdef HAVE_IDNA_H
+# include <idna.h>
+#endif
 
 #include "ftp_var.h"
 #include "unused-parameter.h"
@@ -128,6 +133,19 @@ hookup (char *host, int port)
   int s, tos;
   socklen_t len;
   static char hostnamebuf[80];
+  char *rhost;
+
+#ifdef HAVE_IDN
+  status = idna_to_ascii_lz (host, &rhost, 0);
+  if (status)
+    {
+      error (0, 0, "%s: %s", host, idna_strerror (status));
+      code = -1;
+      return ((char *) 0);
+    }
+#else /* !HAVE_IDN */
+  rhost = strdup (host);
+#endif
 
   snprintf (portstr, sizeof (portstr) - 1, "%u", port);
   memset (&hisctladdr, 0, sizeof (hisctladdr));
@@ -136,20 +154,29 @@ hookup (char *host, int port)
   hints.ai_family = usefamily;
   hints.ai_socktype = SOCK_STREAM;
   hints.ai_flags = AI_CANONNAME;
-#ifdef AI_ADDRCONFIG
-  if (hints.ai_family == AF_UNSPEC)
-    hints.ai_flags |= AI_ADDRCONFIG;
-#endif /* AI_ADDRCONFIG */
+#ifdef AI_IDN
+  hints.ai_flags |= AI_IDN;
+#endif
+#ifdef AI_CANONIDN
+  hints.ai_flags |= AI_CANONIDN;
+#endif
 
-  status = getaddrinfo (host, portstr, &hints, &res);
+  status = getaddrinfo (rhost, portstr, &hints, &res);
   if (status)
     {
-      error (0, 0, "%s: %s", host, gai_strerror (status));
+      error (0, 0, "%s: %s", rhost, gai_strerror (status));
       code = -1;
+      free (rhost);
       return ((char *) 0);
     }
-  strncpy (hostnamebuf, res->ai_canonname, sizeof (hostnamebuf));
+
+  if (res->ai_canonname)
+    strncpy (hostnamebuf, res->ai_canonname, sizeof (hostnamebuf));
+  else
+    strncpy (hostnamebuf, rhost, sizeof (hostnamebuf));
+
   hostname = hostnamebuf;
+  free (rhost);
 
   for (ai = res; ai != NULL; ai = ai->ai_next, ++again)
     {
@@ -198,7 +225,7 @@ hookup (char *host, int port)
 
   if (ai == NULL)
     {
-      error (0, 0, "no respons from host");
+      error (0, 0, "no response from host");
       code = -1;
       goto bad;
     }
@@ -292,11 +319,14 @@ login (char *host)
 	printf ("Name (%s): ", host);
       if (fgets (tmp, sizeof (tmp) - 1, stdin))
 	{
-	  /* If they press Ctrl-d immediately, it's empty.  */
+	  /* If the user presses return immediately, we get "\n".
+	   * In all other cases, the assignment is a no-op,
+	   * and is always well defined thanks to fgets().
+	   */
 	  tmp[strlen (tmp) - 1] = '\0';
 	}
       else
-	*tmp = '\0';
+	*tmp = '\0';		/* Ctrl-D received.  */
       if (*tmp == '\0')
 	user = myname;
       else
@@ -305,15 +335,29 @@ login (char *host)
   n = command ("USER %s", user);
   if (n == CONTINUE)
     {
-      if (pass == NULL)
-	pass = getpass ("Password:");
+      /* Is this a case of challenge-response?
+       * RFC 2228 stipulates code 336 for this.
+       * Suppress the message in verbose mode,
+       * since it has already been displayed.
+       */
+      if (code == 336 && !verbose)
+	printf ("%s\n", reply_string + strlen ("336 "));
+      /* In addition, any password given on the
+       * command line is irrelevant, so ignore it.
+       */
+      if (pass == NULL || code == 336)
+	pass = getpass ("Password: ");
       n = command ("PASS %s", pass);
+      if (pass)
+	memset (pass, 0, strlen (pass));
     }
   if (n == CONTINUE)
     {
       aflag++;
-      acct = getpass ("Account:");
+      acct = getpass ("Account: ");
       n = command ("ACCT %s", acct);
+      if (acct)
+	memset (acct, 0, strlen (acct));
     }
   if (n != COMPLETE)
     {
@@ -321,7 +365,10 @@ login (char *host)
       return (0);
     }
   if (!aflag && acct != NULL)
-    command ("ACCT %s", acct);
+    {
+      command ("ACCT %s", acct);
+      memset (acct, 0, strlen (acct));
+    }
   if (proxy)
     return (1);
   for (n = 0; n < macnum; ++n)
@@ -329,10 +376,12 @@ login (char *host)
       if (!strcmp ("init", macros[n].mac_name))
 	{
 	  free (line);
-	  line = calloc (200, sizeof (*line));
+	  line = calloc (MAXLINE, sizeof (*line));
+	  linelen = MAXLINE;
 	  if (!line)
 	    quit (0, 0);
 
+	  /* Simulate input of the macro 'init'.  */
 	  strcpy (line, "$init");
 	  makeargv ();
 	  domacro (margc, margv);
@@ -367,6 +416,8 @@ command (const char *fmt, ...)
       va_start (ap, fmt);
       if (strncmp ("PASS ", fmt, 5) == 0)
 	printf ("PASS XXXX");
+      else if (strncmp ("ACCT ", fmt, 5) == 0)
+	printf ("ACCT XXXX");
       else
 	vfprintf (stdout, fmt, ap);
       va_end (ap);
@@ -453,10 +504,10 @@ getreply (int expecteof)
 		  fflush (stdout);
 		}
 	      code = 421;
-	      return (4);
+	      return (TRANSIENT);
 	    }
 	  if (c != '\r' && (verbose > 0 ||
-			    (verbose > -1 && n == '5' && dig > 4)))
+			    (verbose > -1 && n == ERROR && dig > 4)))
 	    {
 	      if (proxflag && (dig == 1 || (dig == 5 && verbose == 0)))
 		printf ("%s:", hostname);
@@ -485,11 +536,11 @@ getreply (int expecteof)
 	      continuation++;
 	    }
 	  if (n == 0)
-	    n = c;
+	    n = c - '0';	/* Extract ARPA's reply code.  */
 	  if (cp < &reply_string[sizeof (reply_string) - 1])
 	    *cp++ = c;
 	}
-      if (verbose > 0 || (verbose > -1 && n == '5'))
+      if (verbose > 0 || (verbose > -1 && n == ERROR))
 	{
 	  putchar (c);
 	  fflush (stdout);
@@ -501,14 +552,14 @@ getreply (int expecteof)
 	  continue;
 	}
       *cp = '\0';
-      if (n != '1')
+      if (n != PRELIM)
 	cpend = 0;
       signal (SIGINT, oldintr);
       if (code == 421 || originalcode == 421)
 	lostpeer (0);
       if (abrtflag && oldintr != cmdabort && oldintr != SIG_IGN)
 	(*oldintr) (SIGINT);
-      return (n - '0');
+      return n;
     }
 }
 
@@ -525,7 +576,7 @@ empty (fd_set *mask, int sec)
 jmp_buf sendabort;
 
 void
-abortsend (int sig)
+abortsend (int sig _GL_UNUSED_PARAMETER)
 {
 
   mflag = 0;
@@ -544,8 +595,11 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
   FILE *fin, *dout = 0, *popen (const char *, const char *);
   int (*closefunc) (FILE *);
   sighandler_t oldintr, oldintp;
-  long bytes = 0, local_hashbytes = hashbytes;
-  char *lmode, buf[BUFSIZ], *bufp;
+  long long bytes = 0, local_hashbytes = hashbytes;
+  char *lmode, *bufp;
+  int blksize = BUFSIZ;
+  static int bufsize = 0;
+  static char *buf;
 
   if (verbose && printnames)
     {
@@ -619,6 +673,7 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
 	  code = -1;
 	  return;
 	}
+	blksize = st.st_blksize;
     }
   if (initconn ())
     {
@@ -636,12 +691,12 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
   if (restart_point &&
       (strcmp (cmd, "STOR") == 0 || strcmp (cmd, "APPE") == 0))
     {
-      int rc;
+      off_t rc;
 
       switch (curtype)
 	{
 	case TYPE_A:
-	  rc = fseeko (fin, (long) restart_point, SEEK_SET);
+	  rc = fseeko (fin, restart_point, SEEK_SET);
 	  break;
 	case TYPE_I:
 	case TYPE_L:
@@ -650,13 +705,15 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
 	}
       if (rc < 0)
 	{
+	  (void) command ("ABOR");
+	  getreply (0);
 	  error (0, errno, "local: %s", local);
 	  restart_point = 0;
 	  if (closefunc != NULL)
 	    (*closefunc) (fin);
 	  return;
 	}
-      if (command ("REST %ld", (long) restart_point) != CONTINUE)
+      if (command ("REST %jd", (intmax_t) restart_point) != CONTINUE)
 	{
 	  restart_point = 0;
 	  if (closefunc != NULL)
@@ -690,6 +747,20 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
   dout = dataconn (lmode);
   if (dout == NULL)
     goto abort;
+
+  if (blksize > bufsize)
+    {
+      free (buf);
+      buf = malloc ((unsigned) blksize);
+      if (buf == NULL)
+	{
+	  error (0, errno, "malloc");
+	  bufsize = 0;
+	  goto abort;
+	}
+      bufsize = blksize;
+    }
+
   gettimeofday (&start, (struct timezone *) 0);
   oldintp = signal (SIGPIPE, SIG_IGN);
   switch (curtype)
@@ -698,7 +769,7 @@ sendrequest (char *cmd, char *local, char *remote, int printnames)
     case TYPE_I:
     case TYPE_L:
       errno = d = 0;
-      while ((c = read (fileno (fin), buf, sizeof (buf))) > 0)
+      while ((c = read (fileno (fin), buf, bufsize)) > 0)
 	{
 	  bytes += c;
 	  for (bufp = buf; c > 0; c -= d, bufp += d)
@@ -810,7 +881,7 @@ abort:
 jmp_buf recvabort;
 
 void
-abortrecv (int sig)
+abortrecv (int sig _GL_UNUSED_PARAMETER)
 {
 
   mflag = 0;
@@ -826,10 +897,11 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
   FILE *fout, *din = 0;
   int (*closefunc) (FILE *);
   sighandler_t oldintr, oldintp;
-  int c, d, is_retr, tcrflag, bare_lfs = 0, blksize;
+  int c, d, is_retr, tcrflag, bare_lfs = 0;
+  int blksize = BUFSIZ;
   static int bufsize = 0;
   static char *buf;
-  long bytes = 0, local_hashbytes = hashbytes;
+  long long bytes = 0, local_hashbytes = hashbytes;
   struct timeval start, stop;
 
   is_retr = strcmp (cmd, "RETR") == 0;
@@ -891,7 +963,7 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
   if (setjmp (recvabort))
     goto abort;
   if (is_retr && restart_point &&
-      command ("REST %ld", (long) restart_point) != CONTINUE)
+      command ("REST %jd", (intmax_t) restart_point) != CONTINUE)
     return;
   if (remote)
     {
@@ -912,6 +984,7 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
   din = dataconn ("r");
   if (din == NULL)
     goto abort;
+
   if (strcmp (local, "-") == 0)
     fout = stdout;
   else if (*local == '|')
@@ -927,15 +1000,18 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
     }
   else
     {
+      struct stat st;
+
       fout = fopen (local, lmode);
-      if (fout == NULL)
+      if (fout == NULL || fstat (fileno (fout), &st) < 0)
 	{
 	  error (0, errno, "local: %s", local);
 	  goto abort;
 	}
       closefunc = fclose;
+      blksize = st.st_blksize;
     }
-  blksize = BUFSIZ;
+
   if (blksize > bufsize)
     {
       free (buf);
@@ -948,6 +1024,7 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
 	}
       bufsize = blksize;
     }
+
   gettimeofday (&start, (struct timezone *) 0);
   switch (curtype)
     {
@@ -977,6 +1054,7 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
 	      fflush (stdout);
 	    }
 	}
+
       if (hash && bytes > 0)
 	{
 	  if (bytes < local_hashbytes)
@@ -1002,7 +1080,10 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
     case TYPE_A:
       if (restart_point)
 	{
-	  int i, n, ch;
+	  off_t i, n;
+	  int ch;
+
+	  errno = 0;
 
 	  if (fseeko (fout, 0L, SEEK_SET) < 0)
 	    goto done;
@@ -1017,7 +1098,17 @@ recvrequest (char *cmd, char *local, char *remote, char *lmode, int printnames)
 	  if (fseeko (fout, 0L, SEEK_CUR) < 0)
 	    {
 	    done:
-	      error (0, errno, "local: %s", local);
+	      /* Cancel server's action quickly.  */
+	      (void) command ("ABOR");
+	      getreply (0);
+
+	      /* Explain our failure.  */
+	      if (ch == EOF)
+		printf ("Action not taken: offset %jd is outside of %s.\n",
+		       restart_point, local);
+	      else
+		error (0, errno, "local: %s", local);
+
 	      if (closefunc != NULL)
 		(*closefunc) (fout);
 	      return;
@@ -1148,7 +1239,8 @@ initconn (void)
       if ((options & SO_DEBUG) &&
 	  setsockopt (data, SOL_SOCKET, SO_DEBUG, (char *) &on,
 		      sizeof (on)) < 0)
-	perror ("ftp: setsockopt (ignored)");
+	if (errno != EACCES)	/* Ignore insufficient permission.  */
+	  error (0, errno, "setsockopt DEBUG (ignored)");
 
       /* Be contemporary:
        *   first try EPSV,
@@ -1362,9 +1454,11 @@ noport:
       error (0, errno, "bind");
       goto bad;
     }
-  if (options & SO_DEBUG &&
-      setsockopt (data, SOL_SOCKET, SO_DEBUG, (char *) &on, sizeof (on)) < 0)
-    error (0, errno, "setsockopt (ignored)");
+  if (options & SO_DEBUG
+      && setsockopt (data, SOL_SOCKET, SO_DEBUG,
+		     (char *) &on, sizeof (on)) < 0)
+    if (errno != EACCES)	/* Ignore insufficient permission.  */
+      error (0, errno, "setsockopt DEBUG (ignored)");
   len = sizeof (data_addr);
   if (getsockname (data, (struct sockaddr *) &data_addr, &len) < 0)
     {
@@ -1485,11 +1579,11 @@ dataconn (char *lmode)
 }
 
 void
-ptransfer (char *direction, long int bytes, struct timeval *t0, struct timeval *t1)
+ptransfer (char *direction, long long int bytes,
+	   struct timeval *t0, struct timeval *t1)
 {
   struct timeval td;
-  float s;
-  long bs;
+  float s, bs;
 
   if (verbose)
     {
@@ -1497,8 +1591,15 @@ ptransfer (char *direction, long int bytes, struct timeval *t0, struct timeval *
       s = td.tv_sec + (td.tv_usec / 1000000.);
 #define nz(x)	((x) == 0 ? 1 : (x))
       bs = bytes / nz (s);
-      printf ("%ld bytes %s in %.3g seconds (%ld bytes/s)\n",
-	      bytes, direction, s, bs);
+
+      printf ("%lld bytes %s in %.3g seconds", bytes, direction, s);
+
+      if (bs > 1048576.0)
+	printf (" (%.3g Mbytes/s)\n", bs / 1048576.0);
+      else if (bs > 1024.0)
+	printf (" (%.3g kbytes/s)\n", bs / 1024.0);
+      else
+	printf (" (%.3g bytes/s)\n", bs);
     }
 }
 
@@ -1526,7 +1627,7 @@ tvsub (struct timeval *tdiff, struct timeval *t1, struct timeval *t0)
 }
 
 void
-psabort (int sig)
+psabort (int sig _GL_UNUSED_PARAMETER)
 {
 
   abrtflag++;
@@ -1551,8 +1652,8 @@ pswitch (int flag)
     int runqe;
     int mcse;
     int ntflg;
-    char nti[17];
-    char nto[17];
+    char nti[sizeof (ntin)];
+    char nto[sizeof (ntout)];
     int mapflg;
     char *mi;
     char *mo;
@@ -1639,7 +1740,7 @@ pswitch (int flag)
 }
 
 void
-abortpt (int sig)
+abortpt (int sig _GL_UNUSED_PARAMETER)
 {
 
   printf ("\n");
@@ -1781,7 +1882,7 @@ abort:
 }
 
 void
-reset (int argc, char **argv)
+reset (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   fd_set mask;
   int nfnd = 1;
@@ -1892,7 +1993,7 @@ abort_remote (FILE *din)
     }
   if (din && FD_ISSET (fileno (din), &mask))
     {
-      while (read (fileno (din), buf, BUFSIZ) > 0)
+      while (read (fileno (din), buf, sizeof (buf)) > 0)
 	/* LOOP */ ;
     }
   if (getreply (0) == ERROR && code == 552)

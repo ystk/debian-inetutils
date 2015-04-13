@@ -1,6 +1,7 @@
 /* logwtmp.c - A version of BSDs `logwtmp' that should be widely portable
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -33,13 +34,15 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <errno.h>
-#ifdef HAVE_UTMP_H
-# include <utmp.h>
-#else
-# ifdef  HAVE_UTMPX_H
-#  include <utmpx.h>
-#  define utmp utmpx		/* make utmpx look more like utmp */
+#ifdef HAVE_UTMPX_H
+# ifndef __USE_GNU
+#  define __USE_GNU 1
 # endif
+# include <utmpx.h>
+# define OUR_WTMP PATH_WTMPX
+#elif defined HAVE_UTMP_H
+# include <utmp.h>
+# define OUR_WTMP PATH_WTMP
 #endif
 #include <string.h>
 
@@ -47,16 +50,21 @@
 extern int errno;
 #endif
 
+#ifdef HAVE_UTMPX_H
+static void
+_logwtmp (struct utmpx *ut)
+#else /* !HAVE_UTMPX_H */
 static void
 _logwtmp (struct utmp *ut)
+#endif /* !HAVE_UTMP_H */
 {
 #ifdef KEEP_OPEN
   static int fd = -1;
 
   if (fd < 0)
-    fd = open (PATH_WTMP, O_WRONLY | O_APPEND, 0);
+    fd = open (OUR_WTMP, O_WRONLY | O_APPEND, 0);
 #else
-  int fd = open (PATH_WTMP, O_WRONLY | O_APPEND, 0);
+  int fd = open (OUR_WTMP, O_WRONLY | O_APPEND, 0);
 #endif
 
   if (fd >= 0)
@@ -96,23 +104,49 @@ logwtmp_keep_open (char *line, char *name, char *host)
 logwtmp (char *line, char *name, char *host)
 #endif
 {
-  struct utmp ut;
-#ifdef HAVE_STRUCT_UTMP_UT_TV
+#ifdef HAVE_UTMPX_H
+  struct utmpx ut;
   struct timeval tv;
+#else /* !HAVE_UTMPX_H */
+  struct utmp ut;
+# ifdef HAVE_STRUCT_UTMP_UT_TV
+  struct timeval tv;
+# endif
 #endif
 
   /* Set information in new entry.  */
   memset (&ut, 0, sizeof (ut));
-#ifdef HAVE_STRUCT_UTMP_UT_TYPE
-  ut.ut_type = USER_PROCESS;
-#endif
+#if defined HAVE_STRUCT_UTMP_UT_TYPE || defined HAVE_STRUCT_UTMPX_UT_TYPE
+  if (name && *name)
+    ut.ut_type = USER_PROCESS;
+  else
+    ut.ut_type = DEAD_PROCESS;
+#endif /* UT_TYPE */
+#if defined HAVE_STRUCT_UTMP_UT_PID || defined HAVE_STRUCT_UTMPX_UT_PID
+  ut.ut_pid = getpid ();
+#endif /* UT_PID */
+
   strncpy (ut.ut_line, line, sizeof ut.ut_line);
+#if defined HAVE_STRUCT_UTMP_UT_USER || defined HAVE_STRUCT_UTMPX_UT_USER
+  strncpy (ut.ut_user, name, sizeof ut.ut_user);
+#elif defined HAVE_STRUCT_UTMP_UT_NAME || defined HAVE_STRUCT_UTMPX_UT_NAME
   strncpy (ut.ut_name, name, sizeof ut.ut_name);
-#ifdef HAVE_STRUCT_UTMP_UT_HOST
-  strncpy (ut.ut_host, host, sizeof ut.ut_host);
 #endif
 
-#ifdef HAVE_STRUCT_UTMP_UT_TV
+#if defined HAVE_STRUCT_UTMP_UT_HOST || defined HAVE_STRUCT_UTMPX_UT_HOST
+  strncpy (ut.ut_host, host, sizeof ut.ut_host);
+# ifdef HAVE_STRUCT_UTMPX_UT_SYSLEN	/* Only utmpx.  */
+  if (strlen (host) < sizeof (ut.ut_host))
+    ut.ut_syslen = strlen (host) + 1;	/* Including NUL.  */
+  else
+    {
+      ut.ut_host[sizeof (ut.ut_host) - 1] = '\0';
+      ut.ut_syslen = sizeof (ut.ut_host);
+    }
+# endif /* UT_SYSLEN */
+#endif /* UT_HOST */
+
+#if defined HAVE_STRUCT_UTMP_UT_TV || defined HAVE_STRUCT_UTMPX_UT_TV
   gettimeofday (&tv, NULL);
   ut.ut_tv.tv_sec = tv.tv_sec;
   ut.ut_tv.tv_usec = tv.tv_usec;

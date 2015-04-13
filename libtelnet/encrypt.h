@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-  2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-  Inc.
+  2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -74,24 +74,61 @@
 #  define DIR_DECRYPT		1
 #  define DIR_ENCRYPT		2
 
+/* Cope with variants of <arpa/telnet.h>.  */
+#  if !defined ENCTYPE_ANY && defined TELOPT_ENCTYPE_NULL
+#   define ENCTYPE_ANY TELOPT_ENCTYPE_NULL
+#  endif
+#  if !defined ENCTYPE_DES_CFB64 && defined TELOPT_ENCTYPE_DES_CFB64
+#   define ENCTYPE_DES_CFB64 TELOPT_ENCTYPE_DES_CFB64
+#  endif
+#  if !defined ENCTYPE_DES_OFB64 && defined TELOPT_ENCTYPE_DES_OFB64
+#   define ENCTYPE_DES_OFB64 TELOPT_ENCTYPE_DES_OFB64
+#  endif
+#  if !defined ENCTYPE_CNT && defined TELOPT_ENCTYPE_CNT
+#   define ENCTYPE_CNT TELOPT_ENCTYPE_CNT
+#  endif
+
+/*
+ * Our capabilities are restricted to the encryption types
+ * DES_CFB64 and DES_OFB64.  The latter type is sometimes
+ * missing in <arpa/telnet.h>.  On the other hand, the same
+ * header file may indicate more encryption types than are
+ * supported by the present code.
+ */
+#  ifndef ENCTYPE_DES_OFB64
+#   define ENCTYPE_DES_OFB64	2	/* RFC 2953 */
+#  endif
+#  undef ENCTYPE_CNT
+#  define ENCTYPE_CNT	3		/* Up to DES_OFB64.  */
+
+#  undef ENCTYPE_NAME_OK
+#  define ENCTYPE_NAME_OK(x)	((unsigned int)(x) < ENCTYPE_CNT)
+
 typedef unsigned char Block[8];
 typedef unsigned char *BlockT;
+
+#  ifndef HAVE_ARPA_TELNET_H_SCHEDULE
 typedef struct
 {
   Block _;
 } Schedule[16];
+#  endif /* !HAVE_ARPA_TELNET_H_SCHEDULE */
 
-#  define VALIDKEY(key)	( key[0] | key[1] | key[2] | key[3] | \
-			  key[4] | key[5] | key[6] | key[7])
+#  ifndef VALIDKEY
+#   define VALIDKEY(key)	( key[0] | key[1] | key[2] | key[3] | \
+				  key[4] | key[5] | key[6] | key[7])
+#  endif
 
 #  define SAMEKEY(k1, k2)	(!memcmp ((void *) k1, (void *) k2, sizeof (Block)))
 
+#  ifndef HAVE_ARPA_TELNET_H_SESSION_KEY
 typedef struct
 {
   short type;
   int length;
-  unsigned char *data;
+  const unsigned char *data;
 } Session_Key;
+#  endif /* !HAVE_ARPA_TELNET_H_SESSION_KEY */
 
 typedef struct
 {
@@ -105,7 +142,7 @@ typedef struct
   int (*reply) (unsigned char *, int);
   void (*session) (Session_Key *, int);
   int (*keyid) (int, unsigned char *, int *);
-  void (*printsub) (unsigned char *, int, unsigned char *, int);
+  void (*printsub) (unsigned char *, int, char *, int);
 } Encryptions;
 
 #  define SK_DES		1	/* Matched Kerberos v5 KEYTYPE_DES */

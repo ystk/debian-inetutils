@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -69,6 +69,7 @@
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>	/* intmax_t */
 #include <string.h>
 #include <sys/time.h>
 #include <time.h>
@@ -77,11 +78,29 @@
    system headers on some platforms. */
 #include <glob.h>
 
-#include <readline/readline.h>
-#include <readline/history.h>
+#ifdef HAVE_READLINE_READLINE_H
+# include <readline/readline.h>
+#elif defined HAVE_EDITLINE_READLINE_H
+# include <editline/readline.h>
+#endif
+#ifdef HAVE_READLINE_HISTORY_H
+# include <readline/history.h>
+#elif defined HAVE_EDITLINE_HISTORY_H
+# include <editline/history.h>
+#endif
 
 #include "ftp_var.h"
 #include "unused-parameter.h"
+#include "xalloc.h"
+#include "xgetcwd.h"
+
+#ifndef DEFPORT
+# ifdef IPPORT_FTP
+#  define DEFPORT IPPORT_FTP
+# else /* !IPPORT_FTP */
+#  define DEFPORT 21
+# endif
+#endif /* !DEFPORT */
 
 /* Returns true if STR is entirely lower case.  */
 static int
@@ -130,9 +149,10 @@ char *mapout = 0;
 int
 another (int *pargc, char ***pargv, const char *prompt)
 {
-  char *arg;
-  char *buffer;
-  int len = strlen (line), ret;
+  char *arg = NULL;
+  char *buffer, *new;
+  size_t size = 0, len = strlen (line);
+  int ret;
 
   buffer = (char *) malloc (sizeof (char) * (strlen (prompt) + 4));
   if (!buffer)
@@ -140,11 +160,35 @@ another (int *pargc, char ***pargv, const char *prompt)
 
   sprintf (buffer, "(%s) ", prompt);
 
-  arg = readline (buffer);
+#if HAVE_READLINE
+  if (usereadline)
+    arg = readline (buffer);
+  else
+#endif /* HAVE_READLINE */
+    {
+      char *nl;
+
+      fprintf (stdout, "%s", buffer);
+      fflush (stdout);
+
+      if (getline (&arg, &size, stdin) <= 0)
+	{
+	  free (buffer);
+	  free (arg);
+	  intr (0);
+	}
+
+      nl = strchr (arg, '\n');
+      if (nl)
+	*nl = '\0';
+    }
+
   free (buffer);
 
-  if (arg && *arg)
+#if HAVE_READLINE
+  if (usereadline && arg && *arg)
     add_history (arg);
+#endif /* HAVE_READLINE */
 
   if (!arg)
     intr (0);
@@ -154,13 +198,17 @@ another (int *pargc, char ***pargv, const char *prompt)
       return 0;
     }
 
-  line = realloc (line, sizeof (char) * (len + strlen (arg) + 2));
-  if (!line)
+  new = realloc (line, sizeof (char) *
+		       ((linelen ? linelen : len) + strlen (arg) + 2));
+  if (!new)
     {
       free (arg);
       intr (0);
     }
 
+  line = new;
+  linelen = sizeof (char) *
+	    ((linelen ? linelen : len) + strlen (arg) + 2);
   line[len++] = ' ';
   strcpy (&line[len], arg);
   free (arg);
@@ -224,7 +272,12 @@ setpeer (int argc, char **argv)
 	}
     }
   else
-    port = ntohs (sp->s_port);
+    {
+      struct servent *sp;
+
+      sp = getservbyname ("ftp", "tcp");
+      port = (sp) ? ntohs (sp->s_port) : DEFPORT;
+    }
 
   host = hookup (host, port);
   if (host)
@@ -244,7 +297,7 @@ setpeer (int argc, char **argv)
       if (autologin)
 	login (host);
 
-#if defined unix && NBBY == 8
+#if (defined unix || defined __unix || defined __unix__) && NBBY == 8
 /*
  * this ifdef is to keep someone form "porting" this to an incompatible
  * system and not checking this out. This way they have to think about it.
@@ -298,7 +351,7 @@ setpeer (int argc, char **argv)
 	      ("Remember to set tenex mode when transfering binary files from this machine.\n");
 	}
       verbose = overbose;
-#endif /* unix */
+#endif /* (unix || __unix || __unix__) && (NBBY == 8) */
     }
 }
 
@@ -315,7 +368,7 @@ struct types
     {"image", "I", TYPE_I, 0},
     {"ebcdic", "E", TYPE_E, 0},
     {"tenex", "L", TYPE_L, bytename},
-    {NULL}
+    {NULL, NULL, 0, NULL}
   };
 
 /*
@@ -412,7 +465,7 @@ char *stype[] = {
  * Set binary transfer type.
  */
 void
-setbinary (int argc, char **argv)
+setbinary (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   stype[1] = "binary";
@@ -423,7 +476,7 @@ setbinary (int argc, char **argv)
  * Set ascii transfer type.
  */
 void
-setascii (int argc, char **argv)
+setascii (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   stype[1] = "ascii";
@@ -434,7 +487,7 @@ setascii (int argc, char **argv)
  * Set tenex transfer type.
  */
 void
-settenex (int argc, char **argv)
+settenex (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   stype[1] = "tenex";
@@ -445,7 +498,7 @@ settenex (int argc, char **argv)
  * Set file transfer mode.
  */
 void
-setftmode (int argc, char **argv)
+setftmode (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   printf ("We only support %s mode, sorry.\n", modename);
@@ -456,7 +509,7 @@ setftmode (int argc, char **argv)
  * Set file transfer format.
  */
 void
-setform (int argc, char **argv)
+setform (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   printf ("We only support %s format, sorry.\n", formname);
@@ -467,7 +520,7 @@ setform (int argc, char **argv)
  * Set file transfer structure.
  */
 void
-setstruct (int argc, char **argv)
+setstruct (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   printf ("We only support %s structure, sorry.\n", structname);
@@ -525,8 +578,11 @@ put (int argc, char **argv)
   if (loc && mapflag)
     {
       char *new = domap (remote);
-      free (remote);
-      remote = new;
+      if (new != remote)
+	{
+	  free (remote);
+	  remote = new;
+	}
     }
   sendrequest (cmd, local, remote,
 	       strcmp (argv[1], local) != 0 || strcmp (argv[2], remote) != 0);
@@ -581,9 +637,12 @@ mput (int argc, char **argv)
 	      if (mapflag)
 		{
 		  char *new = domap (tp);
-		  if (tp != cp)
-		    free (tp);
-		  tp = new;
+		  if (new != tp)
+		    {
+		      if (tp != cp)
+			free (tp);
+		      tp = new;
+		    }
 		}
 	      sendrequest ((sunique) ? "STOU" : "STOR",
 			   cp, tp, cp != tp || !interactive);
@@ -624,9 +683,12 @@ mput (int argc, char **argv)
 	      if (mapflag)
 		{
 		  char *new = domap (tp);
-		  if (tp != argv[i])
-		    free (tp);
-		  tp = new;
+		  if (new != tp)
+		    {
+		      if (tp != argv[i])
+			free (tp);
+		      tp = new;
+		    }
 		}
 	      sendrequest ((sunique) ? "STOU" : "STOR",
 			   argv[i], tp, tp != argv[i] || !interactive);
@@ -673,9 +735,12 @@ mput (int argc, char **argv)
 	      if (mapflag)
 		{
 		  char *new = domap (tp);
-		  if (tp != *cpp)
-		    free (tp);
-		  tp = new;
+		  if (new != tp)
+		    {
+		      if (tp != *cpp)
+			free (tp);
+		      tp = new;
+		    }
 		}
 	      sendrequest ((sunique) ? "STOU" : "STOR",
 			   *cpp, tp, *cpp != tp || !interactive);
@@ -755,8 +820,11 @@ getit (int argc, char **argv, int restartit, char *mode)
   if (loc && mapflag)
     {
       char *new = domap (local);
-      free (local);
-      local = new;
+      if (new != local)
+	{
+	  free (local);
+	  local = new;
+	}
     }
   if (restartit)
     {
@@ -893,9 +961,12 @@ mget (int argc, char **argv)
 	  if (mapflag)
 	    {
 	      char *new = domap (tp);
-	      if (tp != cp)
-		free (tp);
-	      tp = new;
+	      if (new != tp)
+		{
+		  if (tp != cp)
+		    free (tp);
+		  tp = new;
+		}
 	    }
 	  recvrequest ("RETR", tp, cp, "w", tp != cp || !interactive);
 	  if (!mflag && fromatty)
@@ -1040,7 +1111,7 @@ onoff (int bool)
  * Show status.
  */
 void
-status (int argc, char **argv)
+status (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   int i;
 
@@ -1105,7 +1176,7 @@ status (int argc, char **argv)
  * Set beep on cmd completed mode.
  */
 void
-setbell (int argc, char **argv)
+setbell (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   bell = !bell;
@@ -1117,7 +1188,7 @@ setbell (int argc, char **argv)
  * Turn on packet tracing.
  */
 void
-settrace (int argc, char **argv)
+settrace (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   trace = !trace;
@@ -1127,27 +1198,64 @@ settrace (int argc, char **argv)
 
 /*
  * Toggle hash mark printing during transfers.
+ *
+ * Parse multipliers 'k', 'K', 'm', 'M', and
+ * 'g', 'G' to simplify the size step.
+ *
+ * With a numerical argument, hash marking is
+ * made active, and the step size is updated.
+ * Toggle state only in absence of an argument.
  */
 void
-sethash (int argc, char **argv)
+sethash (int argc _GL_UNUSED_PARAMETER, char **argv)
 {
+  char *p = argv[1];
+
+  /* P is NULL when no argument was passed with `hash'.  */
+  while (p && isdigit (*p))
+    p++;
+
   if (argv[1] != NULL)
     sscanf (argv[1], "%d", &hashbytes);
+
+  /* Apply a multiplier only if a numerical part exists.  */
+  if (argv[1] && isdigit (*argv[1]))
+    {
+      hash = 1;			/* Enforce markers.  */
+
+      switch (*p)
+	{
+	case 'g':
+	case 'G':
+	  hashbytes *= 1024;	/* Cascaded multiplication!  */
+	case 'm':
+	case 'M':
+	  hashbytes *= 1024;
+	case 'k':
+	case 'K':
+	  hashbytes *= 1024;
+	}
+    }
+
   if (hashbytes <= 0)
     hashbytes = 1024;
-  hash = !hash;
+
+  if (!argv[1])			/* Toggle when argument is absent.  */
+    hash = !hash;
+
   printf ("Hash mark printing %s", onoff (hash));
-  code = hash;
   if (hash)
     printf (" (%d bytes/hash mark)", hashbytes);
   printf (".\n");
+
+  code = hash;
 }
 
 /*
  * Turn on printing of server echo's.
  */
 void
-setverbose (int argc, char **argv)
+setverbose (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   verbose = !verbose;
@@ -1159,7 +1267,7 @@ setverbose (int argc, char **argv)
  * Allow any address family.
  */
 void
-setipany (int argc, char **argv)
+setipany (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   usefamily = AF_UNSPEC;
   printf ("Selecting addresses: %s.\n", "any");
@@ -1170,7 +1278,7 @@ setipany (int argc, char **argv)
  * Restrict to IPv4 addresses.
  */
 void
-setipv4 (int argc, char **argv)
+setipv4 (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   usefamily = AF_INET;
   printf ("Selecting addresses: %s.\n", "IPv4");
@@ -1181,7 +1289,7 @@ setipv4 (int argc, char **argv)
  * Restrict to IPv6 addresses.
  */
 void
-setipv6 (int argc, char **argv)
+setipv6 (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   usefamily = AF_INET6;
   printf ("Selecting addresses: %s.\n", "IPv6");
@@ -1192,7 +1300,7 @@ setipv6 (int argc, char **argv)
  * Toggle use of EPRT/EPRT for IPv4.
  */
 void
-setepsv4 (int argc, char **argv)
+setepsv4 (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   doepsv4 = !doepsv4;
@@ -1204,7 +1312,7 @@ setepsv4 (int argc, char **argv)
  * Toggle PORT cmd use before each data connection.
  */
 void
-setport (int argc, char **argv)
+setport (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   sendport = !sendport;
@@ -1217,7 +1325,7 @@ setport (int argc, char **argv)
  * during mget, mput, and mdelete.
  */
 void
-setprompt (int argc, char **argv)
+setprompt (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   interactive = !interactive;
@@ -1230,7 +1338,7 @@ setprompt (int argc, char **argv)
  * on local file names.
  */
 void
-setglob (int argc, char **argv)
+setglob (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   doglob = !doglob;
@@ -1298,7 +1406,6 @@ void
 lcd (int argc, char **argv)
 {
   char *dir;
-  extern char *xgetcwd ();
 
   if (argc < 2)
     argc++, argv[1] = home;
@@ -1534,7 +1641,7 @@ mls (int argc, char **argv)
  * Do a shell escape
  */
 void
-shell (int argc, char **argv)
+shell (int argc, char **argv _GL_UNUSED_PARAMETER)
 {
   pid_t pid;
   sighandler_t old1, old2;
@@ -1553,9 +1660,11 @@ shell (int argc, char **argv)
 	shell = PATH_BSHELL;
       namep = strrchr (shell, '/');
       if (namep == NULL)
-	namep = shell;
+	namep = shell;		/* No slash in this name.  */
+      else
+	namep++;		/* Skip the slash character.  */
       strcpy (shellnam, "-");
-      strcat (shellnam, ++namep);
+      strncat (shellnam, namep, sizeof (shellnam) - 2);
       if (strcmp (namep, "sh") != 0)
 	shellnam[0] = '+';
       if (debug)
@@ -1611,9 +1720,23 @@ user (int argc, char **argv)
   n = command ("USER %s", argv[1]);
   if (n == CONTINUE)
     {
+      /* Is this a case of challenge-response?
+       * RFC 2228 stipulates code 336 for this.
+       * Suppress message in verbose mode, since
+       * it has already been displayed.
+       */
+      if (code == 336 && !verbose)
+	printf ("%s\n", reply_string + strlen ("336 "));
+      /* In addition, any password given on the
+       * command line is irrelevant, so ignore it.
+       */
+      if (argc < 3 || code == 336)
+	argv[2] = getpass ("Password: ");
       if (argc < 3)
-	argv[2] = getpass ("Password: "), argc++;
+	argc++;
       n = command ("PASS %s", argv[2]);
+      if (argv[2])
+	memset (argv[2], 0, strlen (argv[2]));
     }
   if (n == CONTINUE)
     {
@@ -1621,8 +1744,10 @@ user (int argc, char **argv)
 	{
 	  printf ("Account: ");
 	  fflush (stdout);
-	  fgets (acct, sizeof (acct) - 1, stdin);
-	  acct[strlen (acct) - 1] = '\0';
+	  if (fgets (acct, sizeof (acct) - 1, stdin))
+	    acct[strlen (acct) - 1] = '\0';	/* Erase newline.  */
+	  else
+	    acct[0] = '\0';			/* Set empty name.  */
 	  argv[3] = acct;
 	  argc++;
 	}
@@ -1644,7 +1769,7 @@ user (int argc, char **argv)
  * Print working directory.
  */
 void
-pwd (int argc, char **argv)
+pwd (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
   int oldverbose = verbose;
 
@@ -1658,6 +1783,25 @@ pwd (int argc, char **argv)
       command ("XPWD");
     }
   verbose = oldverbose;
+}
+
+/*
+ * Print local working directory.
+ */
+void
+lpwd (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
+{
+  char *dir = xgetcwd ();
+
+  if (dir)
+    {
+      printf ("Local directory is %s\n", dir);
+      free (dir);
+    }
+  else
+    error (0, errno, "getcwd");
+
+  code = 0;
 }
 
 /*
@@ -1817,7 +1961,7 @@ rmthelp (int argc, char **argv)
  * Terminate session and exit.
  */
 void
-quit (int argc, char **argv)
+quit (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   if (connected)
@@ -1834,7 +1978,7 @@ quit (int argc, char **argv)
  * Terminate session, but don't exit.
  */
 void
-disconnect (int argc, char **argv)
+disconnect (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   if (!connected)
@@ -1856,15 +2000,15 @@ disconnect (int argc, char **argv)
 int
 confirm (char *cmd, char *file)
 {
-  char line[BUFSIZ];
+  char input[BUFSIZ];
 
   if (!interactive)
     return (1);
   printf ("%s %s? ", cmd, file);
   fflush (stdout);
-  if (fgets (line, sizeof line, stdin) == NULL)
+  if (fgets (input, sizeof input, stdin) == NULL)
     return (0);
-  return (*line != 'n' && *line != 'N');
+  return (*input != 'n' && *input != 'N');
 }
 
 void
@@ -1932,12 +2076,14 @@ account (int argc, char **argv)
       ap = getpass ("Account:");
     }
   command ("ACCT %s", ap);
+  if (ap)
+    memset (ap, 0, strlen (ap));
 }
 
 jmp_buf abortprox;
 
 void
-proxabort (int sig)
+proxabort (int sig _GL_UNUSED_PARAMETER)
 {
 
   if (!proxy)
@@ -2020,7 +2166,7 @@ doproxy (int argc, char **argv)
 }
 
 void
-setcase (int argc, char **argv)
+setcase (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   mcase = !mcase;
@@ -2029,7 +2175,7 @@ setcase (int argc, char **argv)
 }
 
 void
-setcr (int argc, char **argv)
+setcr (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   crflag = !crflag;
@@ -2060,12 +2206,15 @@ setntrans (int argc, char **argv)
   ntout[sizeof (ntout) - 1] = '\0';
 }
 
+/* NOTE: dotrans() always returns a newly allocated string.
+ */
+
 char *
 dotrans (char *name)
 {
-  char *new = malloc (strlen (name) + 1);
+  char *new = xmalloc (strlen (name) + 1);
   char *cp1, *cp2 = new;
-  int i, ostop, found;
+  size_t i, ostop, found;
 
   for (ostop = 0; *(ntout + ostop) && ostop < sizeof (ntout) - 1; ostop++)
     continue;
@@ -2094,7 +2243,7 @@ dotrans (char *name)
 }
 
 void
-setpassive (int argc, char **argv)
+setpassive (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   passivemode = !passivemode;
@@ -2146,7 +2295,7 @@ cp_subst (char **from_p, char **to_p, int *toks, char **tp, char **te, char *tok
 {
   int toknum;
   char *src;
-  int src_len;
+  size_t src_len;
 
   if (*++(*from_p) == '0')
     {
@@ -2161,24 +2310,39 @@ cp_subst (char **from_p, char **to_p, int *toks, char **tp, char **te, char *tok
   else
     return 0;
 
-  if (src_len > 2)
+  if (src_len > strlen ("$2"))
     {
-      /* This subst will be longer than the original, so make room
-         for it.  */
-      *buf_len_p += src_len - 2;
+      /* This substitution will be longer than the original text.
+       * Allocate a larger buffer and update the cursor, pointing
+       * within the new memory area.
+       */
+      size_t offset = *to_p - *buf_p;
+
+      *buf_len_p += src_len - strlen ("$2");
       *buf_p = realloc (*buf_p, *buf_len_p);
+      *to_p = *buf_p + offset;
     }
+
   while (src_len--)
     *(*to_p)++ = *src++;
 
   return 1;
 }
 
+/* NOTE: domap() can return a newly allocated string,
+ * but need not do so every time.
+ */
+
 char *
 domap (char *name)
 {
-  int buf_len = strlen (name) + 1;
-  char *buf = malloc (buf_len);
+  /* The string `mapout' will have its tokens expanded,
+   * but is essentially the minimal output string.
+   * Some brackets and some alternate strings might
+   * need to be suppressed.
+   */
+  int buf_len = strlen (mapout) + 1;
+  char *buf = xmalloc (buf_len);
   char *cp1 = name, *cp2 = mapin;
   char *tp[9], *te[9];
   int i, toks[9], toknum = 0, match = 1;
@@ -2187,6 +2351,9 @@ domap (char *name)
     {
       toks[i] = 0;
     }
+
+  /* Tokenize the input pattern against incoming file name.
+   */
   while (match && *cp1 && *cp2)
     {
       switch (*cp2)
@@ -2200,16 +2367,18 @@ domap (char *name)
 	case '$':
 	  if (*(cp2 + 1) >= '1' && (*cp2 + 1) <= '9')
 	    {
-	      if (*cp1 != *(++cp2 + 1))
+	      if (*cp1 != *(++cp2 + 1))	/* Break at delimiter.  */
 		{
 		  toks[toknum = *cp2 - '1']++;
 		  tp[toknum] = cp1;
-		  while (*++cp1 && *(cp2 + 1) != *cp1);
+		  while (*++cp1 && *(cp2 + 1) != *cp1)
+		    ;
 		  te[toknum] = cp1;
 		}
 	      cp2++;
 	      break;
 	    }
+	  /* Fall through, as '$' must be used verbatim.  */
 	default:
 	  if (*cp2 != *cp1)
 	    {
@@ -2230,6 +2399,11 @@ domap (char *name)
     {
       toks[toknum] = 0;
     }
+
+  /* Back substitute tokens into output template
+   * string `mapout'.  All fixed characters were
+   * already accounted for in presetting BUF_LEN.
+   */
   cp1 = buf;
   *cp1 = '\0';
   cp2 = mapout;
@@ -2247,7 +2421,10 @@ domap (char *name)
 	case '[':
 	LOOP:
 	  if (*++cp2 == '$' && isdigit (*(cp2 + 1)))
-	    cp_subst (&cp2, &cp1, toks, tp, te, name, &buf, &buf_len);
+	    {
+	      if (cp_subst (&cp2, &cp1, toks, tp, te, name, &buf, &buf_len))
+		match = 1;
+	    }
 	  else
 	    {
 	      while (*cp2 && *cp2 != ',' && *cp2 != ']')
@@ -2261,9 +2438,9 @@ domap (char *name)
                       if (cp_subst (&cp2,
                                     &cp1, toks, tp, te, name, &buf, &buf_len))
                         match = 1;
-                      else if (*cp2)
-			*cp1++ = *cp2++;
                     }
+                  else if (*cp2)
+		    *cp1++ = *cp2++;
 		}
 	      if (!*cp2)
 		{
@@ -2275,6 +2452,7 @@ domap (char *name)
 	    }
 	  if (match)
 	    {
+	      /* Skip over all alternate text.  */
 	      while (*++cp2 && *cp2 != ']')
 		{
 		  if (*cp2 == '\\' && *(cp2 + 1))
@@ -2307,7 +2485,7 @@ domap (char *name)
 		match = 1;
 	      break;
 	    }
-	  /* intentional drop through */
+	  /* intentional fall through */
 	default:
 	  *cp1++ = *cp2;
 	  break;
@@ -2323,7 +2501,7 @@ domap (char *name)
 }
 
 void
-setsunique (int argc, char **argv)
+setsunique (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   sunique = !sunique;
@@ -2332,7 +2510,7 @@ setsunique (int argc, char **argv)
 }
 
 void
-setrunique (int argc, char **argv)
+setrunique (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   runique = !runique;
@@ -2342,7 +2520,7 @@ setrunique (int argc, char **argv)
 
 /* change directory to parent directory */
 void
-cdup (int argc, char **argv)
+cdup (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   if (command ("CDUP") == ERROR && code == 500)
@@ -2362,17 +2540,15 @@ restart (int argc, char **argv)
     printf ("restart: offset not specified\n");
   else
     {
-      restart_point = atol (argv[1]);
-      printf ((sizeof (restart_point) > sizeof (long)
-	       ? "restarting at %lld. %s\n"
-	       : "restarting at %ld. %s\n"), restart_point,
+      restart_point = atoll (argv[1]);
+      printf ("restarting at %jd. %s\n", (intmax_t) restart_point,
 	      "execute get, put or append to initiate transfer");
     }
 }
 
 /* show remote system type */
 void
-syst (int argc, char **argv)
+syst (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 {
 
   command ("SYST");
@@ -2400,7 +2576,8 @@ macdef (int argc, char **argv)
     {
       printf ("Enter macro line by line, terminating it with a null line\n");
     }
-  strncpy (macros[macnum].mac_name, argv[1], 8);
+  strncpy (macros[macnum].mac_name, argv[1],
+	   sizeof (macros[macnum].mac_name) - 1);
   if (macnum == 0)
     {
       macros[macnum].mac_start = macbuf;
@@ -2410,7 +2587,7 @@ macdef (int argc, char **argv)
       macros[macnum].mac_start = macros[macnum - 1].mac_end + 1;
     }
   tmp = macros[macnum].mac_start;
-  while (tmp != macbuf + 4096)
+  while (tmp < macbuf + sizeof (macbuf))
     {
       if ((c = getchar ()) == EOF)
 	{

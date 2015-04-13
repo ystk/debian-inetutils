@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -141,33 +141,46 @@ talk (void)
 
 /*
  * p_error prints the system error message on the standard location
- * on the screen and then exits. (i.e. a curses version of perror)
+ * on the screen and then exits, i.e., a curses version of perror.
  */
 int
 p_error (char *string)
 {
-  wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
-  wprintw (my_win.x_win, "[%s : %s (%d)]\n", string, strerror (errno), errno);
-  wrefresh (my_win.x_win);
-  move (LINES - 1, 0);
-  refresh ();
+  if (curses_initialized)
+    {
+      wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
+      wprintw (my_win.x_win, "[%s : %s (%d)]\n",
+	       string, strerror (errno), errno);
+      wrefresh (my_win.x_win);
+      move (LINES - 1, 0);
+      refresh ();
+    }
+  else
+    perror (string);
+
   quit ();
 
   return 0;
 }
 
 /*
- * Display string in the standard location
+ * Display string in the standard location.
  */
 int
 message (char *string)
 {
-  wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
-  wprintw (my_win.x_win, "[%s]", string);
-  wclrtoeol (my_win.x_win);
-  current_line++;
-  wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
-  wrefresh (my_win.x_win);
+  if (curses_initialized)
+    {
+      wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
+      wprintw (my_win.x_win, "[%s]", string);
+      wclrtoeol (my_win.x_win);
+      current_line++;
+      wmove (my_win.x_win, current_line % my_win.x_nlines, 0);
+      wrefresh (my_win.x_win);
+    }
+  else
+    if (string && string[0])
+      printf ("[%s]\n", string);
 
   return 0;
 }

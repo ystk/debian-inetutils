@@ -1,6 +1,6 @@
 #
 # Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-# 2009, 2010, 2011 Free Software Foundation, Inc.
+# 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -17,12 +17,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see `http://www.gnu.org/licenses/'.
 
-noinst_LIBRARIES = @libls_BUILD@
+AM_CPPFLAGS = \
+	$(iu_INCLUDES)
+
+noinst_LIBRARIES = $(libls_BUILD)
 
 EXTRA_LIBRARIES = libls.a
 
 libls_a_SOURCES = cmp.c stat_flags.c ls.c print.c util.c fts.c
 
 noinst_HEADERS = extern.h ls.h fts.h
-
-INCLUDES = $(iu_INCLUDES)

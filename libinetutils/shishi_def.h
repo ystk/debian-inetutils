@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -22,7 +22,7 @@
 # include <netinet/in.h>
 
 # define SERVICE "host"
-# define BUFLEN 1040
+# define SHISHI_ENCRYPT_BUFLEN 1040
 
 struct shishi_iv
 {
@@ -36,10 +36,13 @@ typedef struct shishi_iv shishi_ivector;
 
 struct auth_data
 {
-  struct sockaddr_in from;
+  struct sockaddr_storage from;
+  socklen_t fromlen;
+  char *hostaddr;
   char *hostname;
   char *lusername;
   char *rusername;
+  char *rprincipal;
   char *term;
   char *env[2];
   int kerberos_version;
@@ -53,19 +56,27 @@ struct auth_data
 };
 
 extern int shishi_auth (Shishi ** handle, int verbose, char **cname,
-			const char *sname, int sock,
-			char *cmd, int port, Shishi_key ** enckey,
-			char *realm);
+			const char *sname, int sock, char *cmd,
+			unsigned short port, Shishi_key ** enckey,
+			const char *realm);
 
 extern int get_auth (int infd, Shishi ** handle, Shishi_ap ** ap,
 		     Shishi_key ** enckey, const char **err_msg,
 		     int *protoversion, int *cksumtype, char **cksum,
-		     int *cksumlen);
+		     size_t *cksumlen, char *srvname);
 
 extern int readenc (Shishi * h, int sock, char *buf, int *len,
 		    shishi_ivector * iv, Shishi_key * enckey, int proto);
 
 extern int writeenc (Shishi * h, int sock, char *buf, int wlen, int *len,
 		     shishi_ivector * iv, Shishi_key * enckey, int proto);
+
+extern int krcmd (Shishi ** h, char **ahost, unsigned short rport,
+		  char **remuser, char *cmd, int *fd2p,
+		  const char *realm, int af);
+
+extern int krcmd_mutual (Shishi ** h, char **ahost, unsigned short rport,
+			 char **remuser, char *cmd, int *fd2p,
+			 const char *realm, Shishi_key ** key, int af);
 
 #endif

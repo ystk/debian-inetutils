@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001,
-  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free
-  Software Foundation, Inc.
+  2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -51,7 +51,7 @@
    Adams. */
 
 /*
- * 4.2BSD TCP/IP server for uucico
+ * TCP/IP server for uucico.
  * uucico's TCP channel causes this server to be run at the remote end.
  */
 
@@ -68,6 +68,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <pwd.h>
+#include <grp.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdio.h>
@@ -77,65 +78,97 @@
 # include <crypt.h>
 #endif
 #include <termios.h>
+#ifdef HAVE_UTMPX_H
+# include <utmpx.h>
+#endif
 #ifdef HAVE_UTMP_H
 # include <utmp.h>
 #endif
 
 #include <argp.h>
 #include <progname.h>
+#include <unused-parameter.h>
 #include <libinetutils.h>
 
-void dologin (struct passwd *pw, struct sockaddr_in *sin);
+void dologin (struct passwd *pw, struct sockaddr *sap, socklen_t salen);
+void dologout (void);
+void doit (struct sockaddr *sap, socklen_t salen);
 
-struct sockaddr_in hisctladdr;
-int hisaddrlen = sizeof hisctladdr;
-struct sockaddr_in myctladdr;
+char *uucico_location = PATH_UUCICO;
 int mypid;
 
 char Username[64];
+char Logname[64];
 char *nenv[] = {
   Username,
+  Logname,
   NULL,
 };
+
 extern char **environ;
+
+static struct argp_option argp_options[] = {
+#define GRP 10
+  { "uucico", 'u', "LOCATION", 0,
+    "location of uucico executable, "
+    "replacing default at " PATH_UUCICO, GRP },
+#undef GRP
+  { NULL, 0, NULL, 0, NULL, 0 }
+};
+
+static error_t
+parse_opt (int key, char *arg,
+	   struct argp_state *state _GL_UNUSED_PARAMETER)
+{
+  switch (key)
+    {
+    case 'u':
+      uucico_location = arg;
+      break;
+    default:
+      return ARGP_ERR_UNKNOWN;
+    }
+  return 0;
+}
 
 static struct argp argp =
   {
-    NULL,
-    NULL,
-    NULL,
-    "TCP/IP server for uucico"
+    argp_options, parse_opt, NULL,
+    "TCP/IP server for uucico.",
+    NULL, NULL, NULL
   };
 
 int
 main (int argc, char **argv)
 {
-  register int s;
-  struct servent *sp;
-  void dologout (void);
+  struct sockaddr_storage hisctladdr;
+  socklen_t hisaddrlen = sizeof (hisctladdr);
 
   set_program_name (argv[0]);
   iu_argp_init ("uucpd", default_program_authors);
   argp_parse (&argp, argc, argv, 0, NULL, NULL);
 
+  /* Minimal environment, containing only USER.  */
   environ = nenv;
-  sp = getservbyname ("uucp", "tcp");
-  if (sp == NULL)
+
+  /* Circumvent all descriptor trickery.  */
+  dup2 (STDIN_FILENO, STDOUT_FILENO);
+  dup2 (STDIN_FILENO, STDERR_FILENO);
+
+  hisaddrlen = sizeof (hisctladdr);
+  if (getpeername (STDIN_FILENO, (struct sockaddr *) &hisctladdr,
+		   &hisaddrlen) < 0)
     {
-      perror ("uucpd: getservbyname");
-      exit (EXIT_FAILURE);
-    }
-  if (fork ())
-    exit (EXIT_SUCCESS);
-  if ((s = open (PATH_TTY, O_RDWR)) >= 0)
-    {
-      ioctl (s, TIOCNOTTY, (char *) 0);
-      close (s);
+      fprintf (stderr, "%s: ", argv[0]);
+      perror ("getpeername");
+      _exit (EXIT_FAILURE);
     }
 
-  memset (&myctladdr, 0, sizeof (myctladdr));
-  myctladdr.sin_family = AF_INET;
-  myctladdr.sin_port = sp->s_port;
+  if (fork () == 0)
+    doit ((struct sockaddr *) &hisctladdr, hisaddrlen);
+
+  dologout ();
+  exit (EXIT_FAILURE);
 }
 
 static int
@@ -145,7 +178,7 @@ readline (register char *p, register int n)
 
   while (n-- > 0)
     {
-      if (read (0, &c, 1) <= 0)
+      if (read (STDIN_FILENO, &c, 1) <= 0)
 	return (-1);
       c &= 0177;
       if (c == '\n' || c == '\r')
@@ -159,30 +192,35 @@ readline (register char *p, register int n)
 }
 
 void
-doit (struct sockaddr_in *sinp)
+doit (struct sockaddr *sap, socklen_t salen)
 {
-  struct passwd *pw, *getpwnam (const char *);
+  struct passwd *pw;
   char user[64], passwd[64];
   char *xpasswd;
 
   alarm (60);
   printf ("login: ");
   fflush (stdout);
-  if (readline (user, sizeof user) < 0)
+  if (readline (user, sizeof (user)) < 0)
     {
       fprintf (stderr, "user read\n");
       return;
     }
-  /* truncate username to 8 characters */
-  user[8] = '\0';
+  user[sizeof (user) - 1] = '\0';
+
   pw = getpwnam (user);
   if (pw == NULL)
     {
-      fprintf (stderr, "user unknown\n");
-      return;
-    }
-  if (strcmp (pw->pw_shell, PATH_UUCICO))
-    {
+      /* Simulate continuation, in order not
+       * to disclose user name information.
+       */
+      printf ("Password: ");
+      fflush (stdout);
+      if (readline (passwd, sizeof (passwd)) < 0)
+	{
+	  fprintf (stderr, "passwd read\n");
+	  return;
+	}
       fprintf (stderr, "Login incorrect.");
       return;
     }
@@ -190,7 +228,7 @@ doit (struct sockaddr_in *sinp)
     {
       printf ("Password: ");
       fflush (stdout);
-      if (readline (passwd, sizeof passwd) < 0)
+      if (readline (passwd, sizeof (passwd)) < 0)
 	{
 	  fprintf (stderr, "passwd read\n");
 	  return;
@@ -202,12 +240,31 @@ doit (struct sockaddr_in *sinp)
 	  return;
 	}
     }
+
+  /* XXX: Compare only shell base name to "uucico"?
+   * Calling execl(uucico_location) would still use
+   * the only acceptable binary.  */
+  if (strcmp (pw->pw_shell, uucico_location))
+    {
+      fprintf (stderr, "Login incorrect.");
+      return;
+    }
+
   alarm (0);
   sprintf (Username, "USER=%s", user);
-  dologin (pw, sinp);
+  sprintf (Logname, "LOGNAME=%s", user);
+  dologin (pw, sap, salen);
   setgid (pw->pw_gid);
-  chdir (pw->pw_dir);
+#ifdef HAVE_INITGROUPS
+  initgroups (pw->pw_name, pw->pw_gid);
+#endif
+  if (chdir (pw->pw_dir) < 0)
+    {
+      fprintf (stderr, "Login incorrect.");
+      return;
+    }
   setuid (pw->pw_uid);
+  execl (uucico_location, "uucico", NULL);
   perror ("uucico server: execl");
 }
 
@@ -227,8 +284,31 @@ dologout (void)
 #endif /* HAVE_WAITPID */
     {
       char line[100];
-      sprintf (line, "uucp%.4d", pid);
+      sprintf (line, "uucp%.4d", (int) pid);
+#ifdef HAVE_LOGWTMPX
+      logwtmpx (line, "", "", 0, DEAD_PROCESS);
+#elif defined HAVE_LOGWTMP
       logwtmp (line, "", "");
+#elif defined HAVE_PUTUTXLINE
+      {
+	/* Novelty in FreeBSD 9.0.  */
+	struct utmpx ut;
+	struct timeval now;
+
+	ut.ut_type = DEAD_PROCESS;
+	ut.ut_pid = pid;
+	strncpy (ut.ut_line, line, sizeof (ut.ut_line));
+	memset (ut.ut_user, 0, sizeof (ut.ut_user));
+	memset (ut.ut_host, 0, sizeof (ut.ut_host));
+# ifdef HAVE_STRUCT_UTMPX_UT_SYSLEN
+	ut.ut_syslen = 1;
+# endif
+	gettimeofday (&now, NULL);
+	ut.ut_tv.tv_sec = now.tv_sec;
+	ut.ut_tv.tv_usec = now.tv_usec;
+	pututxline (&ut);
+      }
+#endif /* HAVE_PUTUTXLINE && !HAVE_LOGWTMPX && !HAVE_LOGWTMP */
     }
 }
 
@@ -236,13 +316,42 @@ dologout (void)
  * Record login in wtmp file.
  */
 void
-dologin (struct passwd *pw, struct sockaddr_in *sin)
+dologin (struct passwd *pw, struct sockaddr *sap, socklen_t salen)
 {
   char line[32];
-  char remotehost[32];
+#if defined PATH_LASTLOG && defined HAVE_STRUCT_LASTLOG
   int f;
-  struct hostent *hp = gethostbyaddr ((char *) &sin->sin_addr,
-				      sizeof (struct in_addr), AF_INET);
+#endif
+#if HAVE_DECL_GETNAMEINFO
+  char remotehost[NI_MAXHOST];
+
+  if (getnameinfo (sap, salen, remotehost, sizeof (remotehost),
+		   NULL, 0, 0))
+    (void) getnameinfo (sap, salen, remotehost, sizeof (remotehost),
+			NULL, 0, NI_NUMERICHOST);
+#else
+  char remotehost[64];
+  struct hostent *hp;
+  void *addr;
+  socklen_t addrlen;
+
+  switch (sap->sa_family)
+    {
+#ifdef IPV6
+    case AF_INET6:
+      addr = (void *) &(((struct sockaddr_in6 *) sap)->sin6_addr);
+      addrlen = sizeof (struct in6_addr);
+      break;
+#endif
+    case AF_INET:
+    default:
+      addr = (void *) &(((struct sockaddr_in *) sap)->sin_addr);
+      addrlen = sizeof (struct in_addr);
+      break;
+    }
+
+  (void) salen;		/* Silence warning.  */
+  hp = gethostbyaddr (addr, addrlen, sap->sa_family);
 
   if (hp)
     {
@@ -250,11 +359,45 @@ dologin (struct passwd *pw, struct sockaddr_in *sin)
       endhostent ();
     }
   else
-    strncpy (remotehost, inet_ntoa (sin->sin_addr), sizeof (remotehost));
+    {
+      remotehost[0] = '\0';
+      (void) inet_ntop (sap->sa_family, addr,
+			remotehost, sizeof (remotehost));
+    }
+#endif
 
-  sprintf (line, "uucp%.4d", getpid ());
+  sprintf (line, "uucp%.4d", (int) getpid ());
 
+#ifdef HAVE_LOGWTMPX
+  logwtmpx (line, pw->pw_name, remotehost, 0, USER_PROCESS);
+#elif defined HAVE_LOGWTMP
   logwtmp (line, pw->pw_name, remotehost);
+#elif defined HAVE_PUTUTXLINE
+  {
+    /* Novelty in FreeBSD 9.0.  */
+    struct utmpx ut;
+    struct timeval now;
+
+    ut.ut_type = USER_PROCESS;
+    ut.ut_pid = getpid();
+    strncpy (ut.ut_line, line, sizeof (ut.ut_line));
+    strncpy (ut.ut_user, pw->pw_name, sizeof (ut.ut_user));
+    strncpy (ut.ut_host, remotehost, sizeof (ut.ut_host));
+# ifdef HAVE_STRUCT_UTMPX_UT_SYSLEN
+    if (strlen (remotehost) < sizeof (ut.ut_host))
+      ut.ut_syslen = strlen (remotehost) + 1;
+    else
+      {
+	ut.ut_host[sizeof (ut.ut_host) - 1] = '\0';
+	ut.ut_syslen = sizeof (ut.ut_host);
+      }
+# endif
+    gettimeofday (&now, NULL);
+    ut.ut_tv.tv_sec = now.tv_sec;
+    ut.ut_tv.tv_usec = now.tv_usec;
+    pututxline (&ut);
+  }
+#endif /* HAVE_PUTUTXLINE && !HAVE_LOGWTMPX && !HAVE_LOGWTMP */
 
 #if defined PATH_LASTLOG && defined HAVE_STRUCT_LASTLOG
 # define SCPYN(a, b)	strncpy(a, b, sizeof (a))
@@ -270,7 +413,7 @@ dologin (struct passwd *pw, struct sockaddr_in *sin)
       strcpy (line, remotehost);
       SCPYN (ll.ll_line, line);
       SCPYN (ll.ll_host, remotehost);
-      write (f, (char *) &ll, sizeof ll);
+      write (f, (char *) &ll, sizeof (ll));
       close (f);
     }
 #endif

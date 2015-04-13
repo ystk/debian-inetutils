@@ -1,7 +1,7 @@
 dnl
 dnl Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-dnl Inc.
+dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+dnl Free Software Foundation, Inc.
 dnl
 dnl This file is part of GNU Inetutils.
 dnl
@@ -31,7 +31,7 @@ AC_DEFUN([IU_RESULT_ACTIONS], [
 [if test "$$1" = yes; then
   ]ifelse([$3], ,
           [AC_DEFINE(HAVE_]translit($2, [a-z ./<>], [A-Z___])[, 1,
-	             [FIXME])],
+             [Define to 1 if ]translit($2, [a-z ./<>], [A-Z___])[ exists])],
           [$3])[
 else
   ]ifelse([$4], , [:], [$4])[

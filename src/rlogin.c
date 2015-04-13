@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -103,24 +103,34 @@
 #include <progname.h>
 #include "libinetutils.h"
 #include "unused-parameter.h"
+#include "xalloc.h"
+
+#ifdef KERBEROS
+# ifdef HAVE_KERBEROSIV_DES_H
+#  include <kerberosIV/des.h>
+# endif
+# ifdef HAVE_KERBEROSIV_KRB_H
+#  include <kerberosIV/krb.h>
+# endif
+#endif /* KERBEROS */
 
 #ifdef SHISHI
+# include <shishi.h>
+# include "shishi_def.h"
 # define REALM_SZ 1040
 #endif
 
 #if defined KERBEROS || defined SHISHI
 int use_kerberos = 1, doencrypt;
 # ifdef KERBEROS
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
-char dest_realm_buf[REALM_SZ], *dest_realm = NULL;
+char dest_realm_buf[REALM_SZ];
+const char *dest_realm = NULL;
 CREDENTIALS cred;
 Key_schedule schedule;
 
 # elif defined(SHISHI)
-#  include <shishi.h>
-#  include "shishi_def.h"
-char dest_realm_buf[REALM_SZ], *dest_realm = NULL;
+char dest_realm_buf[REALM_SZ];
+const char *dest_realm = NULL;
 
 Shishi *handle;
 Shishi_key *key;
@@ -131,8 +141,8 @@ int keytype;
 int keylen;
 int rc;
 int wlen;
-# endif
-#endif /* KERBEROS */
+# endif /* SHISHI */
+#endif /* KERBEROS || SHISHI */
 
 /*
   The TIOCPKT_* macros may not be implemented in the pty driver.
@@ -170,6 +180,9 @@ int noescape;
 char * host = NULL;
 char * user = NULL;
 unsigned char escapechar = '~';
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+sa_family_t family = AF_UNSPEC;
+#endif
 
 #ifdef OLDSUN
 
@@ -182,7 +195,7 @@ struct winsize
 };
 
 int get_window_size (int, struct winsize *);
-#else
+#else /* !OLDSUN */
 # define get_window_size(fd, wp)	ioctl (fd, TIOCGWINSZ, wp)
 #endif
 struct winsize winsize;
@@ -210,14 +223,6 @@ void writeroob (int);
 void warning (const char *, ...);
 #endif
 
-extern sighandler_t setsig (int, sighandler_t);
-
-#if defined KERBEROS || defined SHISHI
-# define OPTIONS	"8EKde:k:l:xhV"
-#else
-# define OPTIONS	"8EKde:l:hV"
-#endif
-
 const char args_doc[] = "HOST";
 const char doc[] = "Starts a terminal session on a remote host.";
 
@@ -231,17 +236,23 @@ static struct argp_option argp_options[] = {
   {"no-escape", 'E', NULL, 0, "stops any character from being recognized as "
    "an escape character", GRP+1},
   {"user", 'l', "USER", 0, "run as USER on the remote system", GRP+1},
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+  { "ipv4", '4', NULL, 0, "use only IPv4", GRP+1 },
+  { "ipv6", '6', NULL, 0, "use only IPv6", GRP+1 },
+#endif
+#undef GRP
 #if defined KERBEROS || defined SHISHI
+# define GRP 10
 # ifdef ENCRYPTION
-  {"encrypt", 'x', NULL, 0, "turns on DES encryption for all data passed via "
+  {"encrypt", 'x', NULL, 0, "turns on encryption for all data passed via "
    "the rlogin session", GRP+1},
 # endif
   {"kerberos", 'K', NULL, 0, "turns off all Kerberos authentication", GRP+1},
   {"realm", 'k', "REALM", 0, "obtain tickets for the remote host in REALM "
    "realm instead of the remote's realm", GRP+1},
-#endif
-#undef GRP
-  {NULL}
+# undef GRP
+#endif /* KERBEROS || SHISHI */
+  {NULL, 0, NULL, 0, NULL, 0}
 };
 
 static error_t
@@ -249,6 +260,14 @@ parse_opt (int key, char *arg, struct argp_state *state)
 {
   switch (key)
     {
+#if defined WITH_ORCMD_AF || defined WITH_RCMD_AF || defined SHISHI
+    case '4':
+      family = AF_INET;
+      break;
+    case '6':
+      family = AF_INET6;
+      break;
+#endif
     /* 8-bit input Specifying this forces us to use RAW mode input from
        the user's terminal.  Also, in this mode we won't perform any
        local flow control.  */
@@ -290,7 +309,7 @@ parse_opt (int key, char *arg, struct argp_state *state)
       break;
 
     case 'k':
-      strncpy (dest_realm_buf, optarg, sizeof (dest_realm_buf));
+      strncpy (dest_realm_buf, arg, sizeof (dest_realm_buf));
       /* Make sure it's null termintated.  */
       dest_realm_buf[sizeof (dest_realm_buf) - 1] = '\0';
       dest_realm = dest_realm_buf;
@@ -308,13 +327,15 @@ parse_opt (int key, char *arg, struct argp_state *state)
   return 0;
 }
 
-static struct argp argp = {argp_options, parse_opt, args_doc, doc};
+static struct argp argp =
+  {argp_options, parse_opt, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char *argv[])
 {
   struct passwd *pw;
   struct servent *sp;
+  struct sigaction sa;
   sigset_t smask, osmask;
   uid_t uid;
   int index;
@@ -346,12 +367,10 @@ main (int argc, char *argv[])
 
   argc -= index;
 
-  /* We must be uid root to access rcmd().  */
-  if (geteuid ())
-    error (EXIT_FAILURE, 0, "must be setuid root.\n");
-
   /* Get the name of the user invoking us: the client-user-name.  */
-  if (!(pw = getpwuid (uid = getuid ())))
+  uid = getuid ();
+  pw = getpwuid (uid);
+  if (!pw)
     error (EXIT_FAILURE, 0, "unknown user id.");
 
   /* Accept user1@host format, though "-l user2" overrides user1 */
@@ -392,7 +411,7 @@ main (int argc, char *argv[])
      terminal's speed.  The name and the speed are passed to the server
      as the argument "cmd" of the rcmd() function.  This is something like
      "vt100/9600".  */
-  term_speed = speed (0);
+  term_speed = speed (STDIN_FILENO);
   if (term_speed == SPEED_NOTATTY)
     {
       char *p;
@@ -405,13 +424,21 @@ main (int argc, char *argv[])
       snprintf (term, sizeof term, "%s/%d",
 		((p = getenv ("TERM")) ? p : "network"), term_speed);
     }
-  get_window_size (0, &winsize);
+  get_window_size (STDIN_FILENO, &winsize);
 
-  setsig (SIGPIPE, lostpeer);
+  setsig (SIGPIPE, lostpeer);	/* XXX: Replace setsig()?  */
 
-  /* Block SIGURG and SIGUSR1 signals.  These will be handled by the
-     parent and the child after the fork.  */
-  /* Will be using SIGUSR1 for window size hack, so hold it off.  */
+  /*
+   * Block SIGURG and SIGUSR1 signals during connection setup.
+   * These signals will be handled distinctly by parent and child
+   * after completion of process forking.
+   *
+   * SIGUSR1 will be be raise by the child for the parent process,
+   * in order that the client's finding of window size be transmitted
+   * to the remote machine.
+   *
+   * osmask will be passed along as the desired runtime signal mask.
+   */
   sigemptyset (&smask);
   sigemptyset (&osmask);
   sigaddset (&smask, SIGURG);
@@ -419,18 +446,24 @@ main (int argc, char *argv[])
   sigprocmask (SIG_SETMASK, &smask, &osmask);
 
   /*
-   * We set SIGURG and SIGUSR1 below so that an
+   * We set disposition for SIGURG and SIGUSR1 so that an
    * incoming signal will be held pending rather than being
    * discarded. Note that these routines will be ready to get
-   * a signal by the time that they are unblocked below.
+   * a signal by the time that they are unblocked later on.
    */
-  setsig (SIGURG, copytochild);
-  setsig (SIGUSR1, writeroob);
+  sigemptyset (&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sa.sa_handler = copytochild;
+  (void) sigaction (SIGURG, &sa, NULL);
+  sa.sa_handler = writeroob;
+  (void) sigaction (SIGUSR1, &sa, NULL);
 
 #if defined KERBEROS || defined SHISHI
 try_connect:
   if (use_kerberos)
     {
+      int krb_errno = 0;
+# if defined KERBEROS
       struct hostent *hp;
 
       /* Fully qualified hostname (needed for krb_realmofhost).  */
@@ -438,7 +471,6 @@ try_connect:
       if (hp != NULL && !(host = strdup (hp->h_name)))
 	error (EXIT_FAILURE, errno, "strdup");
 
-# if defined KERBEROS
       rem = KSUCCESS;
       errno = 0;
       if (dest_realm == NULL)
@@ -455,7 +487,8 @@ try_connect:
 	  int i;
 
 	  rem = krcmd_mutual (&handle, &host, sp->s_port, &user, term, 0,
-			      dest_realm, &key);
+			      dest_realm, &key, family);
+	  krb_errno = errno;
 	  if (rem > 0)
 	    {
 	      keytype = shishi_key_type (key);
@@ -476,7 +509,7 @@ try_connect:
 		    case SHISHI_DES_CBC_NONE:
 		    case SHISHI_DES3_CBC_HMAC_SHA1_KD:
 		      ivtab[i]->keyusage = SHISHI_KEYUSAGE_KCMD_DES;
-		      ivtab[i]->iv = malloc (ivtab[i]->ivlen);
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
 		      memset (ivtab[i]->iv, !i, ivtab[i]->ivlen);
 		      ivtab[i]->ctx =
 			shishi_crypto (handle, key, ivtab[i]->keyusage,
@@ -494,7 +527,7 @@ try_connect:
 		    default:
 		      ivtab[i]->keyusage =
 			SHISHI_KEYUSAGE_KCMD_DES + 2 + 4 * i;
-		      ivtab[i]->iv = malloc (ivtab[i]->ivlen);
+		      ivtab[i]->iv = xmalloc (ivtab[i]->ivlen);
 		      memset (ivtab[i]->iv, 0, ivtab[i]->ivlen);
 		      ivtab[i]->ctx =
 			shishi_crypto (handle, key, ivtab[i]->keyusage,
@@ -506,54 +539,91 @@ try_connect:
 	}
 
       else
-#  else
-	rem = krcmd_mutual (&host, sp->s_port, user, term, 0,
-			    dest_realm, &cred, schedule);
+#  else /* KERBEROS */
+	{
+	  rem = krcmd_mutual (&host, sp->s_port, user, term, 0,
+			      dest_realm, &cred, schedule);
+	  krb_errno = errno;
+	}
       else
 #  endif
-# endif	/* CRYPT */
-
-	rem = krcmd (
+# endif	/* ENCRYPTION */
+	{
 # if defined SHISHI
-		      &handle, &host, sp->s_port, &user, term, 0, dest_realm);
-# else
-		      &host, sp->s_port, user, term, 0, dest_realm);
+	  rem = krcmd (&handle, &host, sp->s_port, &user, term, 0,
+		       dest_realm, family);
+# else /* KERBEROS */
+	  rem = krcmd (&host, sp->s_port, user, term, 0, dest_realm);
 # endif
+	  krb_errno = errno;
+	}
       if (rem < 0)
 	{
 	  use_kerberos = 0;
+	  if (krb_errno == ECONNREFUSED)
+	    warning ("remote host doesn't support Kerberos");
+	  else if (krb_errno == ENOENT)
+	    error (EXIT_FAILURE, 0, "Can't provide Kerberos auth data.");
+	  else
+	    error (EXIT_FAILURE, 0, "Kerberos authentication failed.");
+
 	  sp = getservbyname ("login", "tcp");
 	  if (sp == NULL)
 	    error (EXIT_FAILURE, 0, "unknown service login/tcp.");
-	  if (errno == ECONNREFUSED)
-	    warning ("remote host doesn't support Kerberos");
-	  if (errno == ENOENT)
-	    warning ("can't provide Kerberos auth data");
 	  goto try_connect;
 	}
     }
 
   else
     {
+      char *p = strchr (host, '/');
+
 # ifdef ENCRYPTION
       if (doencrypt)
 	error (EXIT_FAILURE, 0, "the -x flag requires Kerberos authentication.");
-# endif	/* CRYPT */
+# endif	/* ENCRYPTION */
       if (!user)
 	user = pw->pw_name;
+      if (p)
+	host = ++p;	/* Skip prefix like `host/'.  */
 
+# ifdef WITH_ORCMD_AF
+      rem = orcmd_af (&host, sp->s_port, pw->pw_name, user, term, 0, family);
+# elif defined WITH_RCMD_AF
+      rem = rcmd_af (&host, sp->s_port, pw->pw_name, user, term, 0, family);
+# elif defined WITH_ORCMD
+      rem = orcmd (&host, sp->s_port, pw->pw_name, user, term, 0);
+# else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
       rem = rcmd (&host, sp->s_port, pw->pw_name, user, term, 0);
+# endif
     }
-#else
+#else /* !KERBEROS && !SHISHI */
   if (!user)
     user = pw->pw_name;
 
+# ifdef WITH_ORCMD_AF
+  rem = orcmd_af (&host, sp->s_port, pw->pw_name, user, term, 0, family);
+# elif defined WITH_RCMD_AF
+  rem = rcmd_af (&host, sp->s_port, pw->pw_name, user, term, 0, family);
+# elif defined WITH_ORCMD
+  rem = orcmd (&host, sp->s_port, pw->pw_name, user, term, 0);
+# else /* !WITH_ORCMD_AF && !WITH_RCMD_AF && !WITH_ORCMD */
   rem = rcmd (&host, sp->s_port, pw->pw_name, user, term, 0);
-
+# endif
 #endif /* KERBEROS */
 
   if (rem < 0)
-    exit (EXIT_FAILURE);
+    {
+      puts ("");	/* Glibc does not close all error strings in rcmd().  */
+      /* rcmd() provides its own error messages,
+       * but we add a vital addition, caused by
+       * insufficient capabilites.
+       */
+      if (errno == EACCES)
+	error (EXIT_FAILURE, 0, "No access to privileged ports.");
+
+      exit (EXIT_FAILURE);
+    }
 
   {
     int one = 1;
@@ -564,8 +634,14 @@ try_connect:
 
 #if defined IP_TOS && defined IPPROTO_IP && defined IPTOS_LOWDELAY
   {
+    struct sockaddr_storage ss;
+    socklen_t sslen = sizeof (ss);
     int one = IPTOS_LOWDELAY;
-    if (setsockopt (rem, IPPROTO_IP, IP_TOS, (char *) &one, sizeof (int)) < 0)
+
+    (void) getpeername (rem, (struct sockaddr *) &ss, &sslen);
+    if (ss.ss_family == AF_INET &&
+	setsockopt (rem, IPPROTO_IP, IP_TOS,
+		    (char *) &one, sizeof (int)) < 0)
       error (0, errno, "setsockopt TOS (ignored)");
   }
 #endif
@@ -576,7 +652,7 @@ try_connect:
   seteuid (uid);
   setuid (uid);
 
-  doit (&osmask);
+  doit (&osmask);	/* The old mask will activate SIGURG and SIGUSR1!  */
 
   return 0;
 }
@@ -688,9 +764,10 @@ struct termios ixon_state;
 struct termios nott;
 
 void
-doit (sigset_t * smask)
+doit (sigset_t * osmask)
 {
   int i;
+  struct sigaction sa;
 
   for (i = 0; i < NCCS; i++)
     nott.c_cc[i] = _POSIX_VDISABLE;
@@ -698,7 +775,11 @@ doit (sigset_t * smask)
   nott.c_cc[VSTART] = deftt.c_cc[VSTART];
   nott.c_cc[VSTOP] = deftt.c_cc[VSTOP];
 
-  setsig (SIGINT, SIG_IGN);
+  sigemptyset (&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sa.sa_handler = SIG_IGN;
+  (void) sigaction (SIGINT, &sa, NULL);
+
   setsignal (SIGHUP);
   setsignal (SIGQUIT);
 
@@ -711,11 +792,27 @@ doit (sigset_t * smask)
   if (child == 0)
     {
       mode (1);
-      if (reader (smask) == 0)
+      if (reader (osmask) == 0)
 	{
 	  /* If the reader returns zero, the socket to the server returned
 	     an EOF, meaning the client logged out of the remote system.
 	     This is the normal termination.  */
+#ifdef SHISHI
+	  if (use_kerberos)
+	    {
+# ifdef ENCRYPTION
+	      if (doencrypt)
+		{
+		  shishi_key_done (key);
+		  shishi_crypto_close (iv1.ctx);
+		  shishi_crypto_close (iv2.ctx);
+		  free (iv1.iv);
+		  free (iv2.iv);
+		}
+# endif /* ENCRYPTION */
+	      shishi_done (handle);
+	    }
+#endif /* SHISHI */
           error (0, 0, "Connection to %s closed normally.\r", host);
           /* EXIT_SUCCESS is usually zero. So error might not exit.  */
           exit (EXIT_SUCCESS);
@@ -736,9 +833,10 @@ doit (sigset_t * smask)
    * that were set above.
    */
   /* Reenable SIGURG and SIGUSR1.  */
-  sigprocmask (SIG_SETMASK, smask, (sigset_t *) 0);
+  sigprocmask (SIG_SETMASK, osmask, (sigset_t *) 0);
 
-  setsig (SIGCHLD, catch_child);
+  sa.sa_handler = catch_child;
+  (void) sigaction (SIGCHLD, &sa, NULL);
 
   writer ();
 
@@ -768,24 +866,28 @@ doit (sigset_t * smask)
   done (0);
 }
 
-/* Enable a signal handler, unless the signal is already being ignored.
-   This function is called before the fork (), for SIGHUP and SIGQUIT.  */
+/*
+ * Install an exit handler, unless the signal is already being ignored.
+   This function is called before fork () for SIGHUP and SIGQUIT.  */
 void
 setsignal (int sig)
 {
-  sighandler_t handler;
-  sigset_t sigs, osigs;
+  int rc;
+  struct sigaction sa;
 
-  sigemptyset (&sigs);
-  sigemptyset (&osigs);
-  sigaddset (&sigs, sig);
-  sigprocmask (SIG_BLOCK, &sigs, &osigs);
+  /* Query the present disposition of SIG.
+   * This achieves minimal manipulation.  */
+  sa.sa_flags = 0;
+  sa.sa_handler = NULL;
+  sigemptyset (&sa.sa_mask);
+  rc = sigaction (sig, NULL, &sa);
 
-  handler = setsig (sig, exit);
-  if (handler == SIG_IGN)
-    setsig (sig, handler);
-
-  sigprocmask (SIG_SETMASK, &osigs, (sigset_t *) 0);
+  /* Set action to exit, unless the signal is ignored.  */
+  if (!rc && sa.sa_handler != SIG_IGN)
+    {
+      sa.sa_handler = _exit;
+      (void) sigaction (sig, &sa, NULL);
+    }
 }
 
 /* This function is called by the parent:
@@ -805,7 +907,7 @@ done (int status)
   if (child > 0)
     {
       /* make sure catch_child does not snap it up */
-      setsig (SIGCHLD, SIG_DFL);
+      setsig (SIGCHLD, SIG_DFL);		/* XXX: Replace setsig()?  */
       if (kill (child, SIGKILL) >= 0)
 	while ((w = waitpid (-1, &wstatus, WNOHANG)) > 0 && w != child)
 	  continue;
@@ -819,6 +921,8 @@ int dosigwinch;
  * This is called when the reader process gets the out-of-band (urgent)
  * request to turn on the window-changing protocol.
  *
+ * Input signal is SIGUSR1, but SIGWINCH is being activated.
+ *
  * FIXME: Race condition due to sendwindow() in signal handler?
  */
 void
@@ -826,8 +930,14 @@ writeroob (int signo _GL_UNUSED_PARAMETER)
 {
   if (dosigwinch == 0)
     {
+      struct sigaction sa;
+
       sendwindow ();
-      setsig (SIGWINCH, sigwinch);
+
+      sa.sa_flags = SA_RESTART;
+      sa.sa_handler = sigwinch;
+      sigemptyset (&sa.sa_mask);
+      (void) sigaction (SIGWINCH, &sa, NULL);
     }
   dosigwinch = 1;
 }
@@ -912,19 +1022,21 @@ writer (void)
 	      continue;
 	    }
 	  if (c != escapechar)
+	    {
 #ifdef ENCRYPTION
 # ifdef KERBEROS
-	    if (doencrypt)
-	      des_write (rem, (char *) &escapechar, 1);
-	    else
+	      if (doencrypt)
+		des_write (rem, (char *) &escapechar, 1);
+	      else
 # elif defined(SHISHI)
-	    if (doencrypt)
-	      writeenc (handle, rem, (char *) &escapechar, 1, &wlen, &iv2,
-			key, 2);
-	    else
-# endif
-#endif
-	      write (rem, &escapechar, 1);
+	      if (doencrypt)
+		writeenc (handle, rem, (char *) &escapechar, 1, &wlen,
+			  &iv2, key, 2);
+	      else
+# endif /* SHISHI */
+#endif /* ENCRYPTION */
+		write (rem, &escapechar, 1);
+	    }
 	}
 
 #ifdef ENCRYPTION
@@ -992,7 +1104,7 @@ void
 stop (char cmdc)
 {
   mode (0);
-  setsig (SIGCHLD, SIG_IGN);
+  setsig (SIGCHLD, SIG_IGN);		/* XXX: Replace setsig()?  */
   kill (cmdc == deftt.c_cc[VSUSP] ? 0 : getpid (), SIGTSTP);
   setsig (SIGCHLD, catch_child);
   mode (1);
@@ -1004,7 +1116,7 @@ sigwinch (int signo _GL_UNUSED_PARAMETER)
 {
   struct winsize ws;
 
-  if (dosigwinch && get_window_size (0, &ws) == 0
+  if (dosigwinch && get_window_size (STDIN_FILENO, &ws) == 0
       && memcmp (&ws, &winsize, sizeof ws))
     {
       winsize = ws;
@@ -1069,36 +1181,40 @@ oob (int signo _GL_UNUSED_PARAMETER)
   out = O_RDWR;
   rcvd = 0;
 
-#ifndef SHISHI
-  while (recv (rem, &mark, 1, MSG_OOB) < 0)
-    {
-      switch (errno)
-	{
-	case EWOULDBLOCK:
-	  /*
-	   * Urgent data not here yet.  It may not be possible
-	   * to send it yet if we are blocked for output and
-	   * our input buffer is full.
-	   */
-	  if ((size_t) rcvcnt < sizeof rcvbuf)
-	    {
-	      n = read (rem, rcvbuf + rcvcnt, sizeof (rcvbuf) - rcvcnt);
-	      if (n <= 0)
-		return;
-	      rcvd += n;
-	    }
-	  else
-	    {
-	      n = read (rem, waste, sizeof waste);
-	      if (n <= 0)
-		return;
-	    }
-	  continue;
-	default:
-	  return;
-	}
-    }
+#ifdef SHISHI
+  if (use_kerberos)
+    mark = rcvbuf[4];		/* Payload in fifth byte.  */
+  else
 #endif
+    while (recv (rem, &mark, 1, MSG_OOB) < 0)
+      {
+	switch (errno)
+	  {
+	  case EWOULDBLOCK:
+	    /*
+	     * Urgent data not here yet.  It may not be possible
+	     * to send it yet if we are blocked for output and
+	     * our input buffer is full.
+	     */
+	    if ((size_t) rcvcnt < sizeof rcvbuf)
+	      {
+		n = read (rem, rcvbuf + rcvcnt, sizeof (rcvbuf) - rcvcnt);
+		if (n <= 0)
+		  return;
+		rcvd += n;
+	      }
+	    else
+	      {
+		n = read (rem, waste, sizeof waste);
+		if (n <= 0)
+		  return;
+	      }
+	    continue;
+	  default:
+	    return;
+	  }
+      }
+
   if (mark & TIOCPKT_WINDOW)
     {
       /* Let server know about window size changes */
@@ -1122,8 +1238,11 @@ oob (int signo _GL_UNUSED_PARAMETER)
     }
   if (mark & TIOCPKT_FLUSHWRITE)
     {
-#ifdef TIOCFLUSH
-      ioctl (1, TIOCFLUSH, (char *) &out);
+#ifdef TIOCFLUSH		/* BSD and Solaris.  */
+      ioctl (STDOUT_FILENO, TIOCFLUSH, (char *) &out);
+#elif defined TCIOFLUSH		/* Glibc, BSD, and Solaris.  */
+      out = TCIOFLUSH;
+      ioctl (STDOUT_FILENO, TCIOFLUSH, &out);
 #endif
       for (;;)
 	{
@@ -1161,36 +1280,41 @@ oob (int signo _GL_UNUSED_PARAMETER)
 
 /* reader: read from remote: line -> 1 */
 int
-reader (sigset_t * smask)
+reader (sigset_t * osmask)
 {
   pid_t pid;
   int n, remaining;
   char *bufp;
+  struct sigaction sa;
 
-#if BSD >= 43 || defined SUNOS4
-  pid = getpid ();		/* modern systems use positives for pid */
-#else
-  pid = -getpid ();		/* old broken systems use negatives */
-#endif
-
-  setsig (SIGTTOU, SIG_IGN);
-  setsig (SIGURG, oob);
-
+  pid = getpid ();	/* Modern systems use positive values for pid.  */
   ppid = getppid ();
-  fcntl (rem, F_SETOWN, pid);
+
+  fcntl (rem, F_SETOWN, pid);		/* Get ownership early.  */
+
+  sa.sa_flags = SA_RESTART;
+  sa.sa_handler = SIG_IGN;
+  sigemptyset (&sa.sa_mask);
+  (void) sigaction (SIGTTOU, &sa, NULL);
+  sa.sa_handler = oob;
+  (void) sigaction (SIGURG, &sa, NULL);
+
   setjmp (rcvtop);
-  sigprocmask (SIG_SETMASK, smask, (sigset_t *) 0);
+  sigprocmask (SIG_SETMASK, osmask, (sigset_t *) 0);
   bufp = rcvbuf;
 
   for (;;)
     {
 #ifdef SHISHI
-      if ((rcvcnt >= 5) && (bufp[0] == '\377') && (bufp[1] == '\377'))
-	if ((bufp[2] == 'o') && (bufp[3] == 'o'))
-	  {
-	    oob (1);
-	    bufp += 5;
-	  }
+      if (use_kerberos)
+	{
+	  if ((rcvcnt >= 5) && (bufp[0] == '\377') && (bufp[1] == '\377'))
+	    if ((bufp[2] == 'o') && (bufp[3] == 'o'))
+	      {
+		oob (1);
+		bufp += 5;
+	      }
+	}
 #endif
       while ((remaining = rcvcnt - (bufp - rcvbuf)) > 0)
 	{
@@ -1231,6 +1355,7 @@ reader (sigset_t * smask)
 	}
     }
 }
+
 void
 mode (int f)
 {
@@ -1271,18 +1396,18 @@ mode (int f)
 /* FIXME: Race condition due to done() in signal handler?
  */
 void
-lostpeer (int signo _GL_UNUSED_PARAMETER)
+lostpeer (int signo)
 {
-  setsig (SIGPIPE, SIG_IGN);
+  setsig (signo, SIG_IGN);	/* Used with SIGPIPE only.  */
   error (0, 0, "\007Connection to %s lost.\r", host);
   done (1);
 }
 
 /* copy SIGURGs to the child process. */
 void
-copytochild (int signo _GL_UNUSED_PARAMETER)
+copytochild (int signo)
 {
-  kill (child, SIGURG);
+  kill (child, signo);
 }
 
 #if defined KERBEROS || defined SHISHI
@@ -1310,8 +1435,10 @@ get_window_size (int fd, struct winsize *wp)
   struct ttysize ts;
   int error;
 
-  if ((error = ioctl (0, TIOCGSIZE, &ts)) != 0)
+  error = ioctl (0, TIOCGSIZE, &ts);
+  if (error != 0)
     return error;
+
   wp->ws_row = ts.ts_lines;
   wp->ws_col = ts.ts_cols;
   wp->ws_xpixel = 0;
@@ -1326,8 +1453,10 @@ getescape (register char *p)
   long val;
   int len;
 
-  if ((len = strlen (p)) == 1)	/* use any single char, including '\'.  */
+  len = strlen (p);
+  if (len == 1)		/* use any single char, including '\'.  */
     return ((u_int) * p);
+
   /* otherwise, \nnn */
   if (*p == '\\' && len >= 2 && len <= 4)
     {

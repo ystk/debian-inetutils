@@ -1,6 +1,7 @@
 /*
   Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-  2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
+  2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -48,7 +49,8 @@
 
 #include <config.h>
 
-#if defined KERBEROS || defined SHISHI
+#if defined KRB5 || defined SHISHI
+
 # include <sys/types.h>
 # ifdef ENCRYPTION
 #  include <sys/socket.h>
@@ -56,13 +58,21 @@
 
 # include <netinet/in.h>
 
-# ifdef KERBEROS
-#  include <kerberosIV/des.h>
-#  include <kerberosIV/krb.h>
-# elif defined(SHISHI)
+# ifdef KRB5
+#  ifdef HAVE_KRB5_H
+#   include <krb5.h>
+#  endif
+#  include "kerberos5_def.h"
+
+# elif defined(SHISHI) /* ! KRB5 */
 #  include <shishi.h>
 #  include "shishi_def.h"
-# endif
+#  ifdef HAVE_GETPWUID_R
+#   include <stdlib.h>
+#   include <unistd.h>
+#   include <pwd.h>
+#  endif /* HAVE_GETPWUID_R */
+# endif /* SHISHI && !KRB5 */
 
 # include <stdio.h>
 
@@ -70,13 +80,14 @@
 
 # if defined SHISHI
 int kcmd (Shishi **, int *, char **, unsigned short, char *, char **,
-	  char *, int *, char *, char *, Shishi_key **,
+	  char *, int *, char *, const char *, Shishi_key **,
+	  struct sockaddr_storage *, struct sockaddr_storage *,
+	  long, int);
+# else /* KRB5 && !SHISHI */
+int kcmd (krb5_context *, int *, char **, unsigned short, char *, char **,
+	  char *, int *, char *, const char *, krb5_keyblock **,
 	  struct sockaddr_in *, struct sockaddr_in *, long);
-# else
-int kcmd (int *, char **, unsigned short, char *, char *, char *, int *,
-	  KTEXT, char *, char *, CREDENTIALS *, Key_schedule,
-	  MSG_DAT *, struct sockaddr_in *, struct sockaddr_in *, long);
-# endif
+# endif /* !SHISHI */
 
 /*
  * krcmd: simplified version of Athena's "kcmd"
@@ -85,22 +96,49 @@ int kcmd (int *, char **, unsigned short, char *, char *, char *, int *,
  */
 
 # if defined SHISHI
+#  ifdef HAVE_GETPWUID_R
+static int pwbuflen;
+static char *pwbuf = NULL;	/* Reused after first allocation.  */
+static struct passwd pwstor, *pwd;
+#  endif /* HAVE_GETPWUID_R */
+
 int
-krcmd (Shishi ** h, char **ahost, unsigned short rport, char **remuser, char *cmd,
-       int *fd2p, char *realm)
+krcmd (Shishi ** h, char **ahost, unsigned short rport, char **remuser,
+       char *cmd, int *fd2p, const char *realm, int af)
 {
   int sock = -1, err = 0;
   long authopts = 0L;
 
-  err = kcmd (h, &sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, SERVICE_NAME, realm, NULL,	/* key schedule not used */
+#  ifdef HAVE_GETPWUID_R
+  if (!pwbuf)
+    {
+      pwbuflen = sysconf (_SC_GETPW_R_SIZE_MAX);
+      if (pwbuflen <= 0)
+	pwbuflen = 1024;	/* Guessing only.  */
+
+      pwbuf = malloc (pwbuflen);
+    }
+
+  if (pwbuf)
+    (void) getpwuid_r (getuid (), &pwstor, pwbuf, pwbuflen, &pwd);
+#  endif /* HAVE_GETPWUID_R */
+
+  err = kcmd (h, &sock, ahost, rport,
+#  ifdef HAVE_GETPWUID_R
+	      pwd ? pwd->pw_name : *remuser,	/* locuser */
+#  else /* !HAVE_GETPWUID_R */
+	      NULL,		/* locuser not used */
+#  endif
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm,
+	      NULL,		/* key schedule not used */
 	      NULL,		/* local addr not used */
 	      NULL,		/* foreign addr not used */
-	      authopts);
+	      authopts, af);
 
   if (err > SHISHI_OK)
     {
-      fprintf (stderr, "krcmd: %s\n", "error");
+      fprintf (stderr, "krcmd: error %d, %s\n", err, shishi_strerror (err));
       return (-1);
     }
   if (err < 0)
@@ -108,54 +146,80 @@ krcmd (Shishi ** h, char **ahost, unsigned short rport, char **remuser, char *cm
   return (sock);
 }
 
-# elif defined(KERBEROS)
+# elif defined(KRB5) /* !SHISHI */
 int
-krcmd (char **ahost, unsigned short rport, char *remuser, char *cmd, int *fd2p,
-       char *realm)
+krcmd (krb5_context *ctx, char **ahost, unsigned short rport,
+       char **remuser, char *cmd, int *fd2p, const char *realm)
 {
-  int sock = -1, err = 0;
-  KTEXT_ST ticket;
+  int sock = -1;
+  krb5_error_code err = 0;
   long authopts = 0L;
 
-  err = kcmd (&sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, &ticket, SERVICE_NAME, realm, NULL,	/* credentials not used */
-	      (bit_64 *) NULL,	/* key schedule not used */
-	      (MSG_DAT *) NULL,	/* MSG_DAT not used */
+  err = kcmd (ctx, &sock, ahost, rport,
+	      NULL,	/* locuser not used */
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm,
+	      (krb5_keyblock **) NULL,		/* key not used */
 	      (struct sockaddr_in *) NULL,	/* local addr not used */
 	      (struct sockaddr_in *) NULL,	/* foreign addr not used */
 	      authopts);
 
-  if (err > KSUCCESS && err < MAX_KRB_ERRORS)
+  if (err > 0)
     {
-      fprintf (stderr, "krcmd: %s\n", krb_err_txt[err]);
+      const char *text = krb5_get_error_message (*ctx, err);
+
+      fprintf (stderr, "krcmd: %s\n", text);
+      krb5_free_error_message (*ctx, text);
       return (-1);
     }
   if (err < 0)
     return (-1);
   return (sock);
 }
-# endif
+# endif /* KRB5 && !SHISHI */
 
 # ifdef ENCRYPTION
 
 #  if defined SHISHI
 int
 krcmd_mutual (Shishi ** h, char **ahost, unsigned short rport, char **remuser,
-	      char *cmd, int *fd2p, char *realm, Shishi_key ** key)
+	      char *cmd, int *fd2p, const char *realm, Shishi_key ** key, int af)
 {
   int sock = -1, err = 0;
-  struct sockaddr_in laddr, faddr;
+  struct sockaddr_storage laddr, faddr;
   long authopts = SHISHI_APOPTIONS_MUTUAL_REQUIRED;
 
-  err = kcmd (h, &sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, SERVICE_NAME, realm, key,	/* filled in */
+#   ifdef HAVE_GETPWUID_R
+  if (!pwbuf)
+    {
+      pwbuflen = sysconf (_SC_GETPW_R_SIZE_MAX);
+      if (pwbuflen <= 0)
+	pwbuflen = 1024;	/* Guessing only.  */
+
+      pwbuf = malloc (pwbuflen);
+    }
+
+  if (pwbuf)
+    (void) getpwuid_r (getuid (), &pwstor, pwbuf, pwbuflen, &pwd);
+#   endif /* HAVE_GETPWUID_R */
+
+  err = kcmd (h, &sock, ahost, rport,
+#   ifdef HAVE_GETPWUID_R
+	      pwd ? pwd->pw_name : *remuser,	/* locuser */
+#   else /* !HAVE_GETPWUID_R */
+	      NULL,		/* locuser not used */
+#   endif
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm,
+	      key,		/* filled in */
 	      &laddr,		/* filled in */
 	      &faddr,		/* filled in */
-	      authopts);
+	      authopts, af);
 
   if (err > SHISHI_OK)
     {
-      fprintf (stderr, "krcmd_mutual: %s\n", "error");
+      fprintf (stderr, "krcmd_mutual: error %d, %s\n",
+	       err, shishi_strerror (err));
       return (-1);
     }
 
@@ -164,28 +228,32 @@ krcmd_mutual (Shishi ** h, char **ahost, unsigned short rport, char **remuser,
   return (sock);
 }
 
-#  elif defined(KERBEROS)
+#  elif defined(KRB5) /* !SHISHI */
 int
-krcmd_mutual (char **ahost, unsigned short rport, char *remuser, char *cmd,
-	      int *fd2p, char *realm, CREDENTIALS * cred, Key_schedule sched)
+krcmd_mutual (krb5_context *ctx, char **ahost, unsigned short rport,
+	      char **remuser, char *cmd, int *fd2p, const char *realm,
+	      krb5_keyblock **key)
 {
-  int sock, err;
-  KTEXT_ST ticket;
-  MSG_DAT msg_dat;
+  int sock;
+  krb5_error_code err = 0;
   struct sockaddr_in laddr, faddr;
-  long authopts = KOPT_DO_MUTUAL;
+  long authopts = AP_OPTS_MUTUAL_REQUIRED | AP_OPTS_USE_SUBKEY;
 
-  err = kcmd (&sock, ahost, rport, NULL,	/* locuser not used */
-	      remuser, cmd, fd2p, &ticket, SERVICE_NAME, realm, cred,	/* filled in */
-	      sched,		/* filled in */
-	      &msg_dat,		/* filled in */
+  err = kcmd (ctx, &sock, ahost, rport,
+	      NULL,		/* locuser not used */
+	      remuser, cmd, fd2p,
+	      SERVICE_NAME, realm,
+	      key,		/* filled in */
 	      &laddr,		/* filled in */
 	      &faddr,		/* filled in */
 	      authopts);
 
-  if (err > KSUCCESS && err < MAX_KRB_ERRORS)
+  if (err > 0)
     {
-      fprintf (stderr, "krcmd_mutual: %s\n", krb_err_txt[err]);
+      const char *text = krb5_get_error_message (*ctx, err);
+
+      fprintf (stderr, "krcmd_mutual: %s\n", text);
+      krb5_free_error_message (*ctx, text);
       return (-1);
     }
 
@@ -193,6 +261,6 @@ krcmd_mutual (char **ahost, unsigned short rport, char *remuser, char *cmd,
     return (-1);
   return (sock);
 }
-#  endif /* CRYPT */
-# endif	/* KERBEROS */
-#endif /* KERBEROS */
+#  endif /* KRB5 && !SHISHI */
+# endif /* ENCRYPTION  */
+#endif /* KRB5 || SHISHI */

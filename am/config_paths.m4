@@ -1,7 +1,7 @@
 dnl
 dnl Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation,
-dnl Inc.
+dnl 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+dnl Free Software Foundation, Inc.
 dnl
 dnl This file is part of GNU Inetutils.
 dnl
@@ -47,7 +47,7 @@ AC_DEFUN([IU_CONFIG_PATHS], [
   dnl We actually look for `with_' variables corresponding to each path
   dnl configured.
   AC_ARG_WITH([PATHVAR],
-              AC_HELP_STRING([--with-PATHVAR=PATH],
+              AS_HELP_STRING([--with-PATHVAR=PATH],
                              [Set the value of PATHVAR to PATH
                           PATHVAR is the name of a \`PATH_FOO' variable,
                           downcased, with \`_' changed to \`-']))

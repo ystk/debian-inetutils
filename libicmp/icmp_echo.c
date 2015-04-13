@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -36,14 +36,14 @@ icmp_generic_encode (unsigned char * buffer, size_t bufsize, int type, int ident
 {
   icmphdr_t *icmp;
 
-  if (bufsize < 8)
+  if (bufsize < ICMP_MINLEN)
     return -1;
   icmp = (icmphdr_t *) buffer;
   icmp->icmp_type = type;
   icmp->icmp_code = 0;
   icmp->icmp_cksum = 0;
-  icmp->icmp_seq = seqno;
-  icmp->icmp_id = ident;
+  icmp->icmp_seq = htons (seqno);
+  icmp->icmp_id = htons (ident);
 
   icmp->icmp_cksum = icmp_cksum (buffer, bufsize);
   return 0;

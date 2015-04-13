@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software
-  Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -49,10 +49,13 @@
 
 #include <config.h>
 #include <stdlib.h>
+#include <unistd.h>
+#ifdef HAVE_LOCALE_H
+# include <locale.h>
+#endif
 
 #include "talk.h"
 #include <argp.h>
-#include <unistd.h>
 #include <libinetutils.h>
 
 void usage (void);
@@ -79,9 +82,9 @@ const char *program_authors[] =
     NULL
   };
 
-const char doc[] = "talk to another user";
+const char doc[] = "Talk to another user.";
 const char args_doc[] = "person [ttyname]";
-static struct argp argp = { NULL, NULL, args_doc, doc };
+static struct argp argp = { NULL, NULL, args_doc, doc, NULL, NULL, NULL};
 
 int
 main (int argc, char *argv[])
@@ -89,6 +92,9 @@ main (int argc, char *argv[])
   int index;
 
   set_program_name (argv[0]);
+#ifdef HAVE_SETLOCALE
+  setlocale (LC_ALL, "");
+#endif
   iu_argp_init ("talk", program_authors);
   argp_parse (&argp, argc, argv, 0, &index, NULL);
 
@@ -102,19 +108,28 @@ main (int argc, char *argv[])
     }
   if (!isatty (0))
     {
-      printf ("Standard input must be a tty, not a pipe or a file\n");
+      printf ("Standard input must be a tty, not a pipe, nor a file.\n");
       exit (-1);
     }
 
   get_names (argc, argv);
-  init_display ();
+
+  /* Let them know we are working on connections.  */
+  current_state = "No connection yet.";
+
   open_ctl ();
   open_sockt ();
+  current_state = "Service connection established.";
+
   start_msgs ();
   if (!check_local ())
     invite_remote ();
   end_msgs ();
+
+  /* Our party is responding.  Upgrade user interface.  */
+  init_display ();
   set_edit_chars ();
+
   talk ();
 }
 
@@ -129,5 +144,5 @@ static const char usage_str[] =
 void
 usage (void)
 {
-  printf ("%s\n" "Send bug reports to <%s>\n", usage_str, PACKAGE_BUGREPORT);
+  printf ("%s\n" "Send bug reports to <%s>.\n", usage_str, PACKAGE_BUGREPORT);
 }
