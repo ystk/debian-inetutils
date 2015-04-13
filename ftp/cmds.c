@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
-  Software Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -1198,20 +1198,57 @@ settrace (int argc _GL_UNUSED_PARAMETER, char **argv _GL_UNUSED_PARAMETER)
 
 /*
  * Toggle hash mark printing during transfers.
+ *
+ * Parse multipliers 'k', 'K', 'm', 'M', and
+ * 'g', 'G' to simplify the size step.
+ *
+ * With a numerical argument, hash marking is
+ * made active, and the step size is updated.
+ * Toggle state only in absence of an argument.
  */
 void
 sethash (int argc _GL_UNUSED_PARAMETER, char **argv)
 {
+  char *p = argv[1];
+
+  /* P is NULL when no argument was passed with `hash'.  */
+  while (p && isdigit (*p))
+    p++;
+
   if (argv[1] != NULL)
     sscanf (argv[1], "%d", &hashbytes);
+
+  /* Apply a multiplier only if a numerical part exists.  */
+  if (argv[1] && isdigit (*argv[1]))
+    {
+      hash = 1;			/* Enforce markers.  */
+
+      switch (*p)
+	{
+	case 'g':
+	case 'G':
+	  hashbytes *= 1024;	/* Cascaded multiplication!  */
+	case 'm':
+	case 'M':
+	  hashbytes *= 1024;
+	case 'k':
+	case 'K':
+	  hashbytes *= 1024;
+	}
+    }
+
   if (hashbytes <= 0)
     hashbytes = 1024;
-  hash = !hash;
+
+  if (!argv[1])			/* Toggle when argument is absent.  */
+    hash = !hash;
+
   printf ("Hash mark printing %s", onoff (hash));
-  code = hash;
   if (hash)
     printf (" (%d bytes/hash mark)", hashbytes);
   printf (".\n");
+
+  code = hash;
 }
 
 /*
@@ -1683,8 +1720,20 @@ user (int argc, char **argv)
   n = command ("USER %s", argv[1]);
   if (n == CONTINUE)
     {
+      /* Is this a case of challenge-response?
+       * RFC 2228 stipulates code 336 for this.
+       * Suppress message in verbose mode, since
+       * it has already been displayed.
+       */
+      if (code == 336 && !verbose)
+	printf ("%s\n", reply_string + strlen ("336 "));
+      /* In addition, any password given on the
+       * command line is irrelevant, so ignore it.
+       */
+      if (argc < 3 || code == 336)
+	argv[2] = getpass ("Password: ");
       if (argc < 3)
-	argv[2] = getpass ("Password: "), argc++;
+	argc++;
       n = command ("PASS %s", argv[2]);
       if (argv[2])
 	memset (argv[2], 0, strlen (argv[2]));

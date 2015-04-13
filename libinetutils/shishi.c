@@ -1,6 +1,6 @@
 /* shishi.c -- functions to use kerberos V with shishi
   Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-  2013 Free Software Foundation, Inc.
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -32,7 +32,8 @@
 int
 shishi_auth (Shishi ** handle, int verbose, char **cname,
 	     const char *sname, int sock, char *cmd,
-	     unsigned short port, Shishi_key ** enckey, char *realm)
+	     unsigned short port, Shishi_key ** enckey,
+	     const char *realm)
 {
   Shishi_ap *ap;
   Shishi_tkt *tkt;

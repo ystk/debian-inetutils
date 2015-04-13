@@ -1,6 +1,6 @@
 /* solaris.c -- Solaris specific code for ifconfig
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -74,15 +74,16 @@ system_parse_opt (struct ifconfig **ifp _GL_UNUSED_PARAMETER,
 int
 system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 {
-  int i = 0;
+  int i = 0, mask, rev;
   enum
   {
     EXPECT_NOTHING,
+    EXPECT_AF,
     EXPECT_BROADCAST,
     EXPECT_NETMASK,
     EXPECT_METRIC,
     EXPECT_MTU
-  } expect = EXPECT_NOTHING;
+  } expect = EXPECT_AF;
 
   *ifp = parse_opt_new_ifs (argv[0]);
 
@@ -106,6 +107,17 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 	  parse_opt_set_metric (*ifp, argv[i]);
 	  break;
 
+	case EXPECT_AF:
+	  expect = EXPECT_NOTHING;
+	  if (!strcmp (argv[i], "inet"))
+	    continue;
+	  else if (!strcmp (argv[i], "inet6"))
+	    {
+	      error (0, 0, "%s is not a supported address family", argv[i]);
+	      return 0;
+	    }
+	  break;
+
 	case EXPECT_NOTHING:
 	  break;
 	}
@@ -124,11 +136,12 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 	parse_opt_set_flag (*ifp, IFF_UP | IFF_RUNNING, 0);
       else if (!strcmp (argv[i], "down"))
 	parse_opt_set_flag (*ifp, IFF_UP, 1);
+      else if (((mask = if_nameztoflag (argv[i], &rev))
+		& ~IU_IFF_CANTCHANGE) != 0)
+	parse_opt_set_flag (*ifp, mask, rev);
       else
 	{
-	  /* Recognize AF here.  */
-	  /* Also auto-revarp, trailers, -trailers,
-	     private, -private, arp, -arp, plumb, unplumb.  */
+	  /* Also auto-revarp, plumb, unplumb.  */
 	  if (!((*ifp)->valid & IF_VALID_ADDR))
 	    parse_opt_set_address (*ifp, argv[i]);
 	  else if (!((*ifp)->valid & IF_VALID_DSTADDR))
@@ -154,10 +167,11 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
       error (0, 0, "option `mtu' requires an argument");
       break;
 
+    case EXPECT_AF:
     case EXPECT_NOTHING:
-      break;
+      return 1;
     }
-  return expect == EXPECT_NOTHING;
+  return 0;
 }
 
 int

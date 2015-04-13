@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
-  Software Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -169,9 +169,14 @@ hookup (char *host, int port)
       free (rhost);
       return ((char *) 0);
     }
-  free (rhost);
-  strncpy (hostnamebuf, res->ai_canonname, sizeof (hostnamebuf));
+
+  if (res->ai_canonname)
+    strncpy (hostnamebuf, res->ai_canonname, sizeof (hostnamebuf));
+  else
+    strncpy (hostnamebuf, rhost, sizeof (hostnamebuf));
+
   hostname = hostnamebuf;
+  free (rhost);
 
   for (ai = res; ai != NULL; ai = ai->ai_next, ++again)
     {
@@ -330,8 +335,18 @@ login (char *host)
   n = command ("USER %s", user);
   if (n == CONTINUE)
     {
-      if (pass == NULL)
-	pass = getpass ("Password:");
+      /* Is this a case of challenge-response?
+       * RFC 2228 stipulates code 336 for this.
+       * Suppress the message in verbose mode,
+       * since it has already been displayed.
+       */
+      if (code == 336 && !verbose)
+	printf ("%s\n", reply_string + strlen ("336 "));
+      /* In addition, any password given on the
+       * command line is irrelevant, so ignore it.
+       */
+      if (pass == NULL || code == 336)
+	pass = getpass ("Password: ");
       n = command ("PASS %s", pass);
       if (pass)
 	memset (pass, 0, strlen (pass));
@@ -339,7 +354,7 @@ login (char *host)
   if (n == CONTINUE)
     {
       aflag++;
-      acct = getpass ("Account:");
+      acct = getpass ("Account: ");
       n = command ("ACCT %s", acct);
       if (acct)
 	memset (acct, 0, strlen (acct));
@@ -1568,8 +1583,7 @@ ptransfer (char *direction, long long int bytes,
 	   struct timeval *t0, struct timeval *t1)
 {
   struct timeval td;
-  float s;
-  long long bs;
+  float s, bs;
 
   if (verbose)
     {
@@ -1577,8 +1591,15 @@ ptransfer (char *direction, long long int bytes,
       s = td.tv_sec + (td.tv_usec / 1000000.);
 #define nz(x)	((x) == 0 ? 1 : (x))
       bs = bytes / nz (s);
-      printf ("%lld bytes %s in %.3g seconds (%lld bytes/s)\n",
-	      bytes, direction, s, bs);
+
+      printf ("%lld bytes %s in %.3g seconds", bytes, direction, s);
+
+      if (bs > 1048576.0)
+	printf (" (%.3g Mbytes/s)\n", bs / 1048576.0);
+      else if (bs > 1024.0)
+	printf (" (%.3g kbytes/s)\n", bs / 1024.0);
+      else
+	printf (" (%.3g bytes/s)\n", bs);
     }
 }
 

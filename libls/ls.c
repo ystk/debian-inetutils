@@ -1,6 +1,6 @@
 /*
   Copyright (C) 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-  2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -160,7 +160,7 @@ ls_main (int argc, char **argv)
       switch (ch)
 	{
 	  /*
-	   * The -1, -C and -l, -m and -x options all override each
+	   * The options -1, -C, -l, -m, -n and -x all overrule each
 	   * other so shell aliasing works right.
 	   */
 	case '1':
@@ -173,12 +173,12 @@ ls_main (int argc, char **argv)
 	  break;
 	case 'l':
 	  f_longform = 1;
+	  f_numericonly = 0;
 	  f_column = f_columnacross = f_singlecol = f_stream = 0;
 	  break;
 	case 'm':
 	  f_stream = 1;
-	  f_column = f_columnacross = f_singlecol = 0;
-	  f_singlecol = 0;
+	  f_column = f_columnacross = f_longform = f_singlecol = 0;
 	  break;
 	case 'x':
 	  f_columnacross = 1;
@@ -187,7 +187,7 @@ ls_main (int argc, char **argv)
 	case 'n':
 	  f_longform = 1;
 	  f_numericonly = 1;
-	  f_column = f_singlecol = 0;
+	  f_column = f_columnacross = f_singlecol = f_stream = 0;
 	  break;
 	  /* The -c and -u options override each other. */
 	case 'c':

@@ -1,6 +1,6 @@
 #
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
-# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+# 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
 # Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
@@ -44,6 +44,7 @@ EXTRA_PROGRAMS =
 
 bin_PROGRAMS += $(hostname_BUILD)
 hostname_SOURCES = hostname.c
+hostname_LDADD = $(LDADD) $(LIBRESOLV)
 EXTRA_PROGRAMS += hostname
 
 bin_PROGRAMS += $(dnsdomainname_BUILD)

@@ -1,6 +1,6 @@
 /* changeif.c -- change the configuration of a network interface
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -247,7 +247,14 @@ set_flags (int sfd, struct ifreq *ifr, int setflags, int clrflags)
       error (0, errno, "SIOCGIFFLAGS failed");
       return -1;
     }
-  ifr->ifr_flags = (tifr.ifr_flags | setflags) & ~clrflags;
+  /* Some systems, notably FreeBSD, use two short integers.  */
+  ifr->ifr_flags = (tifr.ifr_flags | setflags) & ~clrflags & 0xffff;
+
+# ifdef ifr_flagshigh
+  ifr->ifr_flagshigh = (tifr.ifr_flagshigh | (setflags >> 16))
+		       & ~(clrflags >> 16);
+# endif /* ifr_flagshigh */
+
   if (ioctl (sfd, SIOCSIFFLAGS, ifr) < 0)
     {
       error (0, errno, "SIOCSIFFLAGS failed");

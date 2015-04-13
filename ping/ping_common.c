@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-  Free Software Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -75,7 +75,7 @@ init_data_buffer (unsigned char * pat, size_t len)
       for (p = data_buffer; p < data_buffer + data_length; p++)
 	{
 	  *p = pat[i];
-	  if (i++ >= len)
+	  if (++i >= len)
 	    i = 0;
 	}
     }
@@ -88,7 +88,7 @@ init_data_buffer (unsigned char * pat, size_t len)
 
 void
 decode_pattern (const char *text, int *pattern_len,
-		unsigned char *pattern_data _GL_UNUSED_PARAMETER)
+		unsigned char *pattern_data)
 {
   int i, c, off;
 
@@ -98,6 +98,7 @@ decode_pattern (const char *text, int *pattern_len,
         error (EXIT_FAILURE, 0, "error in pattern near %s", text);
 
       text += off;
+      pattern_data[i] = c;
     }
   *pattern_len = i;
 }

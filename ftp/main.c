@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
-  Software Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -134,6 +134,8 @@ static struct argp_option argp_options[] = {
   {"verbose", 'v', NULL, 0, "verbose output", GRP+1},
   {"ipv4", '4', NULL, 0, "contact IPv4 hosts", GRP+1},
   {"ipv6", '6', NULL, 0, "contact IPv6 hosts", GRP+1},
+  {"netrc", 'N', "NETRC", 0, "select a specific initialization file",
+   GRP+1},
 #undef GRP
   {NULL, 0, NULL, 0, NULL, 0}
 };
@@ -192,6 +194,10 @@ parse_opt (int key, char *arg, struct argp_state *state _GL_UNUSED_PARAMETER)
       usefamily = AF_INET6;
       break;
 
+    case 'N':
+      netrc = arg;
+      break;
+
     default:
       return ARGP_ERR_UNKNOWN;
     }
@@ -228,6 +234,7 @@ main (int argc, char *argv[])
   line = NULL;			/* reset global input */
   linelen = 0;
   argbuf = NULL;
+  netrc = NULL;
 
   /* Invoked as `pftp'?  Then set passive mode.  */
   cp = strrchr (argv[0], '/');

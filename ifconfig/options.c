@@ -1,6 +1,6 @@
 /* options.c -- process the command line options
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -157,7 +157,7 @@ struct format formats[] = {
    "Traditional UNIX interface listing.  Default for Solaris, BSD and HPUX.",
    "${format}{check-existence}"
    "${ifdisplay?}{"
-   "${name}: flags=${flags}{number}{%hx}<${flags}{string}{,}>"
+   "${name}: flags=${flags}{number}{%x}<${flags}{string}{,}>"
    "${metric?}{ metric ${metric}}"
    "${mtu?}{ mtu ${mtu}}${\\n}"
    /* Print only if hwtype emits something.  */
@@ -185,12 +185,20 @@ struct format formats[] = {
    "${brdaddr?}{ broadcast ${brdaddr}}" "${mtu?}{ ipmtu ${mtu}}${\\n}}"
    "}"
   },
+  {"check",
+   "Shorthand for `check-existence'.",
+   "${format}{check-existence}"
+  },
   /* If interface does not exist, print error message and exit. */
   {"check-existence",
    "If interface does not exist, print error message and exit.",
    "${index?}{}"
    "{${error}{${progname}: error: interface `${name}' does not exist${\\n}}"
    "${exit}{1}}"},
+  {"?",
+   "Synonym for `help'.",
+   "${format}{help}"
+  },
   {"help",
    "Display this help output.",
    "${foreachformat}{"

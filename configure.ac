@@ -1,7 +1,7 @@
 # configure.ac - Configuration for inetutils
 # Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
-# 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
-# Foundation, Inc.
+# 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free
+# Software Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
 #
@@ -154,7 +154,6 @@ gl_INIT
 
 ### Checks for libraries.
 AC_SEARCH_LIBS([inet_ntoa], [nsl])
-AC_SEARCH_LIBS([gethostname], [resolv])
 AC_SEARCH_LIBS([getpeername], [socket])
 
 # See if a termcap library is available (under one of several names)
@@ -221,9 +220,12 @@ if test "$enable_libls" = yes && test "$ac_cv_func_fchdir" = yes ; then
 else
   LIBLS=''
   libls_BUILD=''
+  enable_libls='no'
 fi
 AC_SUBST(LIBLS)
 AC_SUBST(libls_BUILD)
+AC_SUBST(enable_libls)
+AM_CONDITIONAL([ENABLE_libls], test "$enable_libls" = yes)
 
 # At least OpenSolaris is missing <protocols/talkd.h>.
 AC_CHECK_HEADER(protocols/talkd.h, , ,
@@ -356,11 +358,14 @@ if test "$enable_encryption" = yes \
 			krb5/asn1.h krb5/crc-32.h krb5/ext-proto.h \
 			krb5/krb5.h krb5/los-proto.h])
       CPPFLAGS=$save_CPPFLAGS
-      # We have no support for krcmd() with Kerberos5.
+      # We have limited support for krcmd() with Kerberos5.
       # Encryption must be sorted out as a first step.
       IU_DISABLE_TARGET(rcp)
       IU_DISABLE_TARGET(rlogin)
       IU_DISABLE_TARGET(rsh)
+      # Likewise, we need to migrate away from KRB4 and des_*()
+      IU_DISABLE_TARGET(rlogind)
+      IU_DISABLE_TARGET(rshd)
     fi
     ;;
   *)
@@ -379,7 +384,7 @@ if test "$enable_encryption" = yes \
       save_CPPFLAGS=$CPPFLAGS
       CPPFLAGS="$CPPFLAGS $INCAUTH"
       AC_CHECK_HEADER(shishi.h,
-	AC_CHECK_LIB(shishi, shishi_check_version,
+	AC_SEARCH_LIBS([shishi_check_version], [shishi],
 	  AC_DEFINE([SHISHI]),
 	  [INCAUTH= LIBAUTH= KERBEROS_VERSION=]),
 	[INCAUTH= LIBAUTH= KERBEROS_VERSION=])
@@ -390,6 +395,7 @@ if test "$enable_encryption" = yes \
 fi
 AC_SUBST(LIBAUTH)
 AC_SUBST(INCAUTH)
+AC_SUBST(KERBEROS_VERSION)
 
 # Define CPP macros that enable auth/encrypt code
 if test ".$LIBAUTH" != .; then
@@ -700,7 +706,15 @@ IU_CHECK_MEMBERS([struct sockaddr.sa_len], , ,
                   #include <sys/socket.h>])
 IU_CHECK_MEMBERS([struct hostent.h_addr_list], , , [#include <netdb.h>])
 
-IU_CHECK_MEMBERS([struct stat.st_blksize])
+IU_CHECK_MEMBERS([struct stat.st_atim.tv_nsec,
+		  struct stat.st_atim.tv_usec,
+		  struct stat.st_blksize,
+		  struct stat.st_ctim.tv_nsec,
+		  struct stat.st_ctim.tv_usec,
+		  struct stat.st_mtim.tv_nsec,
+		  struct stat.st_mtim.tv_usec], , ,
+		 [#include <sys/types.h>
+		  #include <sys/stat.h>])
 
 # OpenSolaris does not use a union for `struct tftphdr.th_u'.  As a
 # consequence `struct tftphdr.th_stuff' is a macro resolving to a
@@ -791,7 +805,14 @@ if test "$ac_cv_func_strerror" = no; then
 fi
 
 # See if the system has hstrerror, and replace it if not
+save_LIBS=$LIBS
+
 AC_CHECK_FUNC(hstrerror)
+if test "$ac_cv_func_hstrerror" != yes; then
+  # Is hstrerror contained in a separate library?
+  AC_CHECK_LIB([resolv], [hstrerror], LIBRESOLV=-lresolv)
+  LIBS="$LIBRESOLV $LIBS"
+fi
 if test "$ac_cv_func_hstrerror" = yes; then
   AC_CHECK_DECL(hstrerror, , , [#include <netdb.h>])
 else
@@ -810,6 +831,8 @@ if test "$ac_cv_func_hstrerror" = yes \
   # `Host lookup error N'.
   AC_DEFINE([HAVE_HSTRERROR], 1, [Define to one if you have hstrerror.])
 fi
+LIBS=$save_LIBS
+AC_SUBST(LIBRESOLV)
 
 # OpenSolaris does not provide an external reference.
 AC_CHECK_DECLS(telcmds, , ,

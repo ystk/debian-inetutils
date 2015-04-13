@@ -1,6 +1,7 @@
 /*
   Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
-  2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -61,7 +62,7 @@ PING *ping;
 bool is_root = false;
 unsigned char *data_buffer;
 unsigned char *patptr;
-int pattern_len = 16;
+int pattern_len = MAXPATTERN;
 int socket_type;
 size_t count = DEFAULT_PING_COUNT;
 size_t interval;
@@ -148,7 +149,7 @@ static error_t
 parse_opt (int key, char *arg, struct argp_state *state)
 {
   char *endptr;
-  static unsigned char pattern[16];
+  static unsigned char pattern[MAXPATTERN];
   double v;
 
   switch (key)

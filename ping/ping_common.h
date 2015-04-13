@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-  Free Software Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -27,7 +27,8 @@
 
 #include <stdbool.h>
 
-#define MAXWAIT         10      /* max seconds to wait for response */
+#define MAXWAIT         10	/* Max seconds to wait for response.  */
+#define MAXPATTERN      16	/* Maximal length of pattern.  */
 
 #define OPT_FLOOD       0x001
 #define OPT_INTERVAL    0x002

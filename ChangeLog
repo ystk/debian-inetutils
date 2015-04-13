@@ -1,3 +1,477 @@
+2014-10-17  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	syslogd, logger: Incomplete range checking.
+
+	* src/logger.c (IU_MAX_FAC): Delete macro.
+	(decode): Use LOG_FACMASK in range checking.  The use of
+	numeric facilities was broken for the most part.
+
+	* src/logprio.h [!LOG_MAKEPRI] (LOG_MAKEPRI): Change to
+	a portable and correct definition.
+	[!INTERNAL_MARK] (INTERNAL_MARK): Adjust to the corrected
+	behaviour of LOG_MAKEPRI.
+
+	* src/syslogd.c [!LOG_MAKEPRI] (LOG_MAKEPRI): Change to
+	a portable and correct definition.
+	(printline): Reset `pri' to DEFUPRI whenever the facility
+	is non-existent.  This protects against CVE-2014-3684.
+	Make a three bit shift of LOG_KERN for code consistency.
+	(cfline): After decoding priority, check also upper limit.
+	Likewise for facility, and update `facilities_seen' only
+	after a completed range error check.
+
+	* tests/syslogd.sh (OUT_UNOTICE, OUT_LOCAL0): New variables.
+	(COUNT4, COUNT5, COUNT4_notice, COUNT4_illegal, COUNT5_user)
+	(COUNT5_local): Likewise.
+	Add three new configuration stanzas to initial setup, all with
+	invalid information.  In the second setup, capture facility
+	`info' exactly, and make a new `notice' also exact.  Add a
+	further file in the conf-directory, specifying capture of
+	`local0.=notice'.  Add five new test messages using Unix
+	socket, intending to detect more accurately the handling of
+	priorities, numerical as well as illegal or default values.
+
+2014-08-29  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* tests/libls.sh: Add a dummy execution of $LS in order
+	to avoid a false negative caused by code coverage runs.
+
+2014-08-13  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* tests/libls.sh <VERBOSE>: Execute `set -x'.
+	(REPLY_a1, REPLY_A1, diff): Changed.  Update the check
+	based on these, thus avoiding `sed -n '$='' which could
+	not be trusted on NixOS' build daemon.
+
+2014-08-11  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* tests/libls.sh: Improve failure diagnostic when testing
+	the switches `-a' and `-A'.  The build daemon at NixOS had
+	an issue during this subcase.
+
+2014-08-03  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Support libshishi with Sun Studio.
+
+	* configure.ac <shishi>: Call AC_SEARCH_LIBS, not AC_CHECK_LIB,
+	when looking for libshishi.  This allows the C-compiler from
+	Sun Studio 12.1 to correctly detect and build shishi support.
+
+2014-08-02  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	More tests for better code coverage.
+
+	* tests/Makefile.am [ENABLE_libls] (dist_check_SCRIPTS):
+	Add `libls.sh'.
+	[ENABLE_ftp] (dist_check_SCRIPTS): Add `ftp-parser.sh'.
+	* tests/ftp-parser.sh: New script.
+	* tests/ifconfig.sh: Add more test cases.
+	* tests/libls.sh: New script.
+
+	* ifconfig/options.c (formats): Add format `?' as a synonym
+	for format `help'.
+
+2014-08-01  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ping, ping6: Repair pattern production.
+	A pattern stated on the command line was never made
+	productive, instead only nulls were inserted to the
+	correct length.
+
+	* ping/ping.c, ping/ping6.c (pattern_len): Set to MAXPATTERN.
+	(parse_opt): Size of PATTERN is now MAXPATTERN.
+
+	* ping/ping_common.h (MAXPATTERN): New macro.
+	* ping/ping_common.c (init_data_buffer): Increment I before
+	checking for end of pattern.  This avoids an insertion of
+	the closing null character.
+	(decode_pattern): Remove _GL_UNUSED_PARAMETER on `pattern_data'.
+	Insert scanned data C into pattern buffer.
+
+2014-08-01  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* ftp/ftp.c (ptransfer): Change BS to be of type float.
+	Improve readability by having speed estimates printed
+	as `Mbytes/s', `kbytes/s', or `bytes/s' as suitable.
+
+2014-07-30  Alfred M. Szmidt  <ams@gnu.org>
+
+	* telnetd/utility.c (nextitem, netclear, printoption, printsub)
+	(printdata): Remove register keyword usage.
+
+	(printsub): Don't add integer to string to try and skip quote.
+
+2014-07-28  Giuseppe Scrivano  <gscrivan@redhat.com>
+
+	* tests/ls.c: Include <config.h> not "config.h".
+
+2014-07-26  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	whois: Cooperate with misbehaving servers.
+	Some servers, like "whois.ripe.net", "whois.arin.net",
+	and "whois.eu", partially abort communication when the
+	socket is closed for writing.  Report by Alexander Zubkov:
+	<http://lists.gnu.org/archive/html/bug-inetutils/2014-07/msg00003.html>.
+
+	* whois/whois.c (gwhois_argp_options): Increase GRP
+	and insert a separating subheader.
+	(do_query): Remove call to shutdown().  The alternate
+	and much similar lookup call query_crsnic() did not
+	half-close the socket for writing.
+
+	* doc/inetutils.texi (whois invocation): Add a section
+	about environment variables accessed by `whois'.
+
+2014-07-22  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	libls: Inconsistent options.
+	The options '-l', '-m' and '-n' were not overruling each
+	other in the expected manner.  Build `ls' from `libls' for
+	testing purposes, but do not install it.
+
+	* configure.ac (enable_libls): Set to `no' when testing
+	against `ac_cv_func_fchdir' fails.  Publish with AC_SUBST.
+	[ENABLE_libls]: New variable.
+	* summary.sh.in (libls_BUILD, libls_PROPS, enable_libls):
+	Detect these; report whether `libls' is being built.
+
+	* libls/ls.c (ls_main) <'l' || 'm' || 'n'>: Reset missing
+	flags correctly, in order that '-l', '-m' and '-n' overrule
+	each other on the command line.
+
+	* tests/Makefile.am [ENABLE_libls] (noinst_PROGRAMS): Add `ls'.
+	[ENABLE_libls] (ls_LDADD): New variable.
+	* tests/ls.c: New file.
+
+2014-07-17  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Portability of canonical host name.
+	In response to a numerical address, getaddrinfo()
+	does not populate `ai_canonname' by necessity.
+
+	* ftp/ftp.c (hookup): Copy `RES->ai_canonname' only
+	if set.  Copy from RHOST otherwise.
+	* ping/libping.c (ping_set_dest): Likewise; with P.
+	* ping/ping6.c (ping_set_dest): Likewise, with RHOST.
+	* src/traceroute.c (main): Likewise.
+
+2014-07-16  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Handle access timing in fractions of a second.
+
+	* configure.ac (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
+	(HAVE_STRUCT_STAT_ST_ATIM_TV_USEC, HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC)
+	(HAVE_STRUCT_STAT_ST_CTIM_TV_USEC, HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
+	(HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC): Check for existing time field
+	for sub-second timing in `struct stat'.
+	(HAVE_STRUCT_STAT_ST_BLKSTAT): Make the macro functional!
+
+	* libls/cmp.c (modcmp) [HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC]
+	[HAVE_STRUCT_STAT_ST_MTIM_TV_USEC]: Compare in sub-seconds.
+	(acccmp) [HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC]
+	[HAVE_STRUCT_STAT_ST_ATIM_TV_USEC]: Likewise.
+	(statmod) [HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC]
+	[HAVE_STRUCT_STAT_CT_MTIM_TV_USEC]: Likewise
+	(revmodcmp, revaccmp, revstatmod, revsizecmp): Replace code
+	by a simple sign change of modcmp(), acccmp(), etcetera.
+
+	* src/rcp.c [HAVE_STAT_ST_MTIMESPEC || HAVE_STAT_ST_MTIME_USEC]
+	(write_stat_time): Remove unused and obsolete code.
+	[HAVE_STRUCT_STAT_ST_ATIM_NSEC || HAVE_STRUCT_STAT_ST_ATIM_USEC]
+	[HAVE_STRUCT_STAT_ST_MTIM_NSEC || HAVE_STRUCT_STAT_ST_MTIM_USEC]
+	(write_stat_time): Code portably for sub-second accuracy.
+
+2014-07-14  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ftp: Hash command semantic.
+	Toggle hash state when argument is not set, only then.
+
+	* ftp/cmds.c (sethash): Activate marker when a numeric
+	argument is found; toggle when no argument is present.
+	A non-numeric argument leads to status reporting only.
+
+2014-06-05  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ftp: Alternate selection of .netrc file.
+
+	* ftp/ftp_var.h (netrc): New variable.
+	* ftp/main.c (argp_options) <-N/--netrc>: New option.
+	(parse_opt) <'N'>: New case.
+	(main): Initialize `netrc'.
+	* ftp/ruserpass.c (remote_userpass): If `netrc' is NULL,
+	check NETRC in environment.  Whenever `netrc' has content,
+	us it instead of `~/.netrc'.  Once CFILE is valid, make
+	sure that the file location is a regular file, otherwise
+	returning to the interpreter.
+
+	* tests/ftp-localhost.sh: Two new test cases, checking the
+	functionality of NETRC in environment, and the option `-N'.
+
+2014-05-16  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ftp: Size multipliers for hash increments.
+
+	* ftp/cmds.c (sethash): New variable P.  Detect and
+	apply multipliers when setting the increment size for
+	hash markers, i.e., allow commands like "hash 32m".
+
+2014-04-29  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	hostname: Degenerate cases.
+	Better replies when name resolution fails.
+
+	* configure.ac: Remove check for gethostname in libresolv.
+	If hstrerror is missing, check for it in libresolv.
+	(LIBRESOLV): New variable published using AC_SUBST.
+
+	* src/Makefile.am (hostname_LDADD): New variable.
+
+	* src/hostname.c (get_name): Call puts() only if NAME
+	carries some content.  Will, most importantly, reply
+	with an empty string, not an empty line, when no aliases
+	are found.
+	(get_aliases): Return an empty string when the host's
+	name cannot be resolved.
+	(get_fqdn): Fall back to the system reported hostname
+	when name resolution fails.
+	[HAVE_HSTRERROR] (get_ip_addresses): Exit with an error
+	when name resolution fails.
+
+	* tests/hostname.sh: Check availability of mktemp.
+	(posttest): New function, used as trap.
+	<root execution>: New test case with switch '-F'.
+
+2014-04-26  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	libinetutils: Skeletal preparations for Heimdal.
+
+	* configure.ac <krb5>: Disable rlogind and rshd.
+	(KERBEROS_VERSION): Publish it using AC_SUBST.
+
+	* libinetutils/kerberos5.c: New file, mostly copied
+	in from `shishi.c' as a guide.
+
+	* libinetutils/Makefile.am (libinetutils_a_SOURCES):
+	Remove `des_rw.c', and add `kerberos5.c'.
+
+	* libinetutils/kcmd.c: Remove support for KRB4, replacing
+	all macros KERBEROS by KRB5.
+	[KRB5]: Include <krb5.h> and "kerberos5_def.h".
+	[KRB5] (kcmd): Update declarations, and make small,
+	obvious adaptions to Kerberos5.
+	(kcmd): Refactor steps common to SHISHI and KRB5, such as
+	protocol exchange and address resolution.  They differ at
+	the end, calling shishi_auth() or kerberos_auth().
+
+2014-04-25  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Begin support for Heimdal's Kerberos.
+	Very incomplete code for `rsh', but a needed start.
+
+	* libinetutils/kerberos5_def.h: New file.
+
+	* libinetutils/krcmd.c: Remove support for KRB4, replacing
+	most macros KERBEROS by KRB5.
+	[KRB5]: Include <krb5.h> and "kerberos5_def.h".
+	[KRB5] (kcmd, krcmd, krcmd_mutual): Update declarations,
+	and make small, obvious adaptions to Kerberos5.
+	[KRB5] (krcmd_mutual): Update value of AUTHOPTS.
+
+	* libinetutils/Makefile.am (noinst_HEADERS):
+	Add `kerberos5_def.h'.
+
+	* src/rsh.c: Replace macro KERBEROS by KRB5, temporarily
+	making an exception in some code related to encryption.
+	[KRB5]: Include <krb5.h> and "kerberos5_def.h".
+	[KRB5] (ctx, keyblock, server): New variables.
+	[KRB5 && ENCRYPTION] (parse_opt) <case 'x'>: Remove
+	call to des_set_key().
+	[KRB5 || SHISHI] (main): Refactor code for port lookup
+	and command string generation, since Kerberos5 and Shishi
+	have common traits.
+	[KRB5] (main): Adapt to new signatures of krcmd() and
+	krcmd_mutual().  Initialize `ctx', and reimplement realm
+	lookup using Kerberos5 API.
+
+2014-04-25  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Silence warnings with libshishi.
+
+	* libinetutils/kcmd.c [KERBEROS || SHISHI] (kcmd):
+	Declare realm argument as `const char *'.
+	* libinetutils/krcmd.c [KERBEROS || SHISHI]
+	(kcmd, krcmd, krcmd_mutual): Likewise.
+	* libinetutils/shishi.c [SHISHI] (shishi_auth): Likewise.
+	* libinetutils/shishi_def.h [SHISHI] (shishi_auth, krcmd)
+	(krcmd_mutual): Likewise.
+	* src/rcp.c [KERBEROS || SHISHI] (dest_realm): Likewise.
+	* src/rlogin.c [KERBEROS || SHISHI] (dest_realm): Likewise.
+	* src/rsh.c [KERBEROS || SHISHI] (dest_realm): Likewise.
+
+	* src/rlogind.c (rlogind_auth): Initialize HOSTNAME.
+
+2014-03-28  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	syslogd: Local time option.
+
+	* src/syslogd.c (set_local_time): New variable.
+	(option enum): Remove OPT_PIDFILE.
+	(argp_options) <pidfile>: New alias 'P'.
+	<-T/--local-time>: New option.
+	(parse_opt) <case 'P'>: Replaces OPT_PIDFILE.
+	<case 'T'>: New case.
+	(logmsg): If `set_local_time' is set, use NOW to generate
+	a time stamp, not the initial portion of the message.
+
+2014-03-23  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ifconfig: Parse address family.
+	Allow for address family argument on supported systems.
+
+	* ifconfig/system/bsd.c (system_parse_opt_rest): New enum
+	values EXPECT_COMMAND and EXPECT_AF.  Use the first to detect
+	`create' and `destroy', but claiming lack of support.  Accept
+	`inet' as family, but reject `inet6'.  Rewrite return status.
+	* ifconfig/system/linux.c (system_parse_opt_rest): Rename
+	enum value EXPECT_INET to EXPECT_AF.  Detect family `inet6',
+	but reject it.
+	* ifconfig/system/solaris.c (system_parse_opt_rest): New enum
+	value EXPECT_AF.  Accept `inet' as address family argument,
+	but reject `inet6'.  Rewrite return status.
+
+2014-03-20  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ifconfig: Command line parsing.
+	Implement flag parsing for BSD and Solaris.
+	Accept only changeable flags on GNU/Linux.
+
+	* ifconfig/system/linux.c (system_parse_opt_rest):
+	Accept only masks which correspond to changeable flags,
+	using IU_IFF_CANTCHANGE.
+	* ifconfig/system/bsd.c, ifconfig/system/solaris.c
+	(system_parse_opt_rest): New variables MASK and REV.
+	Check if the command line argument can be interpreted
+	as a changeable flag argument.
+
+2014-03-15  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ifconfig: Changeable flags on GNU/Linux.
+
+	* ifconfig/flags.h (IU_IFF_CANTCHANGE): Remove IFF_POINTOPOINT,
+	IFF_ALLMULTI, IFF_BROADCAST, IFF_MULTICAST, and IFF_PROMISC,
+	since they are changeable on GNU/Linux, and they are included
+	natively in IFF_CANTCHANGE on other systems.
+
+2014-03-13  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	logger: Source address resolution.
+
+	* src/logger.c (open_socket) [HAVE_DECL_GETADDRINFO]
+	<source is set>: Delete resolver hint for numeric address.
+
+2014-03-10  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	hostname: Sanity checks in corner cases.
+
+	* src/hostname.c (get_name): Use reply from get_fqdn()
+	only if it gave a host name, not the artificial "(none)".
+	(set_name): Reject an empty host name.
+	(parse_file): Initialize NAME.  Improve error message
+	when getline() claims empty input.  Break out of loop
+	only if sscanf() produced a printable string.
+
+2014-02-22  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ifconfig: Allow flags richer than 16 bits.
+	Systems like GNU/kFreeBSD and FreeBSD use two `short int'
+	to represent interface flags.  Adapt to this fact.
+
+	* ifconfig/changeif.c (set_flags): Apply mask 0xffff to flags.
+	[ifr_flagshigh]: Calculate flag changes also on ifr_flagshigh.
+	* ifconfig/flags.c [IFF_PPROMISC] (if_flags): Add user land
+	setable flag "PROMISC".
+	[IFF_MONITOR] (if_flags): Add flag "MONITOR".
+	[IFF_STATICARP] (if_flags): Add flag "STATICARP".
+	[IFF_STATICARP] (flag_char_tab): Add short flag 's'.
+	[IFF_MONITOR] (flag_char_tab): Add short flag 'm'.
+	* ifconfig/options.c (formats) <unix>: Print flags numerically
+	using format string "%x".
+	* ifconfig/printif.c (put_flags): Change signature.  New type
+	of F is `unsigned int'.  New variable UFLAGS.  Work with UFLAGS,
+	not `flags'.
+	(put_flags_short): New signature.
+	[SIOCGIFFLAGS] (fh_ifdisplay_query, fh_brdaddr_query)
+	(fh_dstaddr_query, fh_flags): New variable UFLAGS, replacing
+	`form->ifr->ifr_flags'.
+	* ifconfig/printif.h (put_flags): Change prototype.
+
+2014-02-15  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ifconfig: No listing of unchangeable flags.
+
+	* ifconfig/flags.h [!IFF_CANTCHANGE]: Define it as naught.
+	(IU_IFF_CANTCHANGE): New macro.
+	* ifconfig/flags.c (if_list_flags): Do not list flags that
+	are known to give constant properties.  New macro FLAGS_COMMENT.
+	Add its contents to the end of the requested flags listing.
+	Skip a named flag if it matches IU_IFF_CANTCHANGE.  Also skip
+	flags named like 'link2/altphys', since their components
+	do appear in the listing.
+
+
+	Portability issues in test script.
+
+	* tests/ifconfig_modes.sh (MTU): Set to 1324 initially,
+	to get above 1280 needed for IPv6 compatibility.
+	The switch '-o' of uname is not portable.
+
+2014-02-15  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* tests/ifconfig_modes.sh: Add test case to explain
+	failures to automatically bring the interface up at
+	an address change.  GNU/Linux is affected by this.
+
+2014-02-14  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* ifconfig/flags.c (if_list_flags): Increment counter
+	only in the for-statement; update the insertion of list
+	delimiters.  Each second flag name was falsely scrubbed.
+
+2014-02-14  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	Script for testing of ifconfig's modes.
+	Will document all tested features.
+
+	* tests/ifconfig_modes.sh: New file.  Intentionally
+	without execution bit, and not for automatic testing.
+	* tests/Makefile.am (EXTRA_DIST): Add `ifconfig_modes.sh`.
+
+2014-02-12  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	* ifconfig/options.c (formats): Add format `check'
+	as a synonym for `check-existence'.
+
+2014-02-09  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ftp: Detect one-time passwords.
+	RFC 2228 reserves response code 336 for replies
+	used with challange-response authentication.
+
+	* ftp/cmds.c (user): React to response code 336 within
+	FTP command `USER', print its message, and possibly
+	discard an already supplied password.
+	* ftp/ftp.c (login): Likewise.
+
+2014-02-09  Mats Erik Andersson  <gnu@gisladisker.se>
+
+	ftpd: Parse commands of RFC 2228.
+	Tokens are implemented, but no actions.
+
+	* ftpd/ftpcmd.y (ADAT, AUTH, CCC, CONF, ENC, MIC, PBSZ)
+	(PROT): New tokens.
+	(cmdtab): New entries `ADAT', `AUTH', `CCC', `CONF', `ENC',
+	`MIC', `PBSZ', and `PROT'.  All are marked as unimplemented.
+
 2013-12-23  Alfred M. Szmidt  <ams@gnu.org>
 
 	* doc/inetutils.texi (rsh invocation): Use @item for first entry
@@ -14910,7 +15384,7 @@ russion letters.  Thanks to Vladas Lapinskas <lapinskas@mail.iae.lt>.
 	(main): Add option -V (version).
 
     Copyright (C) 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-    2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+    2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software
+# Copyright (C) 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
 # Foundation, Inc.
 #
 # This file is part of GNU Inetutils.
@@ -26,11 +26,18 @@ identify_LDADD =
 
 check_PROGRAMS = localhost readutmp waitdaemon
 
+dist_check_SCRIPTS = utmp.sh
+
 if ENABLE_inetd
 check_PROGRAMS += addrpeek tcpget
 endif
 
-dist_check_SCRIPTS = utmp.sh
+if ENABLE_libls
+noinst_PROGRAMS += ls
+ls_LDADD = $(LIBLS) $(iu_LIBRARIES)
+dist_check_SCRIPTS += libls.sh
+endif
+
 if ENABLE_ping
 dist_check_SCRIPTS += ping-localhost.sh
 endif
@@ -48,6 +55,10 @@ if ENABLE_logger
 if ENABLE_syslogd
 dist_check_SCRIPTS += syslogd.sh
 endif
+endif
+
+if ENABLE_ftp
+dist_check_SCRIPTS += ftp-parser.sh
 endif
 
 if ENABLE_inetd
@@ -80,7 +91,7 @@ TESTS = localhost waitdaemon $(dist_check_SCRIPTS)
 
 TESTS_ENVIRONMENT = EXEEXT=$(EXEEXT)
 
-EXTRA_DIST = tools.sh.in
+EXTRA_DIST = tools.sh.in ifconfig_modes.sh
 
 BUILT_SOURCES = tools.sh
 

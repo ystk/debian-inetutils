@@ -61,7 +61,7 @@ This manual documents version @value{VERSION} of the @sc{gnu} networking
 utilities.
 
 Copyright @copyright{} 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
-2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -1286,6 +1286,34 @@ Verbosely explain all actions taken.
 Search only for exact matches.
 Applicable only to RPSL.
 @end table
+
+@section Environment variables
+@anchor{whois environment}
+
+@command{whois} holds an internal list of information servers
+and their assigned data bases.
+Queries are examined against this list to select the most
+plausible server, but the hint can always be overruled on
+the command line by use of the option @option{-h}.
+If neither of these have a say, then the default server to ask
+is @samp{whois.internic.net}, but this name is in turn overruled
+by a server name in the environment variable @env{WHOIS_SERVER}.
+
+@table @env
+@item LANG
+When the server @samp{whois.nic.ad.jp} is queried, and only then,
+any non-Japanese locale in @env{LANG} will ask the server to reply
+with English text, not Japanese.
+
+@item WHOIS_HIDE
+When set, the effect on @command{whois} is as if the
+option @option{-H} had been given.
+
+@item WHOIS_SERVER
+Data base server to query when internal hinting is inconclusive.
+When unset, @samp{whois.internic.net} is used as default server.
+
+@end table
 
 
 @node ftp invocation
@@ -1380,6 +1408,15 @@ Disables file name globbing.
 @opindex -i
 @opindex --no-prompt
 Turns off interactive prompting during multiple file transfers.
+
+@item -N @var{netrc}
+@itemx --netrc=@var{netrc}
+@opindex -N
+@opindex --netrc
+Set a preferred location of the @file{.netrc} file,
+thus overriding any environment setting in @env{NETRC},
+as well as the default location @file{$HOME/.netrc},
+@pxref{The .netrc file}.
 
 @item -n
 @itemx --no-login
@@ -1570,9 +1607,14 @@ an already created @command{tar} or @command{cpio} archive of the
 subtree, then making certain that @command{ftp} uses binary mode.
 
 @item hash [@var{size}]
-Toggle hash-sign (@samp{#}) printing for each data block transferred.
-The size of a data block can optionally be specified.  If not given,
-it defaults to 1024 bytes.
+In the absence of an argument, toggle the state of hash-sign (@samp{#})
+printing after each transferred data block.
+The optional argument selects the size of data blocks,
+and unconditionally activates printing.
+The default size is 1024 bytes.
+For convenience, the size can be written with postfix multipliers
+'k', 'K', 'm', 'M', and 'g', 'G', to specify kilobytes, Megabytes,
+and Gigabytes, respectively.
 
 @item help [@var{command}]
 @itemx ? [@var{command}]
@@ -2044,8 +2086,13 @@ Avoid this problem by using the binary image type.
 @flindex .netrc
 
 The @file{.netrc} file contains login and initialization information
-used by the auto-login process.  It resides in the user's home
-directory.  The following tokens are recognized; they may be separated
+used by the auto-login process.  It generally resides in the user's
+home directory, but a location outside of the home directory
+can be set using the environment variable @env{NETRC}.
+Both locations are overridden by the command line option @option{-N}.
+The selected file must be a regular file, or access will be denied.
+
+The following tokens are recognized; they may be separated
 by spaces, tabs, or new-lines:
 
 @table @samp
@@ -2105,6 +2152,10 @@ executed as the last step in the auto-login process.
 @table @env
 @item HOME
 Used for locating a @file{.netrc} file, if one exists.
+
+@item NETRC
+Alternate location of the @file{.netrc} file,
+taking precedence over the standard location.
 
 @item SHELL
 For determining the default shell interpreter.
@@ -3304,7 +3355,9 @@ Override configuration (the default file is @file{/etc/syslog.conf}).
 @opindex --rcdir
 Override configuration directory (the default is @file{/etc/syslog.d}).
 
-@item --pidfile=@var{file}
+@item -P @var{file}
+@itemx --pidfile=@var{file}
+@opindex -P
 @opindex --pidfile
 Override pidfile (the default file is @file{/var/run/syslogd.pid}).
 
@@ -3402,6 +3455,15 @@ allowed.
 @opindex -s
 List of domains which should be stripped from the FQDN of hosts before
 logging their name.  Multiple lists are allowed.
+
+@item -T
+@itemx --local-time
+@opindex -T
+@opindex --local-time
+Ignore any time contained in a received message.
+In its stead, record the time of reception on the local
+system.  This circumvents problems caused by remote hosts
+with skewed clocks.
 @end table
 
 @section Configuration file

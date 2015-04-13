@@ -1,6 +1,6 @@
 /* linux.c -- Linux specific code for ifconfig
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -763,7 +763,7 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
   int i = 0;
   enum
   {
-    EXPECT_INET,
+    EXPECT_AF,
     EXPECT_NOTHING,
     EXPECT_BROADCAST,
     EXPECT_DSTADDR,
@@ -771,7 +771,7 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
     EXPECT_MTU,
     EXPECT_METRIC,
     EXPECT_TXQLEN,
-  } expect = EXPECT_INET;
+  } expect = EXPECT_AF;
   int mask, rev;
 
   *ifp = parse_opt_new_ifs (argv[0]);
@@ -804,10 +804,15 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 	  system_parse_opt_set_txqlen (*ifp, argv[i]);
 	  break;
 
-	case EXPECT_INET:
+	case EXPECT_AF:
 	  expect = EXPECT_NOTHING;
 	  if (!strcmp (argv[i], "inet"))
 	    continue;
+	  else if (!strcmp (argv[i], "inet6"))
+	    {
+	      error (0, 0, "%s is not a supported address family", argv[i]);
+	      return 0;
+	    }
 	  break;
 
 	case EXPECT_NOTHING:
@@ -833,7 +838,8 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
 	parse_opt_set_flag (*ifp, IFF_UP | IFF_RUNNING, 0);
       else if (!strcmp (argv[i], "down"))
 	parse_opt_set_flag (*ifp, IFF_UP, 1);
-      else if ((mask = if_nameztoflag (argv[i], &rev)) != 0)
+      else if (((mask = if_nameztoflag (argv[i], &rev))
+		& ~IU_IFF_CANTCHANGE) != 0)
 	parse_opt_set_flag (*ifp, mask, rev);
       else
 	parse_opt_set_address (*ifp, argv[i]);
@@ -865,7 +871,7 @@ system_parse_opt_rest (struct ifconfig **ifp, int argc, char *argv[])
       error (0, 0, "option `txqueuelen' requires an argument");
       break;
 
-    case EXPECT_INET:
+    case EXPECT_AF:
     case EXPECT_NOTHING:
       return 1;
     }

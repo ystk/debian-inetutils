@@ -1,6 +1,6 @@
 /*
-   Copyright (C) 2008, 2009, 2010, 2011, 2012, 2013 Free Software
-   Foundation, Inc.
+  Copyright (C) 2008, 2009, 2010, 2011, 2012, 2013, 2014 Free Software
+  Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -175,6 +175,7 @@ get_name (const hostname_arguments *const args)
 
   if (!sname)
     error (EXIT_FAILURE, errno, "cannot determine name");
+
   if (args->hostname_alias == 1)
     name = get_aliases (sname);
   else if (args->hostname_fqdn == 1)
@@ -182,11 +183,20 @@ get_name (const hostname_arguments *const args)
       name = get_fqdn (sname);
 
       if (args->hostname_dns_domain == 1 || args->hostname_short == 1)
-        {
-          free (sname);
-          sname = name;
-          name = NULL;
-        }
+	{
+	  /* Eliminate empty replies, as well as `(none)'.  */
+	  if (name && *name && *name != '(')
+	    {
+	      free (sname);
+	      sname = name;
+	      name = NULL;
+	    }
+	  else if (name && *name == '(')
+	    {
+	      free (name);
+	      name = NULL;
+	    }
+	}
 
       if (args->hostname_dns_domain == 1)
         name = get_dns_domain_name (sname);
@@ -202,7 +212,8 @@ get_name (const hostname_arguments *const args)
         error (EXIT_FAILURE, errno, "strdup");
     }
 
-  puts (name);
+  if (name && *name)
+    puts (name);
 
   free (name);
   free (sname);
@@ -222,6 +233,9 @@ set_name (const hostname_arguments *const args)
     hostname_new = args->hostname_new;
 
   size = strlen (hostname_new);
+  if (!size)
+    error (EXIT_FAILURE, 0, "Empty hostname");
+
   status = (*set_name_action) (hostname_new, size);
   if (status == -1)
     error (EXIT_FAILURE, errno, "sethostname");
@@ -244,7 +258,7 @@ get_aliases (const char *const host_name)
 
   ht = gethostbyname (host_name);
   if (ht == NULL)
-    strcpy (aliases, "(none)");
+    strcpy (aliases, "");	/* Be honest about missing aliases.  */
   else
     {
       for (i = 0; ht->h_aliases[i] != NULL; i++)
@@ -275,7 +289,7 @@ get_fqdn (const char *const host_name)
 
   ht = gethostbyname (host_name);
   if (ht == NULL)
-    fqdn = strdup ("(none)");
+    fqdn = strdup (host_name);	/* Fall back to system name.  */
   else
     fqdn = strdup (ht->h_name);
 
@@ -300,7 +314,11 @@ get_ip_addresses (const char *const host_name)
 
   ht = gethostbyname (host_name);
   if (ht == NULL)
+#if HAVE_HSTRERROR
+    error (EXIT_FAILURE, 0, "gethostbyname: %s", hstrerror (h_errno));
+#else
     strcpy (addresses, "(none)");
+#endif
   else
     {
       for (i = 0; ht->h_addr_list[i] != NULL; i++)
@@ -370,7 +388,7 @@ static char *
 parse_file (const char *const file_name)
 {
   char *buffer = NULL;
-  char *name;
+  char *name = NULL;
   FILE *file;
   ssize_t nread;
   size_t size = 0;
@@ -379,17 +397,19 @@ parse_file (const char *const file_name)
   if (file == NULL)
     error (EXIT_FAILURE, errno, "fopen");
 
+  errno = 0;			/* Portability issue!  */
+
   do
     {
       nread = getline (&buffer, &size, file);
       if (nread == -1)
-	error (EXIT_FAILURE, errno, "getline");
+	error (EXIT_FAILURE, errno, "getline%s", errno ? "" : ": No text");
 
       if (buffer[0] != '#')
         {
-          name = xmalloc (sizeof (char) * nread);
-          sscanf (buffer, "%s", name);
-          break;
+	  name = (char *) xmalloc (sizeof (char) * nread);
+	  if (sscanf (buffer, "%s", name)  == 1)
+	    break;
         }
     }
   while (feof (file) == 0);

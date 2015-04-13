@@ -1,7 +1,7 @@
 /*
   Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
-  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013 Free
-  Software Foundation, Inc.
+  2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014
+  Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -108,6 +108,7 @@ FTP_EXTERN char bytename[32];	/* local byte size in ascii */
 FTP_EXTERN int bytesize;	/* local byte size in binary */
 
 FTP_EXTERN char *hostname;	/* name of host connected to */
+FTP_EXTERN char *netrc;		/* netrc file chosen on command line */
 FTP_EXTERN int unix_server;	/* server is unix, can use binary for ascii */
 FTP_EXTERN int unix_proxy;	/* proxy is unix, can use binary for ascii */
 

@@ -1,6 +1,6 @@
 /* flags.c -- network interface flag handling
   Copyright (C) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
-  2010, 2011, 2012, 2013 Free Software Foundation, Inc.
+  2010, 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -66,6 +66,12 @@ struct if_flag
 #ifdef IFF_NOARP		/* No address resolution protocol.  */
     {"NOARP", IFF_NOARP, 0},
     {"ARP", IFF_NOARP, 1},
+#endif
+/* Keep IFF_PPROMISC prior to IFF_PROMISC
+ * for precedence in parsing.
+ */
+#ifdef IFF_PPROMISC		/* User accessible promiscuous mode.  */
+    {"PROMISC", IFF_PPROMISC, 0},
 #endif
 #ifdef IFF_PROMISC		/* Receive all packets.  */
     {"PROMISC", IFF_PROMISC, 0},
@@ -212,6 +218,12 @@ struct if_flag
 #ifdef IFF_SNAP			/* Ethernet driver outputs SNAP header.  */
     {"SNAP", IFF_SNAP, 0},
 #endif
+#ifdef IFF_MONITOR
+    {"MONITOR", IFF_MONITOR, 0},
+#endif
+#ifdef IFF_STATICARP
+    {"STATICARP", IFF_STATICARP, 0},
+#endif
     { NULL, 0, 0}
   };
 
@@ -224,6 +236,7 @@ cmpname (const void *a, const void *b)
 char *
 if_list_flags (const char *prefix)
 {
+#define FLAGS_COMMENT "\nPrepend 'no' to negate the effect."
   size_t len = 0;
   struct if_flag *fp;
   char **fnames;
@@ -246,6 +259,9 @@ if_list_flags (const char *prefix)
       {
 	const char *q;
 
+	if (fp->mask & IU_IFF_CANTCHANGE)
+	  continue;
+
 	fnames[i++] = p;
 	q = fp->name;
 	if (strncmp (q, "NO", 2) == 0)
@@ -257,10 +273,12 @@ if_list_flags (const char *prefix)
   fcount = i;
   qsort (fnames, fcount, sizeof (fnames[0]), cmpname);
 
-  len += 2 * fcount;
+  len += strlen (", ") * fcount;	/* Delimiters  */
 
   if (prefix)
     len += strlen (prefix);
+
+  len += strlen (FLAGS_COMMENT);
 
   str = xmalloc (len + 1);
   p = str;
@@ -272,18 +290,21 @@ if_list_flags (const char *prefix)
 
   for (i = 0; i < fcount; i++)
     {
-      if (i && strcmp (fnames[i - 1], fnames[i]) == 0)
+      /* Omit repeated, or alternate names, like "link2/altphys".  */
+      if (i && strncmp (fnames[i - 1], fnames[i],
+			strlen (fnames[i - 1])) == 0)
 	continue;
       strcpy (p, fnames[i]);
       p += strlen (fnames[i]);
-      if (++i < fcount)
+      if (i + 1 < fcount)
 	{
 	  *p++ = ',';
 	  *p++ = ' ';
 	}
-      else
-	break;
     }
+  strcpy (p, FLAGS_COMMENT);
+  p += strlen (FLAGS_COMMENT);
+#undef FLAGS_COMMENT
   *p = 0;
   free (fnames);
   return str;
@@ -414,10 +435,16 @@ static struct if_flag_char flag_char_tab[] = {
   { IFF_POINTOPOINT, 'P' },
 #endif
 #ifdef IFF_SLAVE
-  { IFF_SLAVE,       's' },
+  { IFF_SLAVE,       's' },	/* Linux */
+#endif
+#ifdef IFF_STATICARP
+  { IFF_STATICARP,   's' },	/* FreeBSD */
 #endif
 #ifdef IFF_MASTER
-  { IFF_MASTER,      'm' },
+  { IFF_MASTER,      'm' },	/* Linux */
+#endif
+#ifdef IFF_MONITOR
+  { IFF_MONITOR,     'm' },	/* FreeBSD */
 #endif
 #ifdef IFF_SIMPLEX
   { IFF_SIMPLEX,     'S' },

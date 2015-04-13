@@ -1,6 +1,6 @@
 /*
-  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013
-  Free Software Foundation, Inc.
+  Copyright (C) 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
+  2013, 2014 Free Software Foundation, Inc.
 
   This file is part of GNU Inetutils.
 
@@ -59,7 +59,7 @@ bool is_root = false;
 unsigned char *data_buffer;
 unsigned char *patptr;
 int one = 1;
-int pattern_len = 16;
+int pattern_len = MAXPATTERN;
 size_t data_length = PING_DATALEN;
 size_t count = DEFAULT_PING_COUNT;
 size_t interval;
@@ -130,7 +130,7 @@ static error_t
 parse_opt (int key, char *arg, struct argp_state *state)
 {
   char *endptr;
-  static unsigned char pattern[16];
+  static unsigned char pattern[MAXPATTERN];
 
   switch (key)
     {
@@ -754,7 +754,7 @@ print_ip_data (struct icmp6_hdr *icmp6)
     }
 
   printf ("\n");
-};
+}
 
 static struct icmp_diag
 {
@@ -1020,15 +1020,19 @@ ping_set_dest (PING * ping, char *host)
 #endif
 
   err = getaddrinfo (rhost, NULL, &hints, &result);
-#if HAVE_IDN
-  free (rhost);
-#endif
   if (err)
     return 1;
 
   memcpy (&ping->ping_dest.ping_sockaddr6, result->ai_addr, result->ai_addrlen);
 
-  ping->ping_hostname = strdup (result->ai_canonname);
+  if (result->ai_canonname)
+    ping->ping_hostname = strdup (result->ai_canonname);
+  else
+    ping->ping_hostname = strdup (rhost);
+
+#if HAVE_IDN
+  free (rhost);
+#endif
   freeaddrinfo (result);
 
   if (!ping->ping_hostname)
