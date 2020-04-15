@@ -1,3 +1,16 @@
+inetutils (2:1.9.2.39.3a460-3+deb8u1) jessie-security; urgency=high
+
+  * Non-maintainer upload by the LTS Team.
+  * Add patch from Red Hat / Fedora:
+    - Fix arbitrary remote code execution in telnetd via short writes or
+      urgent data. Fixes CVE-2020-10188. Closes: #956084
+      Thanks to Michal Ruprich <michalruprich@gmail.com>.
+      Note: While the PoC exploit does not work on inetutils due to the
+      different codebases, the adapted patch was close enough to apply almost
+      directly, even though the information leak might appear to still remain.
+
+ -- Roberto C. Sanchez <roberto@debian.org>  Tue, 14 Apr 2020 22:52:16 -0400
+
 inetutils (2:1.9.2.39.3a460-3) unstable; urgency=low
 
   * Do not bother setting different Priority field values on non-Linux ports
